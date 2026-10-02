@@ -145,16 +145,32 @@ class MediaPlaybackSyncService : NotificationListenerService(), MediaControlActi
         }
     }
 
+    private var coverSequence = 0
+
     private fun saveBitmapToLocalFile(bitmap: Bitmap): String? {
         return try {
-            val artFile = File(cacheDir, "current_media_art.png")
+            coverSequence++
+            val artFile = File(cacheDir, "media_art_${System.currentTimeMillis()}_$coverSequence.png")
             FileOutputStream(artFile).use { out ->
                 bitmap.compress(Bitmap.CompressFormat.PNG, 95, out)
             }
+            cleanupOldArtFiles(artFile.name)
             artFile.absolutePath
         } catch (e: Exception) {
             e.printStackTrace()
             null
+        }
+    }
+
+    private fun cleanupOldArtFiles(currentFileName: String) {
+        try {
+            cacheDir.listFiles()?.forEach { f ->
+                if (f.name.startsWith("media_art_") && f.name != currentFileName) {
+                    f.delete()
+                }
+            }
+        } catch (e: Exception) {
+            // ignore
         }
     }
 
@@ -258,13 +274,17 @@ class MediaPlaybackSyncService : NotificationListenerService(), MediaControlActi
 
         if (title.isNotBlank()) {
             val current = playbackStateManager.playbackState.value
+            val isSameTrack = (title == current.title && artist == current.artist)
+            // 切歌时绝不沿用上一首的旧封面！若新封面暂未获取，重置为 null 待 Genius 或通知栏回填
+            val resolvedCover = if (coverUri != null) coverUri else if (isSameTrack) current.coverUrl else null
+
             playbackStateManager.updateState(
                 current.copy(
                     title = title,
                     artist = artist,
                     album = album,
                     durationMs = if (duration > 0) duration else current.durationMs,
-                    coverUrl = coverUri ?: current.coverUrl,
+                    coverUrl = resolvedCover,
                     packageName = pkg,
                     sourceApp = sourceApp,
                     lastUpdateTimeMs = SystemClock.elapsedRealtime()

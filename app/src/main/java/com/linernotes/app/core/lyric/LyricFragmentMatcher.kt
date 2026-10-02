@@ -65,7 +65,7 @@ object LyricFragmentMatcher {
             if (normFrag.length < 3) continue
 
             var bestIdx = -1
-            var bestScore = 0.65f // 设定严格匹配阈值，杜绝 4 字符通用单词（如 baby, yeah, fuck）泛滥乱匹配
+            var bestScore = 0.45f // 提高匹配容错率，适配不同歌词源之间的标点与括号细微差异
 
             for (i in normalizedLines.indices) {
                 val normLine = normalizedLines[i]
@@ -97,7 +97,7 @@ object LyricFragmentMatcher {
             if (numFragLines > normalizedLines.size) continue
 
             var bestStartIdx = -1
-            var bestAvgScore = 0.55f
+            var bestAvgScore = 0.40f
 
             for (startIdx in 0..(normalizedLines.size - numFragLines)) {
                 var totalScore = 0f
