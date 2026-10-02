@@ -23,8 +23,12 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.foundation.basicMarquee
+import androidx.compose.ui.draw.drawWithContent
+import androidx.compose.ui.graphics.BlendMode
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.CompositingStrategy
 import androidx.compose.ui.graphics.TransformOrigin
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.layout.ContentScale
@@ -73,31 +77,16 @@ fun NowPlayingScreen(
     Box(
         modifier = Modifier
             .fillMaxSize()
-            .background(Color(0xFF0F0F12))
+            .background(Color(0xFF090A0E))
     ) {
-        // 1. 灵动流体弥散背景 (Apple Music / Lyricify 风格)
+        // 1. 灵动流体弥散背景 (Apple Music / Lyricify 风格，纯净温润呼吸)
         AmbientGlowBackground(
             coverUrl = trackState.coverUrl,
             isDark = true,
             modifier = Modifier.fillMaxSize()
         )
 
-        // 柔和暗色纵深遮罩 (避免遮挡流光，同时确保文字可读性)
-        Box(
-            modifier = Modifier
-                .fillMaxSize()
-                .background(
-                    Brush.verticalGradient(
-                        colors = listOf(
-                            Color.Black.copy(alpha = 0.35f),
-                            Color.Black.copy(alpha = 0.18f),
-                            Color.Black.copy(alpha = 0.65f)
-                        )
-                    )
-                )
-        )
-
-        // 2. 核心主内容区 (歌词区域全屏贯通至底栏下方，呈现极致毛玻璃通透感)
+        // 2. 核心主内容区 (歌词区域全屏贯通至底栏下方，呈现极致通透感)
         Box(
             modifier = Modifier.fillMaxSize()
         ) {
@@ -276,9 +265,10 @@ fun NowPlayingScreen(
 }
 
 /**
- * 方案 1 极简顶部栏：
- * 左侧：LYRICNOTES 品牌微标与 Spotify 同步状态指示
- * 右侧：纯粹的 "···" 更多设置按钮
+ * 方案 1 极简顶部栏 (Apple Music / Spotify 旗舰设计规范)：
+ * 左侧：极简毛玻璃折叠箭头 (KeyboardArrowDown)
+ * 中间：副标题来源/状态优雅指示
+ * 右侧：故事徽标 (✦ 故事) + 待播队列 + 更多设置
  */
 @Composable
 private fun NowPlayingTopBar(
@@ -295,8 +285,7 @@ private fun NowPlayingTopBar(
             .background(
                 Brush.verticalGradient(
                     colors = listOf(
-                        Color(0xFF0F0F12),
-                        Color(0xFF0F0F12).copy(alpha = 0.85f),
+                        Color.Black.copy(alpha = 0.45f),
                         Color.Transparent
                     )
                 )
@@ -306,43 +295,59 @@ private fun NowPlayingTopBar(
         horizontalArrangement = Arrangement.SpaceBetween,
         verticalAlignment = Alignment.CenterVertically
     ) {
-        // 左侧微标：Gemini / TG 风格毛玻璃胶囊状态徽标
+        // 左侧：优雅收起/设置图标按钮 (Apple Music 标准顶部收起图标)
         Surface(
             color = Color.White.copy(alpha = 0.08f),
-            shape = RoundedCornerShape(16.dp),
-            border = BorderStroke(0.5.dp, Color.White.copy(alpha = 0.14f)),
-            modifier = Modifier.bouncyClickable(
-                pressedScale = 0.94f,
-                onClick = onOpenSettings
-            )
-        ) {
-            Row(
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(7.dp),
-                modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp)
-            ) {
-                Box(
-                    modifier = Modifier
-                        .size(6.dp)
-                        .clip(CircleShape)
-                        .background(if (trackState.isPlaying) Color(0xFF1ED760) else Color.White.copy(alpha = 0.4f))
+            shape = CircleShape,
+            border = BorderStroke(0.5.dp, Color.White.copy(alpha = 0.12f)),
+            modifier = Modifier
+                .size(36.dp)
+                .bouncyClickable(
+                    pressedScale = 0.88f,
+                    onClick = onOpenSettings
                 )
-                Text(
-                    text = "LYRICNOTES",
-                    color = Color.White.copy(alpha = 0.85f),
-                    fontSize = 11.sp,
-                    fontWeight = FontWeight.Bold,
-                    fontFamily = FontFamily.Monospace,
-                    letterSpacing = 1.6.sp
+        ) {
+            Box(contentAlignment = Alignment.Center) {
+                Icon(
+                    imageVector = Icons.Default.KeyboardArrowDown,
+                    contentDescription = "收起/设置",
+                    tint = Color.White.copy(alpha = 0.90f),
+                    modifier = Modifier.size(22.dp)
                 )
             }
         }
 
-        // 右侧操作群：歌曲背景故事直达入口 (📖 故事) + 待播队列 (Queue) + 更多设置 (···)
+        // 中间：极简优雅来源/状态信息
+        Column(
+            horizontalAlignment = Alignment.CenterHorizontally,
+            modifier = Modifier.padding(horizontal = 8.dp)
+        ) {
+            Text(
+                text = if (trackState.hasValidTrack) "正在播放" else "LyricNotes",
+                color = Color.White.copy(alpha = 0.50f),
+                fontSize = 11.sp,
+                fontFamily = FontFamily.SansSerif,
+                fontWeight = FontWeight.Medium,
+                letterSpacing = 0.6.sp
+            )
+            if (trackState.hasValidTrack && !trackState.album.isNullOrBlank()) {
+                Text(
+                    text = trackState.album,
+                    color = Color.White.copy(alpha = 0.82f),
+                    fontSize = 12.sp,
+                    fontWeight = FontWeight.SemiBold,
+                    fontFamily = FontFamily.SansSerif,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
+                )
+            }
+        }
+
+        // 右侧操作群：歌曲背景故事直达入口 (✦ 故事) + 待播队列 (Queue) + 更多设置 (···)
         val storyInfiniteTransition = rememberInfiniteTransition(label = "storyGlow")
         val storyGlowAlpha by storyInfiniteTransition.animateFloat(
             initialValue = 0.35f,
-            targetValue = 0.70f,
+            targetValue = 0.85f,
             animationSpec = infiniteRepeatable(
                 animation = tween(1600, easing = FastOutSlowInEasing),
                 repeatMode = RepeatMode.Reverse
@@ -355,49 +360,51 @@ private fun NowPlayingTopBar(
             horizontalArrangement = Arrangement.spacedBy(8.dp)
         ) {
             // 歌曲背景故事外层高频入口（当有故事时呈现柔和微光，1 步直达）
-            Surface(
-                color = if (hasSongStory) Color(0xFFFFD54F).copy(alpha = 0.18f) else Color.White.copy(alpha = 0.08f),
-                shape = RoundedCornerShape(18.dp),
-                border = BorderStroke(
-                    0.5.dp,
-                    if (hasSongStory) Color(0xFFFFD54F).copy(alpha = storyGlowAlpha) else Color.White.copy(alpha = 0.14f)
-                ),
-                modifier = Modifier
-                    .height(36.dp)
-                    .bouncyClickable(
-                        pressedScale = 0.92f,
-                        onClick = onOpenSongStory
-                    )
-            ) {
-                Row(
-                    modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(5.dp)
+            if (hasSongStory) {
+                Surface(
+                    color = Color(0xFFFFD54F).copy(alpha = 0.18f),
+                    shape = RoundedCornerShape(16.dp),
+                    border = BorderStroke(
+                        0.5.dp,
+                        Color(0xFFFFD54F).copy(alpha = storyGlowAlpha)
+                    ),
+                    modifier = Modifier
+                        .height(34.dp)
+                        .bouncyClickable(
+                            pressedScale = 0.90f,
+                            onClick = onOpenSongStory
+                        )
                 ) {
-                    Icon(
-                        imageVector = Icons.Default.MenuBook,
-                        contentDescription = "歌曲故事",
-                        tint = if (hasSongStory) Color(0xFFFFD54F) else Color.White.copy(alpha = 0.85f),
-                        modifier = Modifier.size(17.dp)
-                    )
-                    Text(
-                        text = "故事",
-                        color = if (hasSongStory) Color(0xFFFFD54F) else Color.White.copy(alpha = 0.85f),
-                        fontSize = 12.sp,
-                        fontWeight = if (hasSongStory) FontWeight.Bold else FontWeight.Medium,
-                        fontFamily = FontFamily.SansSerif
-                    )
+                    Row(
+                        modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(4.dp)
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.AutoAwesome,
+                            contentDescription = "歌曲故事",
+                            tint = Color(0xFFFFD54F),
+                            modifier = Modifier.size(13.dp)
+                        )
+                        Text(
+                            text = "故事",
+                            color = Color(0xFFFFD54F),
+                            fontSize = 11.5.sp,
+                            fontWeight = FontWeight.Bold,
+                            fontFamily = FontFamily.SansSerif
+                        )
+                    }
                 }
             }
 
             Surface(
                 color = Color.White.copy(alpha = 0.08f),
                 shape = CircleShape,
-                border = BorderStroke(0.5.dp, Color.White.copy(alpha = 0.14f)),
+                border = BorderStroke(0.5.dp, Color.White.copy(alpha = 0.12f)),
                 modifier = Modifier
                     .size(36.dp)
                     .bouncyClickable(
-                        pressedScale = 0.90f,
+                        pressedScale = 0.88f,
                         onClick = onOpenQueue
                     )
             ) {
@@ -414,11 +421,11 @@ private fun NowPlayingTopBar(
             Surface(
                 color = Color.White.copy(alpha = 0.08f),
                 shape = CircleShape,
-                border = BorderStroke(0.5.dp, Color.White.copy(alpha = 0.14f)),
+                border = BorderStroke(0.5.dp, Color.White.copy(alpha = 0.12f)),
                 modifier = Modifier
                     .size(36.dp)
                     .bouncyClickable(
-                        pressedScale = 0.90f,
+                        pressedScale = 0.88f,
                         onClick = onOpenSettings
                     )
             ) {
@@ -436,11 +443,10 @@ private fun NowPlayingTopBar(
 }
 
 /**
- * 丝滑流畅歌词滚动列表 (高对比度、清晰防遮挡排版)
- * 1. 采用物理级几何中心对齐：动态计算歌词行垂直中点与视口黄金分割线 (34%) 的精确差值
- * 2. 硬件级 graphicsLayer 缩放与透明度变换，杜绝跳行重绘抖动
- * 3. 增强非活跃行与翻译行对比度（从 10% 提升至 35%~65%），确保全屏歌词清晰舒适可读
- * 4. 加高顶部与底部遮罩，避免与手机状态栏发生文字重叠穿透
+ * 丝滑流畅歌词滚动列表 (Apple Music / Lyricify 级视差与羽化遮罩)
+ * 1. 采用物理级几何中心对齐：动态计算歌词行垂直中点与视口黄金分割线 (36%) 的精确差值
+ * 2. 硬件级 graphicsLayer 离屏羽化渐变遮罩 (CompositingStrategy.Offscreen + DstIn)，两端自然融入虚空
+ * 3. 活跃行 27sp 纯白 Bold 聚光灯聚焦，非活跃行 20sp 半透柔光退居次席
  */
 @Composable
 private fun NowPlayingLyricsContent(
@@ -505,7 +511,7 @@ private fun NowPlayingLyricsContent(
             }
 
             val viewportHeight = listState.layoutInfo.viewportSize.height.toFloat()
-            val targetFocalY = if (viewportHeight > 0f) viewportHeight * 0.34f else 300f
+            val targetFocalY = if (viewportHeight > 0f) viewportHeight * 0.36f else 320f
             val visibleItem = listState.layoutInfo.visibleItemsInfo.find { it.index == currentLineIndex }
 
             if (visibleItem != null && viewportHeight > 0f) {
@@ -516,16 +522,15 @@ private fun NowPlayingLyricsContent(
                     listState.animateScrollBy(
                         value = scrollDelta,
                         animationSpec = spring(
-                            dampingRatio = 0.82f, // 黄金次临界阻尼：消除机械顿挫感，平滑衰减沉降
-                            stiffness = 240f      // 柔和低刚度：丝滑滑动耗时约 520ms，如水般流淌
+                            dampingRatio = 0.84f, // 黄金次临界阻尼：消除机械顿挫感，平滑衰减沉降
+                            stiffness = 220f      // 柔和低刚度：丝滑滑动耗时约 520ms，如水般流淌
                         )
                     )
                 }
             } else {
-                val focalOffset = -(targetFocalY - 40f).toInt()
                 listState.animateScrollToItem(
-                    index = currentLineIndex,
-                    scrollOffset = focalOffset.coerceAtMost(0)
+                    index = currentLineIndex.coerceAtLeast(0),
+                    scrollOffset = 0
                 )
             }
         }
@@ -534,9 +539,24 @@ private fun NowPlayingLyricsContent(
     Box(modifier = Modifier.fillMaxSize()) {
         LazyColumn(
             state = listState,
-            contentPadding = PaddingValues(top = 110.dp, bottom = 220.dp, start = 24.dp, end = 24.dp),
-            verticalArrangement = Arrangement.spacedBy(28.dp),
-            modifier = Modifier.fillMaxSize()
+            contentPadding = PaddingValues(top = 96.dp, bottom = 180.dp, start = 24.dp, end = 24.dp),
+            verticalArrangement = Arrangement.spacedBy(26.dp),
+            modifier = Modifier
+                .fillMaxSize()
+                .graphicsLayer(compositingStrategy = CompositingStrategy.Offscreen)
+                .drawWithContent {
+                    drawContent()
+                    // 硬件级上下边缘羽化蒙版 (使首尾行歌词自然淡出溶解于流光之中)
+                    drawRect(
+                        brush = Brush.verticalGradient(
+                            0.0f to Color.Transparent,
+                            0.08f to Color.Black,
+                            0.82f to Color.Black,
+                            1.0f to Color.Transparent
+                        ),
+                        blendMode = BlendMode.DstIn
+                    )
+                }
         ) {
             itemsIndexed(
                 items = lyrics,
@@ -557,45 +577,11 @@ private fun NowPlayingLyricsContent(
                 )
             }
         }
-
-        // 顶部柔和渐隐暗角遮罩 (控制在 90dp 范围内，仅阻隔系统状态栏，绝不遮盖第一行歌词)
-        Box(
-            modifier = Modifier
-                .fillMaxWidth()
-                .height(90.dp)
-                .align(Alignment.TopCenter)
-                .background(
-                    Brush.verticalGradient(
-                        colors = listOf(
-                            Color(0xFF0F0F12).copy(alpha = 0.90f),
-                            Color(0xFF0F0F12).copy(alpha = 0.40f),
-                            Color.Transparent
-                        )
-                    )
-                )
-        )
-
-        // 底部渐隐暗角遮罩 (使歌词顺畅淡入毛玻璃播放胶囊之后)
-        Box(
-            modifier = Modifier
-                .fillMaxWidth()
-                .height(180.dp)
-                .align(Alignment.BottomCenter)
-                .background(
-                    Brush.verticalGradient(
-                        colors = listOf(
-                            Color.Transparent,
-                            Color(0xFF0F0F12).copy(alpha = 0.75f),
-                            Color(0xFF0F0F12)
-                        )
-                    )
-                )
-        )
     }
 }
 
 /**
- * 单行双语歌词组件 (高对比度纯正无杂色，彻底告别看不清)
+ * 单行双语歌词组件 (高对比度纯正无杂色，对标 Lyricify 视觉重心)
  */
 @Composable
 private fun LyricLineRow(
@@ -607,45 +593,45 @@ private fun LyricLineRow(
     onClick: () -> Unit,
     onAnnotationClick: () -> Unit
 ) {
-    // Lyricify / Apple Music 经典动力学：活跃行 1.035f 微弹聚焦，非活跃行 0.95f，左边缘锚定，弹性平滑缓动
+    // Lyricify / Apple Music 经典动力学：活跃行 1.04f 微弹聚焦，非活跃行 0.96f，左边缘锚定，弹性平滑缓动
     val animatedScale by animateFloatAsState(
         targetValue = when {
-            isActive -> 1.035f
+            isActive -> 1.04f
             distance == 1 -> 0.985f
-            else -> 0.95f
+            else -> 0.96f
         },
         animationSpec = spring(
-            dampingRatio = 0.80f,
-            stiffness = 320f
+            dampingRatio = 0.82f,
+            stiffness = 300f
         ),
         label = "lyricScale"
     )
 
-    // 原文透明度动力学：活跃行 100% 纯白锁定，相邻行 70%，远行 38%~52%，清晰可读杜绝暗黑发灰
+    // 原文透明度动力学：活跃行 100% 纯白锁定，相邻行 68%，远行 36%
     val animatedOriginalAlpha by animateFloatAsState(
         targetValue = when {
             isActive -> 1.0f
-            distance == 1 -> 0.70f
-            distance == 2 -> 0.52f
-            else -> 0.38f
+            distance == 1 -> 0.68f
+            distance == 2 -> 0.48f
+            else -> 0.35f
         },
         animationSpec = tween(
-            durationMillis = 380,
+            durationMillis = 360,
             easing = CubicBezierEasing(0.20f, 0.0f, 0.0f, 1.0f)
         ),
         label = "origAlpha"
     )
 
-    // 中文翻译透明度动力学：独立控制透明度（避免与外层叠加相乘导致只有3%~6%），活跃行 95%，相邻行 64%，远行 34%~46%
+    // 中文翻译透明度动力学：活跃行 90%，相邻行 60%，远行 30%
     val animatedTransAlpha by animateFloatAsState(
         targetValue = when {
-            isActive -> 0.95f
-            distance == 1 -> 0.64f
-            distance == 2 -> 0.46f
-            else -> 0.34f
+            isActive -> 0.90f
+            distance == 1 -> 0.60f
+            distance == 2 -> 0.42f
+            else -> 0.30f
         },
         animationSpec = tween(
-            durationMillis = 380,
+            durationMillis = 360,
             easing = CubicBezierEasing(0.20f, 0.0f, 0.0f, 1.0f)
         ),
         label = "transAlpha"
@@ -669,44 +655,37 @@ private fun LyricLineRow(
                 onClick = onClick
             )
     ) {
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.SpaceBetween,
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            Column(modifier = Modifier.weight(1f)) {
-                // 原文歌词 (纯白高对比，饱满视觉重心)
-                Text(
-                    text = line.original,
-                    color = Color.White.copy(alpha = animatedOriginalAlpha),
-                    fontSize = 26.sp,
-                    fontWeight = if (isActive) FontWeight.Bold else FontWeight.SemiBold,
-                    fontFamily = FontFamily.SansSerif,
-                    lineHeight = 34.sp,
-                    letterSpacing = (-0.3).sp
-                )
+        // 原文歌词 (纯白高对比，饱满视觉重心)
+        Text(
+            text = line.original,
+            color = Color.White.copy(alpha = animatedOriginalAlpha),
+            fontSize = if (isActive) 27.sp else 21.sp,
+            fontWeight = if (isActive) FontWeight.Bold else FontWeight.SemiBold,
+            fontFamily = FontFamily.SansSerif,
+            lineHeight = if (isActive) 36.sp else 29.sp,
+            letterSpacing = (-0.3).sp
+        )
 
-                // 中文翻译 (舒适字号与清晰行高，直接采用独立透明度，绝不发黑看不清)
-                if (displayTranslation.isNotBlank()) {
-                    Spacer(modifier = Modifier.height(5.dp))
-                    Text(
-                        text = displayTranslation,
-                        color = Color.White.copy(alpha = animatedTransAlpha),
-                        fontSize = 14.5.sp,
-                        fontWeight = if (isActive) FontWeight.Medium else FontWeight.Normal,
-                        fontFamily = FontFamily.SansSerif,
-                        lineHeight = 21.sp
-                    )
-                }
-            }
+        // 中文翻译 (舒适字号与清晰行高)
+        if (displayTranslation.isNotBlank()) {
+            Spacer(modifier = Modifier.height(4.dp))
+            Text(
+                text = displayTranslation,
+                color = Color.White.copy(alpha = animatedTransAlpha),
+                fontSize = if (isActive) 15.sp else 13.5.sp,
+                fontWeight = if (isActive) FontWeight.Medium else FontWeight.Normal,
+                fontFamily = FontFamily.SansSerif,
+                lineHeight = 21.sp
+            )
+        }
 
-            // 极简灵动微胶囊典故徽标 (替代原粗重黄色圆圈，打造珠宝级香槟金磨砂微标)
-            if (annotation != null) {
-                LyricAnnotationBadge(
-                    isActive = isActive,
-                    onClick = onAnnotationClick
-                )
-            }
+        // 典故微胶囊徽标 (作为自然脚注排布在歌词正下方，左对齐不挤压横向文本)
+        if (annotation != null) {
+            Spacer(modifier = Modifier.height(7.dp))
+            LyricAnnotationBadge(
+                isActive = isActive,
+                onClick = onAnnotationClick
+            )
         }
     }
 }
@@ -732,21 +711,20 @@ private fun LyricAnnotationBadge(
     )
 
     Surface(
-        color = if (isActive) Color(0xFFFFD54F).copy(alpha = 0.16f) else Color.White.copy(alpha = 0.07f),
+        color = if (isActive) Color(0xFFFFD54F).copy(alpha = 0.16f) else Color.White.copy(alpha = 0.08f),
         shape = RoundedCornerShape(12.dp),
         border = BorderStroke(
             0.5.dp,
-            if (isActive) Color(0xFFFFD54F).copy(alpha = glowAlpha) else Color.White.copy(alpha = 0.16f)
+            if (isActive) Color(0xFFFFD54F).copy(alpha = glowAlpha) else Color.White.copy(alpha = 0.14f)
         ),
         modifier = Modifier
-            .padding(start = 12.dp, top = 2.dp)
             .bouncyClickable(
                 pressedScale = 0.90f,
                 onClick = onClick
             )
     ) {
         Row(
-            modifier = Modifier.padding(horizontal = 8.dp, vertical = 3.dp),
+            modifier = Modifier.padding(horizontal = 9.dp, vertical = 3.5.dp),
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(4.dp)
         ) {
@@ -769,9 +747,9 @@ private fun LyricAnnotationBadge(
 }
 
 /**
- * 方案 1：底栏悬浮毛玻璃全能胶囊 (复刻 LinerNotes 经典底栏手感)
+ * 方案 1：底栏悬浮毛玻璃全能胶囊 (Apple Music / Lyricify 风格极简悬浮坞)
  * 上半部：当前进度时间 01:24 + 极细平滑滑块 + 总时长 04:36
- * 下半部：专辑微图 (38dp) + 歌曲名 + 歌手名 + 上一首 / 播放·暂停 / 下一首
+ * 下半部：歌曲名(支持跑马灯) + 歌手名 + 随机 / 上一首 / 播放·暂停 / 下一首
  */
 @Composable
 private fun NowPlayingFloatingGlassPlayer(
@@ -811,28 +789,28 @@ private fun NowPlayingFloatingGlassPlayer(
             .padding(horizontal = 16.dp, vertical = 10.dp)
     ) {
         Surface(
-            color = Color(0xFF141622).copy(alpha = 0.88f),
-            shape = RoundedCornerShape(32.dp),
-            border = BorderStroke(1.dp, Color.White.copy(alpha = 0.14f)),
-            shadowElevation = 16.dp,
+            color = Color(0xFF10121C).copy(alpha = 0.78f),
+            shape = RoundedCornerShape(28.dp),
+            border = BorderStroke(0.5.dp, Color.White.copy(alpha = 0.14f)),
+            shadowElevation = 12.dp,
             modifier = Modifier.fillMaxWidth()
         ) {
             Column(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .padding(horizontal = 16.dp, vertical = 10.dp)
+                    .padding(horizontal = 18.dp, vertical = 10.dp)
             ) {
-                // 上半部：时间与极细滑块
+                // 上半部：极细时间滑块 (Apple Music 风格微型时间指示)
                 Row(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .padding(bottom = 4.dp),
+                        .padding(bottom = 2.dp),
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.SpaceBetween
                 ) {
                     Text(
                         text = formatMs(estimatedPosition),
-                        color = Color.White.copy(alpha = 0.75f),
+                        color = Color.White.copy(alpha = 0.65f),
                         fontSize = 10.5.sp,
                         fontFamily = FontFamily.Monospace,
                         modifier = Modifier.width(36.dp),
@@ -852,8 +830,8 @@ private fun NowPlayingFloatingGlassPlayer(
                         ),
                         modifier = Modifier
                             .weight(1f)
-                            .height(16.dp)
-                            .padding(horizontal = 4.dp)
+                            .height(14.dp)
+                            .padding(horizontal = 6.dp)
                     )
 
                     Text(
@@ -866,98 +844,55 @@ private fun NowPlayingFloatingGlassPlayer(
                     )
                 }
 
-                // 下半部：歌曲信息与控制键 (Gemini 悬浮胶囊排布)
+                // 下半部：歌曲信息与播放控制 (去除了冗余封面缩略图，留出充裕排版空间)
                 Row(
                     modifier = Modifier.fillMaxWidth(),
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.SpaceBetween
                 ) {
-                    // 歌曲信息群 (点击封面查看待播队列，点击文字打开设置)
-                    Row(
+                    // 歌曲信息 (支持超长跑马灯滚动，点击直达待播队列或设置)
+                    Column(
                         modifier = Modifier
                             .weight(1f)
-                            .padding(end = 6.dp),
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(10.dp)
-                    ) {
-                        Box(
-                            modifier = Modifier.bouncyClickable(
-                                pressedScale = 0.92f,
+                            .padding(end = 12.dp)
+                            .bouncyClickable(
+                                pressedScale = 0.96f,
                                 onClick = onOpenQueue
                             )
-                        ) {
-                            if (!trackState.coverUrl.isNullOrBlank()) {
-                                AsyncImage(
-                                    model = ImageRequest.Builder(LocalContext.current)
-                                        .data(trackState.coverUrl)
-                                        .crossfade(true)
-                                        .build(),
-                                    contentDescription = "Cover",
-                                    contentScale = ContentScale.Crop,
-                                    modifier = Modifier
-                                        .size(40.dp)
-                                        .clip(RoundedCornerShape(11.dp))
-                                        .border(BorderStroke(0.5.dp, Color.White.copy(alpha = 0.16f)), RoundedCornerShape(11.dp))
-                                )
-                            } else {
-                                Surface(
-                                    color = Color.White.copy(alpha = 0.08f),
-                                    shape = RoundedCornerShape(11.dp),
-                                    modifier = Modifier.size(40.dp)
-                                ) {
-                                    Box(contentAlignment = Alignment.Center) {
-                                        Icon(
-                                            imageVector = Icons.Default.MusicNote,
-                                            contentDescription = null,
-                                            tint = Color.White.copy(alpha = 0.65f),
-                                            modifier = Modifier.size(18.dp)
-                                        )
-                                    }
-                                }
-                            }
-                        }
-
-                        Column(
-                            modifier = Modifier
-                                .weight(1f)
-                                .bouncyClickable(
-                                    pressedScale = 0.96f,
-                                    onClick = onOpenSettings
-                                )
-                        ) {
-                            Text(
-                                text = if (trackState.hasValidTrack) trackState.title else "LyricNotes",
-                                color = Color.White,
-                                fontSize = 13.5.sp,
-                                fontWeight = FontWeight.SemiBold,
-                                fontFamily = FontFamily.SansSerif,
-                                letterSpacing = (-0.2).sp,
-                                maxLines = 1,
-                                overflow = TextOverflow.Ellipsis
-                            )
-                            Spacer(modifier = Modifier.height(1.dp))
-                            Text(
-                                text = if (trackState.hasValidTrack) trackState.artist else "等待播放",
-                                color = Color.White.copy(alpha = 0.55f),
-                                fontSize = 11.sp,
-                                fontFamily = FontFamily.SansSerif,
-                                maxLines = 1,
-                                overflow = TextOverflow.Ellipsis
-                            )
-                        }
+                    ) {
+                        Text(
+                            text = if (trackState.hasValidTrack) trackState.title else "LyricNotes",
+                            color = Color.White,
+                            fontSize = 14.sp,
+                            fontWeight = FontWeight.SemiBold,
+                            fontFamily = FontFamily.SansSerif,
+                            letterSpacing = (-0.2).sp,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                            modifier = Modifier.basicMarquee()
+                        )
+                        Spacer(modifier = Modifier.height(1.dp))
+                        Text(
+                            text = if (trackState.hasValidTrack) trackState.artist else "等待播放",
+                            color = Color.White.copy(alpha = 0.55f),
+                            fontSize = 11.5.sp,
+                            fontFamily = FontFamily.SansSerif,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis
+                        )
                     }
 
-                    // 播放按键群 (单按键切换随机/顺序播放 + 上一首 + Telegram/Gemini 纯白高光播放圆钮 + 下一首)
+                    // 播放控制群 (弹性物理按压)
                     Row(
                         verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(4.dp)
+                        horizontalArrangement = Arrangement.spacedBy(6.dp)
                     ) {
-                        // 随机/顺序播放切换按键 (点击切换，开启时呈现 Spotify 绿胶囊徽标，关闭时极简半透白)
+                        // 随机播放切换按键
                         Surface(
                             color = if (trackState.isShuffleActive) Color(0xFF1ED760).copy(alpha = 0.18f) else Color.Transparent,
                             shape = CircleShape,
                             modifier = Modifier
-                                .size(32.dp)
+                                .size(34.dp)
                                 .bouncyClickable(
                                     pressedScale = 0.86f,
                                     onClick = onToggleShuffle
@@ -966,18 +901,18 @@ private fun NowPlayingFloatingGlassPlayer(
                             Box(contentAlignment = Alignment.Center) {
                                 Icon(
                                     imageVector = Icons.Default.Shuffle,
-                                    contentDescription = if (trackState.isShuffleActive) "随机播放 (已开启)" else "顺序播放 (已开启)",
+                                    contentDescription = if (trackState.isShuffleActive) "随机播放 (已开启)" else "顺序播放",
                                     tint = if (trackState.isShuffleActive) Color(0xFF1ED760) else Color.White.copy(alpha = 0.55f),
                                     modifier = Modifier.size(18.dp)
                                 )
                             }
                         }
 
-                        // 上一首 (Previous)
+                        // 上一首
                         Box(
                             contentAlignment = Alignment.Center,
                             modifier = Modifier
-                                .size(32.dp)
+                                .size(34.dp)
                                 .bouncyClickable(
                                     pressedScale = 0.86f,
                                     onClick = onPrevious
@@ -987,17 +922,17 @@ private fun NowPlayingFloatingGlassPlayer(
                                 imageVector = Icons.Default.SkipPrevious,
                                 contentDescription = "上一首",
                                 tint = Color.White.copy(alpha = 0.85f),
-                                modifier = Modifier.size(20.dp)
+                                modifier = Modifier.size(21.dp)
                             )
                         }
 
-                        // 播放/暂停 (Hero Circle Play/Pause Button)
+                        // 播放/暂停 (Hero 纯白圆钮)
                         Surface(
                             color = Color.White,
                             shape = CircleShape,
-                            shadowElevation = 6.dp,
+                            shadowElevation = 8.dp,
                             modifier = Modifier
-                                .size(38.dp)
+                                .size(40.dp)
                                 .bouncyClickable(
                                     pressedScale = 0.88f,
                                     onClick = onPlayPause
@@ -1008,16 +943,16 @@ private fun NowPlayingFloatingGlassPlayer(
                                     imageVector = if (trackState.isPlaying) Icons.Default.Pause else Icons.Default.PlayArrow,
                                     contentDescription = if (trackState.isPlaying) "暂停" else "播放",
                                     tint = Color(0xFF12131C),
-                                    modifier = Modifier.size(20.dp)
+                                    modifier = Modifier.size(22.dp)
                                 )
                             }
                         }
 
-                        // 下一首 (Next)
+                        // 下一首
                         Box(
                             contentAlignment = Alignment.Center,
                             modifier = Modifier
-                                .size(32.dp)
+                                .size(34.dp)
                                 .bouncyClickable(
                                     pressedScale = 0.86f,
                                     onClick = onNext
@@ -1027,7 +962,7 @@ private fun NowPlayingFloatingGlassPlayer(
                                 imageVector = Icons.Default.SkipNext,
                                 contentDescription = "下一首",
                                 tint = Color.White.copy(alpha = 0.85f),
-                                modifier = Modifier.size(20.dp)
+                                modifier = Modifier.size(21.dp)
                             )
                         }
                     }

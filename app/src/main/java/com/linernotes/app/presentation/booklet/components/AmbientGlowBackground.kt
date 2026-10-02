@@ -105,13 +105,13 @@ fun AmbientGlowBackground(
                 modifier = Modifier
                     .fillMaxSize()
                     .graphicsLayer {
-                        alpha = if (isDark) 0.38f else 0.28f
+                        alpha = if (isDark) 0.65f else 0.45f
                         scaleX = 1.45f
                         scaleY = 1.45f
                     }
                     .then(
                         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
-                            Modifier.blur(90.dp)
+                            Modifier.blur(85.dp)
                         } else Modifier
                     )
             )
@@ -122,13 +122,13 @@ fun AmbientGlowBackground(
             modifier = Modifier
                 .fillMaxSize()
                 .graphicsLayer {
-                    alpha = if (isDark) 0.40f else 0.25f
+                    alpha = if (isDark) 0.45f else 0.30f
                 }
                 .background(
                     Brush.radialGradient(
                         colors = listOf(
-                            primaryColor.copy(alpha = if (isDark) 0.35f else 0.20f),
-                            tertiaryColor.copy(alpha = if (isDark) 0.18f else 0.10f),
+                            primaryColor.copy(alpha = if (isDark) 0.40f else 0.25f),
+                            tertiaryColor.copy(alpha = if (isDark) 0.22f else 0.12f),
                             Color.Transparent
                         ),
                         center = Offset(300f + orb1OffsetX, 400f + orb1OffsetY),
@@ -141,13 +141,13 @@ fun AmbientGlowBackground(
             modifier = Modifier
                 .fillMaxSize()
                 .graphicsLayer {
-                    alpha = if (isDark) 0.35f else 0.22f
+                    alpha = if (isDark) 0.40f else 0.25f
                 }
                 .background(
                     Brush.radialGradient(
                         colors = listOf(
-                            secondaryColor.copy(alpha = if (isDark) 0.30f else 0.16f),
-                            primaryColor.copy(alpha = if (isDark) 0.12f else 0.08f),
+                            secondaryColor.copy(alpha = if (isDark) 0.35f else 0.20f),
+                            primaryColor.copy(alpha = if (isDark) 0.18f else 0.10f),
                             Color.Transparent
                         ),
                         center = Offset(750f + orb2OffsetX, 1100f + orb2OffsetY),
@@ -164,10 +164,10 @@ fun AmbientGlowBackground(
                     Brush.verticalGradient(
                         if (isDark) {
                             listOf(
-                                Color(0xFF141418).copy(alpha = 0.75f),
-                                Color(0xFF101014).copy(alpha = 0.55f),
-                                Color(0xFF0D0D10).copy(alpha = 0.82f),
-                                MaterialTheme.colorScheme.background
+                                Color(0xFF0C0D12).copy(alpha = 0.48f),
+                                Color(0xFF0C0D12).copy(alpha = 0.28f),
+                                Color(0xFF090A0E).copy(alpha = 0.68f),
+                                Color(0xFF090A0E)
                             )
                         } else {
                             listOf(
