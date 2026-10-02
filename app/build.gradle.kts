@@ -12,7 +12,7 @@ android {
     compileSdk = 34
 
     defaultConfig {
-        applicationId = "com.linernotes.app"
+        applicationId = "com.lyricnotes.app"
         minSdk = 26
         targetSdk = 34
         versionCode = 4

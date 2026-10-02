@@ -19,6 +19,8 @@ import com.linernotes.app.presentation.theme.LinerNotesTheme
 import dagger.hilt.android.AndroidEntryPoint
 import javax.inject.Inject
 
+import com.linernotes.app.presentation.nowplaying.NowPlayingScreen
+
 @AndroidEntryPoint
 class MainActivity : ComponentActivity() {
 
@@ -45,53 +47,55 @@ class MainActivity : ComponentActivity() {
 
             CompositionLocalProvider(LocalStrings provides strings) {
                 LinerNotesTheme(themeMode = themeMode) {
+                    var currentScreen by rememberSaveable { mutableStateOf("NOW_PLAYING") }
                     var selectedAlbumId by rememberSaveable { mutableStateOf<String?>(null) }
 
-                    // Top-level back handler: when in an album, pressing/swiping back returns to CD Shelf
-                    BackHandler(enabled = selectedAlbumId != null) {
-                        selectedAlbumId = null
+                    // 全局返回处理：内页返回唱片架，唱片架返回 Now Playing 主页
+                    BackHandler(enabled = currentScreen != "NOW_PLAYING") {
+                        if (currentScreen == "BOOKLET") {
+                            currentScreen = "CD_SHELF"
+                            selectedAlbumId = null
+                        } else if (currentScreen == "CD_SHELF") {
+                            currentScreen = "NOW_PLAYING"
+                        }
                     }
 
                     AnimatedContent(
-                        targetState = selectedAlbumId,
+                        targetState = currentScreen,
                         transitionSpec = {
-                            if (targetState != null) {
-                                // Push forward into Lyric Booklet: slides in from right
-                                (slideInHorizontally(
-                                    initialOffsetX = { fullWidth -> fullWidth },
-                                    animationSpec = tween(300)
-                                ) + fadeIn(animationSpec = tween(220))).togetherWith(
-                                    slideOutHorizontally(
-                                        targetOffsetX = { fullWidth -> -fullWidth / 4 },
-                                        animationSpec = tween(300)
-                                    ) + fadeOut(animationSpec = tween(180))
-                                )
+                            if (targetState == "NOW_PLAYING") {
+                                (slideInHorizontally(initialOffsetX = { -it / 3 }, animationSpec = tween(300)) + fadeIn(animationSpec = tween(220)))
+                                    .togetherWith(slideOutHorizontally(targetOffsetX = { it }, animationSpec = tween(300)) + fadeOut(animationSpec = tween(180)))
                             } else {
-                                // Pop backward into CD Shelf: slides out to right
-                                (slideInHorizontally(
-                                    initialOffsetX = { fullWidth -> -fullWidth / 4 },
-                                    animationSpec = tween(300)
-                                ) + fadeIn(animationSpec = tween(220))).togetherWith(
-                                    slideOutHorizontally(
-                                        targetOffsetX = { fullWidth -> fullWidth },
-                                        animationSpec = tween(300)
-                                    ) + fadeOut(animationSpec = tween(180))
-                                )
+                                (slideInHorizontally(initialOffsetX = { it }, animationSpec = tween(300)) + fadeIn(animationSpec = tween(220)))
+                                    .togetherWith(slideOutHorizontally(targetOffsetX = { -it / 3 }, animationSpec = tween(300)) + fadeOut(animationSpec = tween(180)))
                             }
                         },
-                        label = "screenNavigationAnimation"
-                    ) { currentAlbumId ->
-                        if (currentAlbumId != null) {
-                            LyricBookletScreen(
-                                albumId = currentAlbumId,
-                                onNavigateBack = { selectedAlbumId = null }
-                            )
-                        } else {
-                            CdShelfScreen(
-                                onNavigateToBooklet = { albumId ->
-                                    selectedAlbumId = albumId
-                                }
-                            )
+                        label = "mainScreenNavigationAnimation"
+                    ) { screen ->
+                        when (screen) {
+                            "NOW_PLAYING" -> {
+                                NowPlayingScreen(
+                                    onNavigateToShelf = { currentScreen = "CD_SHELF" }
+                                )
+                            }
+                            "CD_SHELF" -> {
+                                CdShelfScreen(
+                                    onNavigateToBooklet = { albumId ->
+                                        selectedAlbumId = albumId
+                                        currentScreen = "BOOKLET"
+                                    }
+                                )
+                            }
+                            "BOOKLET" -> {
+                                LyricBookletScreen(
+                                    albumId = selectedAlbumId ?: "",
+                                    onNavigateBack = {
+                                        currentScreen = "CD_SHELF"
+                                        selectedAlbumId = null
+                                    }
+                                )
+                            }
                         }
                     }
                 }
