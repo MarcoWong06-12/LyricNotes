@@ -4,10 +4,51 @@
     android:height="108dp"
     android:viewportWidth="108"
     android:viewportHeight="108">
+
+    <!-- 1. 柔和底层光晕 (营造 Spotify 律动与 Apple Music 霓虹氛围) -->
+    <!-- Bar 1 辉光 -->
     <path
-        android:fillColor="#D4A373"
-        android:pathData="M54,54m-30,0a30,30 0 1,0 60,0a30,30 0 1,0 -60,0"/>
+        android:fillColor="#1ED760"
+        android:fillAlpha="0.22"
+        android:pathData="M33,39 c3.04,0 5.5,2.46 5.5,5.5 L38.5,63.5 c0,3.04 -2.46,5.5 -5.5,5.5 c-3.04,0 -5.5,-2.46 -5.5,-5.5 L27.5,44.5 c0,-3.04 2.46,-5.5 5.5,-5.5 Z" />
+
+    <!-- Bar 2 辉光 -->
     <path
-        android:fillColor="#1B1B1E"
-        android:pathData="M54,54m-10,0a10,10 0 1,0 20,0a10,10 0 1,0 -20,0"/>
+        android:fillColor="#38BDF8"
+        android:fillAlpha="0.22"
+        android:pathData="M47,29 c3.04,0 5.5,2.46 5.5,5.5 L52.5,73.5 c0,3.04 -2.46,5.5 -5.5,5.5 c-3.04,0 -5.5,-2.46 -5.5,-5.5 L41.5,34.5 c0,-3.04 2.46,-5.5 5.5,-5.5 Z" />
+
+    <!-- Bar 3 辉光 -->
+    <path
+        android:fillColor="#A855F7"
+        android:fillAlpha="0.22"
+        android:pathData="M61,34 c3.04,0 5.5,2.46 5.5,5.5 L66.5,68.5 c0,3.04 -2.46,5.5 -5.5,5.5 c-3.04,0 -5.5,-2.46 -5.5,-5.5 L55.5,39.5 c0,-3.04 2.46,-5.5 5.5,-5.5 Z" />
+
+    <!-- Bar 4 辉光 -->
+    <path
+        android:fillColor="#F43F5E"
+        android:fillAlpha="0.22"
+        android:pathData="M75,41 c3.04,0 5.5,2.46 5.5,5.5 L80.5,61.5 c0,3.04 -2.46,5.5 -5.5,5.5 c-3.04,0 -5.5,-2.46 -5.5,-5.5 L69.5,46.5 c0,-3.04 2.46,-5.5 5.5,-5.5 Z" />
+
+    <!-- 2. 核心高光胶囊声波柱 (Neon Spectrum) -->
+    <!-- 柱 1: Spotify 活力绿 -->
+    <path
+        android:fillColor="#1ED760"
+        android:pathData="M33,42 c1.93,0 3.5,1.57 3.5,3.5 L36.5,62.5 c0,1.93 -1.57,3.5 -3.5,3.5 c-1.93,0 -3.5,-1.57 -3.5,-3.5 L29.5,45.5 c0,-1.93 1.57,-3.5 3.5,-3.5 Z" />
+
+    <!-- 柱 2: 电光天青蓝 -->
+    <path
+        android:fillColor="#38BDF8"
+        android:pathData="M47,32 c1.93,0 3.5,1.57 3.5,3.5 L50.5,72.5 c0,1.93 -1.57,3.5 -3.5,3.5 c-1.93,0 -3.5,-1.57 -3.5,-3.5 L43.5,35.5 c0,-1.93 1.57,-3.5 3.5,-3.5 Z" />
+
+    <!-- 柱 3: 灵动电光紫 -->
+    <path
+        android:fillColor="#A855F7"
+        android:pathData="M61,37 c1.93,0 3.5,1.57 3.5,3.5 L64.5,67.5 c0,1.93 -1.57,3.5 -3.5,3.5 c-1.93,0 -3.5,-1.57 -3.5,-3.5 L57.5,40.5 c0,-1.93 1.57,-3.5 3.5,-3.5 Z" />
+
+    <!-- 柱 4: 霓虹洋红 -->
+    <path
+        android:fillColor="#F43F5E"
+        android:pathData="M75,44 c1.93,0 3.5,1.57 3.5,3.5 L78.5,60.5 c0,1.93 -1.57,3.5 -3.5,3.5 c-1.93,0 -3.5,-1.57 -3.5,-3.5 L71.5,47.5 c0,-1.93 1.57,-3.5 3.5,-3.5 Z" />
+
 </vector>
