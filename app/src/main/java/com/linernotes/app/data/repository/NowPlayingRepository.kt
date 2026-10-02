@@ -83,6 +83,12 @@ class NowPlayingRepository @Inject constructor(
         }
     }
 
+    private var lyricOffsetMs: Long = 0L
+
+    fun setLyricOffset(offsetMs: Long) {
+        lyricOffsetMs = offsetMs
+    }
+
     private fun startPositionTracker() {
         positionTrackerJob?.cancel()
         positionTrackerJob = repositoryScope.launch {
@@ -90,13 +96,13 @@ class NowPlayingRepository @Inject constructor(
                 val current = _nowPlayingData.value
                 val state = current.playbackState
                 if (state.isPlaying && current.lyrics.isNotEmpty()) {
-                    val currentPos = state.getEstimatedPositionMs()
+                    val currentPos = (state.getEstimatedPositionMs() + lyricOffsetMs).coerceAtLeast(0L)
                     val lineIndex = calculateActiveLineIndex(current.lyrics, currentPos)
                     if (lineIndex != current.currentLineIndex) {
                         _nowPlayingData.value = current.copy(currentLineIndex = lineIndex)
                     }
                 }
-                delay(100) // 100ms 刷新周期，平滑捕捉时间轴变更
+                delay(50) // 50ms 刷新周期，平滑灵敏捕捉
             }
         }
     }
@@ -113,6 +119,11 @@ class NowPlayingRepository @Inject constructor(
             }
         }
         return activeIndex
+    }
+
+    fun forceReloadLyrics(title: String, artist: String, songKey: String) {
+        memoryCache.remove(songKey)
+        loadSongLyricsAndGenius(title, artist, songKey)
     }
 
     fun loadSongLyricsAndGenius(title: String, artist: String, songKey: String) {

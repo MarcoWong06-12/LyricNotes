@@ -25,7 +25,12 @@ data class NowPlayingUiState(
     val selectedAnnotation: LyricAnnotationEntity? = null,
     val isGeniusSheetOpen: Boolean = false,
     val isSongStorySheetOpen: Boolean = false,
+    val isSettingsSheetOpen: Boolean = false,
     val furiganaMode: FuriganaDisplayMode = FuriganaDisplayMode.OFF,
+    val isTraditionalChinese: Boolean = false,
+    val isDeCensorEnabled: Boolean = true,
+    val showPlaybackControls: Boolean = false,
+    val lyricOffsetMs: Long = 0L,
     val userMessage: String? = null
 )
 
@@ -62,6 +67,58 @@ class NowPlayingViewModel @Inject constructor(
         nowPlayingRepository.seekTo(positionMs)
     }
 
+    fun openSettings() {
+        _uiState.update { it.copy(isSettingsSheetOpen = true) }
+    }
+
+    fun closeSettings() {
+        _uiState.update { it.copy(isSettingsSheetOpen = false) }
+    }
+
+    fun adjustLyricOffset(deltaMs: Long) {
+        val newOffset = _uiState.value.lyricOffsetMs + deltaMs
+        _uiState.update { it.copy(lyricOffsetMs = newOffset) }
+        nowPlayingRepository.setLyricOffset(newOffset)
+    }
+
+    fun resetLyricOffset() {
+        _uiState.update { it.copy(lyricOffsetMs = 0L) }
+        nowPlayingRepository.setLyricOffset(0L)
+    }
+
+    fun togglePlaybackControls() {
+        _uiState.update { it.copy(showPlaybackControls = !it.showPlaybackControls) }
+    }
+
+    fun toggleTraditionalChinese() {
+        _uiState.update { it.copy(isTraditionalChinese = !it.isTraditionalChinese) }
+    }
+
+    fun toggleDeCensor() {
+        _uiState.update { it.copy(isDeCensorEnabled = !it.isDeCensorEnabled) }
+    }
+
+    fun setFuriganaMode(mode: FuriganaDisplayMode) {
+        _uiState.update { it.copy(furiganaMode = mode) }
+    }
+
+    fun cycleFuriganaMode() {
+        val next = when (_uiState.value.furiganaMode) {
+            FuriganaDisplayMode.OFF -> FuriganaDisplayMode.HIRAGANA
+            FuriganaDisplayMode.HIRAGANA -> FuriganaDisplayMode.ROMAJI
+            FuriganaDisplayMode.ROMAJI -> FuriganaDisplayMode.OFF
+        }
+        _uiState.update { it.copy(furiganaMode = next) }
+    }
+
+    fun reloadLyrics() {
+        val state = _uiState.value.nowPlayingData.playbackState
+        if (state.hasValidTrack) {
+            val songKey = "${state.artist.trim().lowercase()} - ${state.title.trim().lowercase()}"
+            nowPlayingRepository.forceReloadLyrics(state.title, state.artist, songKey)
+        }
+    }
+
     fun openGeniusAnnotation(annotation: LyricAnnotationEntity) {
         _uiState.update {
             it.copy(
@@ -86,15 +143,6 @@ class NowPlayingViewModel @Inject constructor(
 
     fun closeSongStory() {
         _uiState.update { it.copy(isSongStorySheetOpen = false) }
-    }
-
-    fun cycleFuriganaMode() {
-        val next = when (_uiState.value.furiganaMode) {
-            FuriganaDisplayMode.OFF -> FuriganaDisplayMode.HIRAGANA
-            FuriganaDisplayMode.HIRAGANA -> FuriganaDisplayMode.ROMAJI
-            FuriganaDisplayMode.ROMAJI -> FuriganaDisplayMode.OFF
-        }
-        _uiState.update { it.copy(furiganaMode = next) }
     }
 
     fun clearUserMessage() {
