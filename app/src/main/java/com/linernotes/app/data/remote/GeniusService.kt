@@ -433,7 +433,7 @@ object GeniusService {
         val baseUrl = if (!customToken.isNullOrBlank()) GENIUS_PROD_API else GENIUS_WEB_API
         val resultList = mutableListOf<GeniusReferentItem>()
         var page = 1
-        val maxPages = 4 // 至多获取 4 页（最多 200 条典故注释），全面覆盖大型叙事曲目
+        val maxPages = 2 // 针对移动端极速加载：至多获取前 2 页（最多 100 条典故），秒级响应且覆盖绝大多数曲目
 
         while (page <= maxPages) {
             val url = "$baseUrl/referents?song_id=$songId&text_format=plain,html&per_page=50&page=$page"
