@@ -133,6 +133,7 @@ fun NowPlayingSongStorySheet(
                 originalText = story.descriptionPlain,
                 translatedText = story.descriptionTranslation,
                 isTraditional = isTraditional,
+                isDark = true,
                 modifier = Modifier.fillMaxWidth()
             )
         }

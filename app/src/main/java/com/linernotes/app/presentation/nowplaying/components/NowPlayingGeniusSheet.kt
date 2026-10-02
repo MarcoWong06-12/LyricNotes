@@ -135,6 +135,7 @@ fun NowPlayingGeniusSheet(
                 originalText = annotation.explanationText,
                 translatedText = annotation.explanationTranslation,
                 isTraditional = isTraditional,
+                isDark = true,
                 modifier = Modifier.fillMaxWidth()
             )
 

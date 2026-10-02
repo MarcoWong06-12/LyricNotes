@@ -468,11 +468,11 @@ private fun NowPlayingLyricsContent(
 
     val listState = rememberLazyListState()
 
-    // 智能黄金聚焦点对齐动力学 (对齐 Lyricify 录屏物理特性：26% 视口黄金聚焦点 + 零回弹 Quartic Ease-Out 丝滑缓动)
+    // 智能黄金聚焦点对齐动力学 (视口 34% 黄金阅读带，上方留出 1~2 行空间，下方预留充足阅读预判)
     LaunchedEffect(currentLineIndex) {
         if (currentLineIndex in lyrics.indices) {
             val viewportHeight = listState.layoutInfo.viewportSize.height.toFloat()
-            val targetFocalY = if (viewportHeight > 0f) viewportHeight * 0.26f else 260f
+            val targetFocalY = if (viewportHeight > 0f) viewportHeight * 0.34f else 300f
             val visibleItem = listState.layoutInfo.visibleItemsInfo.find { it.index == currentLineIndex }
 
             if (visibleItem != null && viewportHeight > 0f) {
@@ -501,8 +501,8 @@ private fun NowPlayingLyricsContent(
     Box(modifier = Modifier.fillMaxSize()) {
         LazyColumn(
             state = listState,
-            contentPadding = PaddingValues(top = 130.dp, bottom = 220.dp, start = 24.dp, end = 24.dp),
-            verticalArrangement = Arrangement.spacedBy(30.dp),
+            contentPadding = PaddingValues(top = 110.dp, bottom = 220.dp, start = 24.dp, end = 24.dp),
+            verticalArrangement = Arrangement.spacedBy(28.dp),
             modifier = Modifier.fillMaxSize()
         ) {
             itemsIndexed(
@@ -525,17 +525,17 @@ private fun NowPlayingLyricsContent(
             }
         }
 
-        // 顶部柔和渐隐暗角遮罩 (覆盖高度达 140dp，完全阻隔歌词冲撞系统状态栏与顶部栏)
+        // 顶部柔和渐隐暗角遮罩 (控制在 90dp 范围内，仅阻隔系统状态栏，绝不遮盖第一行歌词)
         Box(
             modifier = Modifier
                 .fillMaxWidth()
-                .height(140.dp)
+                .height(90.dp)
                 .align(Alignment.TopCenter)
                 .background(
                     Brush.verticalGradient(
                         colors = listOf(
-                            Color(0xFF0F0F12),
-                            Color(0xFF0F0F12).copy(alpha = 0.85f),
+                            Color(0xFF0F0F12).copy(alpha = 0.90f),
+                            Color(0xFF0F0F12).copy(alpha = 0.40f),
                             Color.Transparent
                         )
                     )
@@ -546,13 +546,13 @@ private fun NowPlayingLyricsContent(
         Box(
             modifier = Modifier
                 .fillMaxWidth()
-                .height(200.dp)
+                .height(180.dp)
                 .align(Alignment.BottomCenter)
                 .background(
                     Brush.verticalGradient(
                         colors = listOf(
                             Color.Transparent,
-                            Color(0xFF0F0F12).copy(alpha = 0.85f),
+                            Color(0xFF0F0F12).copy(alpha = 0.75f),
                             Color(0xFF0F0F12)
                         )
                     )
@@ -584,31 +584,31 @@ private fun LyricLineRow(
         label = "lyricScale"
     )
 
-    // 非活跃行透明度渐进 (高对比度纵深感，活跃行纯白锁定，相邻行柔和压暗)
-    val animatedAlpha by animateFloatAsState(
+    // 原文透明度动力学：活跃行 100% 纯白锁定，相邻行 65%，远行 38%~50%，清晰可读杜绝暗黑发灰
+    val animatedOriginalAlpha by animateFloatAsState(
         targetValue = when {
             isActive -> 1.0f
-            distance == 1 -> 0.40f
-            distance == 2 -> 0.28f
-            else -> 0.20f
+            distance == 1 -> 0.65f
+            distance == 2 -> 0.50f
+            else -> 0.38f
         },
         animationSpec = tween(
-            durationMillis = 450,
+            durationMillis = 400,
             easing = CubicBezierEasing(0.20f, 0.0f, 0.0f, 1.0f)
         ),
-        label = "lyricAlpha"
+        label = "origAlpha"
     )
 
-    // 中文翻译对比度动力学：活跃行 85%，相邻行 32%，远行 16%
+    // 中文翻译透明度动力学：独立控制透明度（避免与外层叠加相乘导致只有3%~6%），活跃行 92%，相邻行 58%，远行 34%~44%
     val animatedTransAlpha by animateFloatAsState(
         targetValue = when {
-            isActive -> 0.85f
-            distance == 1 -> 0.32f
-            distance == 2 -> 0.22f
-            else -> 0.16f
+            isActive -> 0.92f
+            distance == 1 -> 0.58f
+            distance == 2 -> 0.44f
+            else -> 0.34f
         },
         animationSpec = tween(
-            durationMillis = 450,
+            durationMillis = 400,
             easing = CubicBezierEasing(0.20f, 0.0f, 0.0f, 1.0f)
         ),
         label = "transAlpha"
@@ -624,7 +624,6 @@ private fun LyricLineRow(
             .graphicsLayer {
                 scaleX = animatedScale
                 scaleY = animatedScale
-                alpha = animatedAlpha
                 transformOrigin = TransformOrigin(0f, 0.5f)
             }
             .clickable(
@@ -642,7 +641,7 @@ private fun LyricLineRow(
                 // 原文歌词 (纯白高对比，饱满视觉重心)
                 Text(
                     text = line.original,
-                    color = Color.White,
+                    color = Color.White.copy(alpha = animatedOriginalAlpha),
                     fontSize = 26.sp,
                     fontWeight = if (isActive) FontWeight.Bold else FontWeight.SemiBold,
                     fontFamily = FontFamily.SansSerif,
@@ -650,7 +649,7 @@ private fun LyricLineRow(
                     letterSpacing = (-0.3).sp
                 )
 
-                // 中文翻译 (舒适字号与清晰行高)
+                // 中文翻译 (舒适字号与清晰行高，直接采用独立透明度，绝不发黑看不清)
                 if (displayTranslation.isNotBlank()) {
                     Spacer(modifier = Modifier.height(5.dp))
                     Text(

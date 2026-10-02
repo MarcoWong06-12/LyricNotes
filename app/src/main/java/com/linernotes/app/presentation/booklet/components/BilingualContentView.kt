@@ -85,6 +85,7 @@ fun BilingualContentView(
     translatedText: String?,
     isTranslating: Boolean = false,
     isTraditional: Boolean = false,
+    isDark: Boolean = MaterialTheme.colorScheme.surface.luminance() < 0.5f,
     modifier: Modifier = Modifier
 ) {
     if (originalText.isBlank()) return
@@ -110,6 +111,18 @@ fun BilingualContentView(
         BilingualSentenceAligner.align(originalText, effectiveTranslation)
     }
 
+    val isEffectiveDark = isDark || MaterialTheme.colorScheme.surface.luminance() < 0.5f
+
+    // 颜色配置：暗色模式下使用纯正高对比度纯白与微光，浅色模式下优雅适配主题，杜绝黑底黑字
+    val primaryTextColor = if (isEffectiveDark) Color.White.copy(alpha = 0.95f) else MaterialTheme.colorScheme.onSurface
+    val secondaryTextColor = if (isEffectiveDark) Color.White.copy(alpha = 0.65f) else MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.75f)
+    val tabContainerBg = if (isEffectiveDark) Color.White.copy(alpha = 0.08f) else MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f)
+    val tabSelectedBg = if (isEffectiveDark) Color.White.copy(alpha = 0.20f) else MaterialTheme.colorScheme.primaryContainer
+    val tabSelectedTextColor = if (isEffectiveDark) Color.White else MaterialTheme.colorScheme.onPrimaryContainer
+    val tabUnselectedTextColor = if (isEffectiveDark) Color.White.copy(alpha = 0.60f) else MaterialTheme.colorScheme.onSurfaceVariant
+    val loadingContainerBg = if (isEffectiveDark) Color(0xFFFFD54F).copy(alpha = 0.15f) else MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.25f)
+    val loadingTextColor = if (isEffectiveDark) Color(0xFFFFD54F) else MaterialTheme.colorScheme.primary
+
     Column(
         modifier = modifier
             .fillMaxWidth()
@@ -122,25 +135,34 @@ fun BilingualContentView(
                 modifier = Modifier
                     .fillMaxWidth()
                     .clip(RoundedCornerShape(10.dp))
-                    .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.45f))
+                    .background(tabContainerBg)
                     .padding(3.dp),
                 horizontalArrangement = Arrangement.spacedBy(4.dp)
             ) {
                 TabItem(
                     title = if (isTraditional) "中英對照" else "中英对照",
                     isSelected = selectedTab == BilingualDisplayTab.PARALLEL,
+                    selectedBg = tabSelectedBg,
+                    selectedTextColor = tabSelectedTextColor,
+                    unselectedTextColor = tabUnselectedTextColor,
                     modifier = Modifier.weight(1f),
                     onClick = { selectedTab = BilingualDisplayTab.PARALLEL }
                 )
                 TabItem(
                     title = if (isTraditional) "純中文" else "纯中文",
                     isSelected = selectedTab == BilingualDisplayTab.CHINESE,
+                    selectedBg = tabSelectedBg,
+                    selectedTextColor = tabSelectedTextColor,
+                    unselectedTextColor = tabUnselectedTextColor,
                     modifier = Modifier.weight(1f),
                     onClick = { selectedTab = BilingualDisplayTab.CHINESE }
                 )
                 TabItem(
                     title = if (isTraditional) "純英文" else "纯英文",
                     isSelected = selectedTab == BilingualDisplayTab.ORIGINAL,
+                    selectedBg = tabSelectedBg,
+                    selectedTextColor = tabSelectedTextColor,
+                    unselectedTextColor = tabUnselectedTextColor,
                     modifier = Modifier.weight(1f),
                     onClick = { selectedTab = BilingualDisplayTab.ORIGINAL }
                 )
@@ -151,7 +173,7 @@ fun BilingualContentView(
         AnimatedVisibility(visible = isTranslating) {
             Surface(
                 shape = RoundedCornerShape(8.dp),
-                color = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.25f),
+                color = loadingContainerBg,
                 modifier = Modifier.fillMaxWidth()
             ) {
                 Row(
@@ -162,12 +184,12 @@ fun BilingualContentView(
                     CircularProgressIndicator(
                         modifier = Modifier.size(12.dp),
                         strokeWidth = 1.5.dp,
-                        color = MaterialTheme.colorScheme.primary
+                        color = loadingTextColor
                     )
                     Text(
                         text = if (isTraditional) "正在為您生成精準中文對照釋義..." else "正在为您生成精准中文对照释义...",
                         style = MaterialTheme.typography.bodySmall.copy(fontSize = 11.5.sp),
-                        color = MaterialTheme.colorScheme.primary
+                        color = loadingTextColor
                     )
                 }
             }
@@ -186,7 +208,7 @@ fun BilingualContentView(
                             lineHeight = 24.sp,
                             letterSpacing = 0.2.sp
                         ),
-                        color = MaterialTheme.colorScheme.onSurface
+                        color = primaryTextColor
                     )
                 }
             }
@@ -210,7 +232,7 @@ fun BilingualContentView(
                                             style = MaterialTheme.typography.bodyMedium.copy(
                                                 fontSize = 14.5.sp,
                                                 lineHeight = 22.sp,
-                                                color = MaterialTheme.colorScheme.onSurface
+                                                color = primaryTextColor
                                             )
                                         )
                                     }
@@ -222,7 +244,7 @@ fun BilingualContentView(
                                             style = MaterialTheme.typography.bodySmall.copy(
                                                 fontSize = 12.sp,
                                                 lineHeight = 17.sp,
-                                                color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.70f)
+                                                color = secondaryTextColor
                                             )
                                         )
                                     }
@@ -245,7 +267,7 @@ fun BilingualContentView(
                                 fontSize = 15.sp,
                                 lineHeight = 24.sp
                             ),
-                            color = MaterialTheme.colorScheme.onSurface
+                            color = primaryTextColor
                         )
                     }
                 }
@@ -262,7 +284,7 @@ fun BilingualContentView(
                                 fontSize = 15.sp,
                                 lineHeight = 23.sp
                             ),
-                            color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.88f)
+                            color = primaryTextColor
                         )
                     }
                 }
@@ -275,6 +297,9 @@ fun BilingualContentView(
 private fun TabItem(
     title: String,
     isSelected: Boolean,
+    selectedBg: Color,
+    selectedTextColor: Color,
+    unselectedTextColor: Color,
     modifier: Modifier = Modifier,
     onClick: () -> Unit
 ) {
@@ -285,7 +310,7 @@ private fun TabItem(
             onClick()
         },
         shape = RoundedCornerShape(8.dp),
-        color = if (isSelected) MaterialTheme.colorScheme.primaryContainer else Color.Transparent,
+        color = if (isSelected) selectedBg else Color.Transparent,
         modifier = modifier
     ) {
         Box(
@@ -297,7 +322,7 @@ private fun TabItem(
                 style = MaterialTheme.typography.labelMedium.copy(
                     fontSize = 12.sp,
                     fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal,
-                    color = if (isSelected) MaterialTheme.colorScheme.onPrimaryContainer else MaterialTheme.colorScheme.onSurfaceVariant
+                    color = if (isSelected) selectedTextColor else unselectedTextColor
                 )
             )
         }
