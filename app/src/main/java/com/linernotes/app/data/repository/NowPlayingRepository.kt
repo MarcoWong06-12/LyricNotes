@@ -328,9 +328,8 @@ class NowPlayingRepository @Inject constructor(
                     val dummyTrack = TrackEntity(
                         id = System.currentTimeMillis() % 1000000,
                         albumId = "",
-                        title = title,
-                        artist = artist,
                         trackNumber = 1,
+                        title = title,
                         durationMs = 0
                     )
                     val (curatedStory, curatedAnnots) = AiAnnotationCurator.curateTrack(
@@ -441,9 +440,8 @@ class NowPlayingRepository @Inject constructor(
                 val dummyTrack = TrackEntity(
                     id = System.currentTimeMillis() % 1000000,
                     albumId = "",
-                    title = title,
-                    artist = artist,
                     trackNumber = 1,
+                    title = title,
                     durationMs = 0
                 )
                 val (curStory, curAnnots) = AiAnnotationCurator.curateTrack(
