@@ -402,16 +402,18 @@ class NowPlayingRepository @Inject constructor(
         preloadingJob?.cancel()
         preloadingJob = repositoryScope.launch {
             val currentKey = currentSongKey
+            // 提取待播队列中接下来的 3 首曲目进行深度静默预加载 (并发预载歌词、翻译、Genius 典故与背景故事)
             val candidates = queueItems.filter { item ->
                 if (item.title.isBlank() || item.artist.isBlank()) return@filter false
                 val key = "${item.artist.trim().lowercase()} - ${item.title.trim().lowercase()}"
-                key != currentKey && !memoryCache.containsKey(key)
-            }.take(2)
+                val cached = memoryCache[key]
+                key != currentKey && (cached == null || (cached.annotatedLines.isEmpty() && cached.songStory == null))
+            }.take(3)
 
             for (item in candidates) {
                 val nextKey = "${item.artist.trim().lowercase()} - ${item.title.trim().lowercase()}"
                 try {
-                    silentFetchAndCacheLyrics(item.title, item.artist, nextKey)
+                    silentFetchAndCacheSongFull(item.title, item.artist, nextKey)
                 } catch (e: Exception) {
                     // 静默容灾
                 }
@@ -419,49 +421,142 @@ class NowPlayingRepository @Inject constructor(
         }
     }
 
-    private suspend fun silentFetchAndCacheLyrics(title: String, artist: String, songKey: String) {
-        val rawResult = UnifiedLyricsService.fetchLyrics(
-            trackTitle = title,
-            artistName = artist,
-            sourcePref = aiPreferences.lyricsSource
-        ) ?: return
+    private suspend fun silentFetchAndCacheSongFull(title: String, artist: String, songKey: String) {
+        // 1. 检查或静默拉取歌词与翻译
+        var lyrics = memoryCache[songKey]?.lyrics ?: emptyList()
+        if (lyrics.isEmpty()) {
+            val rawResult = UnifiedLyricsService.fetchLyrics(
+                trackTitle = title,
+                artistName = artist,
+                sourcePref = aiPreferences.lyricsSource
+            ) ?: return
 
-        if (rawResult.originalLyrics.isBlank()) return
+            if (rawResult.originalLyrics.isBlank()) return
 
-        // 防缓存污染：严格核验预加载歌词的标题与歌手匹配度
-        val matchScore = LyricSearchCleaner.scoreCandidateMatch(
-            candidateTitle = rawResult.title,
-            candidateArtist = rawResult.artist,
-            targetTitle = title,
-            targetArtist = artist
-        )
-        if (matchScore < 50) return
+            val matchScore = LyricSearchCleaner.scoreCandidateMatch(
+                candidateTitle = rawResult.title,
+                candidateArtist = rawResult.artist,
+                targetTitle = title,
+                targetArtist = artist
+            )
+            if (matchScore < 50) return
 
-        var origLyrics = rawResult.originalLyrics
-        var transLyrics = rawResult.translatedLyrics
+            var origLyrics = rawResult.originalLyrics
+            var transLyrics = rawResult.translatedLyrics
 
-        if (transLyrics.isNullOrBlank()) {
-            try {
-                val transResult = translationService.translateTrack(title, origLyrics)
-                if (transResult != null && transResult.translatedLyrics.isNotBlank()) {
-                    transLyrics = transResult.translatedLyrics
+            if (transLyrics.isNullOrBlank()) {
+                try {
+                    val transResult = translationService.translateTrack(title, origLyrics)
+                    if (transResult != null && transResult.translatedLyrics.isNotBlank()) {
+                        transLyrics = transResult.translatedLyrics
+                    }
+                } catch (e: Exception) {
+                    // 忽略
                 }
-            } catch (e: Exception) {
-                // 忽略
             }
+
+            val cleanOrig = LyricSanitizer.decensorLyrics(origLyrics)
+            val cleanTrans = LyricSanitizer.decensorChineseLyrics(transLyrics, cleanOrig)
+            lyrics = LyricAligner.align(cleanOrig, cleanTrans)
         }
 
-        val cleanOrig = LyricSanitizer.decensorLyrics(origLyrics)
-        val cleanTrans = LyricSanitizer.decensorChineseLyrics(transLyrics, cleanOrig)
-        val aligned = LyricAligner.align(cleanOrig, cleanTrans)
+        // 2. 静默拉取 Genius 歌曲创作背景与行内典故（含自动翻译）
+        var fetchedStory: SongStoryEntity? = null
+        var fetchedAnnotations: List<LyricAnnotationEntity> = emptyList()
+        val customToken = aiPreferences.geniusToken.takeIf { it.isNotBlank() }
 
-        if (aligned.isNotEmpty()) {
-            memoryCache[songKey] = CachedSongData(
-                lyrics = aligned,
-                annotatedLines = emptyMap(),
-                songStory = null,
-                geniusNotice = null
-            )
+        try {
+            val searchResult = GeniusService.searchSong(title, artist, customToken)
+            if (searchResult != null) {
+                val songId = searchResult.id
+
+                // 抓取全曲背景故事
+                val songDetail = GeniusService.getSongDetails(songId, customToken)
+                if (songDetail != null && songDetail.descriptionPlain.isNotBlank()) {
+                    var transDesc: String? = null
+                    try {
+                        val transRes = translationService.translateTrack("Story", songDetail.descriptionPlain)
+                        transDesc = transRes?.translatedLyrics
+                    } catch (e: Exception) {
+                        // ignore
+                    }
+                    fetchedStory = SongStoryEntity(
+                        trackId = songId,
+                        geniusSongId = songId,
+                        title = songDetail.title,
+                        artist = songDetail.artist,
+                        descriptionPlain = songDetail.descriptionPlain,
+                        descriptionTranslation = transDesc,
+                        releaseDate = songDetail.releaseDate,
+                        headerImageUrl = songDetail.headerImageUrl,
+                        songArtImageUrl = songDetail.songArtImageUrl,
+                        producerCredits = songDetail.producerCredits,
+                        songUrl = songDetail.songUrl
+                    )
+                }
+
+                // 抓取歌词行内典故
+                val referents = GeniusService.getReferents(songId, customToken)
+                val annotList = mutableListOf<LyricAnnotationEntity>()
+                for (ref in referents) {
+                    val annotItem = ref.annotations.firstOrNull() ?: continue
+                    var explTrans: String? = null
+                    if (annotItem.bodyPlain.isNotBlank()) {
+                        try {
+                            val tRes = translationService.translateTrack("Annotation", annotItem.bodyPlain)
+                            explTrans = tRes?.translatedLyrics
+                        } catch (e: Exception) {
+                            // ignore
+                        }
+                    }
+                    annotList.add(
+                        LyricAnnotationEntity(
+                            trackId = songId,
+                            lyricFragment = ref.fragment,
+                            explanationText = annotItem.bodyPlain,
+                            authorName = annotItem.authorName,
+                            authorAvatarUrl = annotItem.authorAvatarUrl,
+                            isVerified = annotItem.verified,
+                            votesTotal = annotItem.votesTotal,
+                            explanationTranslation = explTrans,
+                            geniusSongId = songId,
+                            geniusUrl = annotItem.url
+                        )
+                    )
+                }
+                fetchedAnnotations = annotList
+            }
+        } catch (e: Exception) {
+            // 静默容灾
+        }
+
+        // 3. 典故行级精准匹配
+        val matchedAnnotations = if (lyrics.isNotEmpty() && fetchedAnnotations.isNotEmpty()) {
+            LyricFragmentMatcher.matchAnnotationsToLines(lyrics, fetchedAnnotations)
+        } else {
+            emptyMap()
+        }
+
+        // 4. 存入内存缓存（后续切歌秒开无延迟）
+        val cached = CachedSongData(
+            lyrics = lyrics,
+            annotatedLines = matchedAnnotations,
+            songStory = fetchedStory,
+            geniusNotice = null
+        )
+        memoryCache[songKey] = cached
+
+        // 若当前播放中的歌曲恰好是预加载完成的曲目，实时刷新界面
+        if (currentSongKey == songKey) {
+            _nowPlayingData.update {
+                it.copy(
+                    lyrics = lyrics,
+                    annotatedLines = matchedAnnotations,
+                    songStory = fetchedStory,
+                    isLoadingLyrics = false,
+                    isLoadingGenius = false
+                )
+            }
         }
     }
 
