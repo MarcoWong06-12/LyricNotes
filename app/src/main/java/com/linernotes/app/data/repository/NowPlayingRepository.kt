@@ -9,7 +9,6 @@ import com.linernotes.app.core.lyric.LyricSearchCleaner
 import com.linernotes.app.core.playback.PlaybackStateManager
 import com.linernotes.app.core.playback.TrackPlaybackState
 import com.linernotes.app.core.preference.AiPreferences
-import com.linernotes.app.data.local.dao.LyricAnnotationDao
 import com.linernotes.app.data.local.entity.LyricAnnotationEntity
 import com.linernotes.app.data.local.entity.SongStoryEntity
 import com.linernotes.app.data.remote.GeniusService
@@ -43,8 +42,7 @@ data class NowPlayingData(
 class NowPlayingRepository @Inject constructor(
     private val playbackStateManager: PlaybackStateManager,
     private val translationService: TranslationService,
-    private val aiPreferences: AiPreferences,
-    private val lyricAnnotationDao: LyricAnnotationDao
+    private val aiPreferences: AiPreferences
 ) {
 
     private val repositoryScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
@@ -279,57 +277,49 @@ class NowPlayingRepository @Inject constructor(
                             }
                         }
 
-                        // 1. 本地 Room 数据库优先极速命中 (5ms 极速呈现)
-                        val dbStory = lyricAnnotationDao.getSongStory(songId)
-                        val dbAnnots = lyricAnnotationDao.getAnnotations(songId)
-                        if (dbStory != null || dbAnnots.isNotEmpty()) {
-                            fetchedStory = dbStory
-                            fetchedAnnotations = dbAnnots
-                        } else {
-                            // 2. 本地无缓存：高并发拉取 Genius 数据 (背景故事与行内典故同时请求，耗时减半)
-                            coroutineScope {
-                                val detailDeferred = async { GeniusService.getSongDetails(songId, customToken) }
-                                val referentsDeferred = async { GeniusService.getReferents(songId, customToken) }
+                        // 高并发拉取 Genius 数据 (背景故事与行内典故同时请求，网络耗时直接减半)
+                        coroutineScope {
+                            val detailDeferred = async { GeniusService.getSongDetails(songId, customToken) }
+                            val referentsDeferred = async { GeniusService.getReferents(songId, customToken) }
 
-                                val songDetail = detailDeferred.await()
-                                val referents = referentsDeferred.await()
+                            val songDetail = detailDeferred.await()
+                            val referents = referentsDeferred.await()
 
-                                if (songDetail != null) {
-                                    fetchedStory = SongStoryEntity(
-                                        trackId = songId,
-                                        geniusSongId = songId,
-                                        title = songDetail.title,
-                                        artist = songDetail.artist,
-                                        descriptionPlain = songDetail.descriptionPlain,
-                                        descriptionTranslation = null,
-                                        releaseDate = songDetail.releaseDate,
-                                        headerImageUrl = songDetail.headerImageUrl,
-                                        songArtImageUrl = songDetail.songArtImageUrl,
-                                        producerCredits = songDetail.producerCredits,
-                                        songUrl = songDetail.songUrl
-                                    )
-                                }
-
-                                val rawAnnotList = mutableListOf<LyricAnnotationEntity>()
-                                for (ref in referents) {
-                                    val annotItem = ref.annotations.firstOrNull() ?: continue
-                                    rawAnnotList.add(
-                                        LyricAnnotationEntity(
-                                            trackId = songId,
-                                            lyricFragment = ref.fragment,
-                                            explanationText = annotItem.bodyPlain,
-                                            authorName = annotItem.authorName,
-                                            authorAvatarUrl = annotItem.authorAvatarUrl,
-                                            isVerified = annotItem.verified,
-                                            votesTotal = annotItem.votesTotal,
-                                            explanationTranslation = null,
-                                            geniusSongId = songId,
-                                            geniusUrl = annotItem.url
-                                        )
-                                    )
-                                }
-                                fetchedAnnotations = rawAnnotList
+                            if (songDetail != null) {
+                                fetchedStory = SongStoryEntity(
+                                    trackId = songId,
+                                    geniusSongId = songId,
+                                    title = songDetail.title,
+                                    artist = songDetail.artist,
+                                    descriptionPlain = songDetail.descriptionPlain,
+                                    descriptionTranslation = null,
+                                    releaseDate = songDetail.releaseDate,
+                                    headerImageUrl = songDetail.headerImageUrl,
+                                    songArtImageUrl = songDetail.songArtImageUrl,
+                                    producerCredits = songDetail.producerCredits,
+                                    songUrl = songDetail.songUrl
+                                )
                             }
+
+                            val rawAnnotList = mutableListOf<LyricAnnotationEntity>()
+                            for (ref in referents) {
+                                val annotItem = ref.annotations.firstOrNull() ?: continue
+                                rawAnnotList.add(
+                                    LyricAnnotationEntity(
+                                        trackId = songId,
+                                        lyricFragment = ref.fragment,
+                                        explanationText = annotItem.bodyPlain,
+                                        authorName = annotItem.authorName,
+                                        authorAvatarUrl = annotItem.authorAvatarUrl,
+                                        isVerified = annotItem.verified,
+                                        votesTotal = annotItem.votesTotal,
+                                        explanationTranslation = null,
+                                        geniusSongId = songId,
+                                        geniusUrl = annotItem.url
+                                    )
+                                )
+                            }
+                            fetchedAnnotations = rawAnnotList
                         }
                     }
                 } catch (e: Exception) {
@@ -355,9 +345,10 @@ class NowPlayingRepository @Inject constructor(
                 emptyMap()
             }
 
+            val currentStory = fetchedStory
             // 获取失败精准提示：当 Genius 典故与背景故事未能获取时，生成清晰诚实的通知提醒用户
             val failureNotice: String? = when {
-                initialMatched.isNotEmpty() || (fetchedStory != null && fetchedStory.descriptionPlain.isNotBlank()) -> null
+                initialMatched.isNotEmpty() || (currentStory != null && currentStory.descriptionPlain.isNotBlank()) -> null
                 !GeniusService.lastRequestConnected -> "Genius 网络连接受阻，无法获取典故"
                 !geniusSongFound -> "未在 Genius 检索到本曲收录"
                 fetchedAnnotations.isEmpty() -> "Genius 尚未收录本曲歌词典故"
@@ -395,21 +386,21 @@ class NowPlayingRepository @Inject constructor(
                 }
             }
 
-            // 阶段二：后台受控并发极速补全中文对照翻译 (4 协程并行，1.5 秒内全部就绪并持久化入库)
+            // 阶段二：后台受控并发极速补全中文对照翻译 (4 协程并行，1.5 秒内全部就绪并平滑刷新界面)
             if (fetchedStory != null || fetchedAnnotations.isNotEmpty()) {
                 val transSemaphore = Semaphore(4)
                 coroutineScope {
                     val storyTransDeferred = async {
-                        val currentStory = fetchedStory
-                        if (currentStory != null && currentStory.descriptionTranslation.isNullOrBlank() &&
-                            currentStory.descriptionPlain.isNotBlank() && !AiAnnotationCurator.isAlreadyChinese(currentStory.descriptionPlain)
+                        val cStory = fetchedStory
+                        if (cStory != null && cStory.descriptionTranslation.isNullOrBlank() &&
+                            cStory.descriptionPlain.isNotBlank() && !AiAnnotationCurator.isAlreadyChinese(cStory.descriptionPlain)
                         ) {
                             transSemaphore.withPermit {
                                 try {
-                                    val res = translationService.translateTrack("Story", currentStory.descriptionPlain)
+                                    val res = translationService.translateTrack("Story", cStory.descriptionPlain)
                                     val tr = res?.translatedLyrics
                                     if (!tr.isNullOrBlank()) {
-                                        fetchedStory = currentStory.copy(descriptionTranslation = tr)
+                                        fetchedStory = cStory.copy(descriptionTranslation = tr)
                                     }
                                 } catch (e: Exception) { }
                             }
@@ -440,7 +431,7 @@ class NowPlayingRepository @Inject constructor(
                     fetchedAnnotations = annotTransDeferredList.awaitAll()
                 }
 
-                // 翻译就绪，更新界面与持久化数据库
+                // 翻译就绪，更新界面与高速内存缓存
                 val finalMatched = if (fetchedLyrics.isNotEmpty() && fetchedAnnotations.isNotEmpty()) {
                     LyricFragmentMatcher.matchAnnotationsToLines(fetchedLyrics, fetchedAnnotations)
                 } else {
@@ -460,15 +451,6 @@ class NowPlayingRepository @Inject constructor(
                         songStory = fetchedStory
                     )
                 }
-
-                // 本地 Room 数据库异步持久化
-                try {
-                    val songId = currentSongId ?: fetchedStory?.geniusSongId ?: fetchedAnnotations.firstOrNull()?.geniusSongId
-                    if (songId != null && songId > 0L) {
-                        lyricAnnotationDao.replaceAnnotationsForTrack(songId, fetchedAnnotations)
-                        fetchedStory?.let { lyricAnnotationDao.insertSongStory(it) }
-                    }
-                } catch (e: Exception) { }
             }
         }
     }
@@ -548,105 +530,91 @@ class NowPlayingRepository @Inject constructor(
             if (searchResult != null) {
                 val songId = searchResult.id
 
-                // 优先检查本地数据库
-                val dbStory = lyricAnnotationDao.getSongStory(songId)
-                val dbAnnots = lyricAnnotationDao.getAnnotations(songId)
-                if (dbStory != null || dbAnnots.isNotEmpty()) {
-                    fetchedStory = dbStory
-                    fetchedAnnotations = dbAnnots
-                } else {
-                    // 并发拉取 Details 和 Referents
-                    coroutineScope {
-                        val detailDeferred = async { GeniusService.getSongDetails(songId, customToken) }
-                        val referentsDeferred = async { GeniusService.getReferents(songId, customToken) }
+                // 并发拉取 Details 和 Referents (网络往返时间减半)
+                coroutineScope {
+                    val detailDeferred = async { GeniusService.getSongDetails(songId, customToken) }
+                    val referentsDeferred = async { GeniusService.getReferents(songId, customToken) }
 
-                        val songDetail = detailDeferred.await()
-                        val referents = referentsDeferred.await()
+                    val songDetail = detailDeferred.await()
+                    val referents = referentsDeferred.await()
 
-                        if (songDetail != null && songDetail.descriptionPlain.isNotBlank()) {
-                            fetchedStory = SongStoryEntity(
-                                trackId = songId,
-                                geniusSongId = songId,
-                                title = songDetail.title,
-                                artist = songDetail.artist,
-                                descriptionPlain = songDetail.descriptionPlain,
-                                descriptionTranslation = null,
-                                releaseDate = songDetail.releaseDate,
-                                headerImageUrl = songDetail.headerImageUrl,
-                                songArtImageUrl = songDetail.songArtImageUrl,
-                                producerCredits = songDetail.producerCredits,
-                                songUrl = songDetail.songUrl
-                            )
-                        }
-
-                        val annotList = mutableListOf<LyricAnnotationEntity>()
-                        for (ref in referents) {
-                            val annotItem = ref.annotations.firstOrNull() ?: continue
-                            annotList.add(
-                                LyricAnnotationEntity(
-                                    trackId = songId,
-                                    lyricFragment = ref.fragment,
-                                    explanationText = annotItem.bodyPlain,
-                                    authorName = annotItem.authorName,
-                                    authorAvatarUrl = annotItem.authorAvatarUrl,
-                                    isVerified = annotItem.verified,
-                                    votesTotal = annotItem.votesTotal,
-                                    explanationTranslation = null,
-                                    geniusSongId = songId,
-                                    geniusUrl = annotItem.url
-                                )
-                            )
-                        }
-                        fetchedAnnotations = annotList
+                    if (songDetail != null && songDetail.descriptionPlain.isNotBlank()) {
+                        fetchedStory = SongStoryEntity(
+                            trackId = songId,
+                            geniusSongId = songId,
+                            title = songDetail.title,
+                            artist = songDetail.artist,
+                            descriptionPlain = songDetail.descriptionPlain,
+                            descriptionTranslation = null,
+                            releaseDate = songDetail.releaseDate,
+                            headerImageUrl = songDetail.headerImageUrl,
+                            songArtImageUrl = songDetail.songArtImageUrl,
+                            producerCredits = songDetail.producerCredits,
+                            songUrl = songDetail.songUrl
+                        )
                     }
 
-                    // 并发极速翻译
-                    val transSemaphore = Semaphore(4)
-                    coroutineScope {
-                        val storyTransDeferred = async {
-                            val curStory = fetchedStory
-                            if (curStory != null && curStory.descriptionPlain.isNotBlank() &&
-                                !AiAnnotationCurator.isAlreadyChinese(curStory.descriptionPlain)
-                            ) {
+                    val annotList = mutableListOf<LyricAnnotationEntity>()
+                    for (ref in referents) {
+                        val annotItem = ref.annotations.firstOrNull() ?: continue
+                        annotList.add(
+                            LyricAnnotationEntity(
+                                trackId = songId,
+                                lyricFragment = ref.fragment,
+                                explanationText = annotItem.bodyPlain,
+                                authorName = annotItem.authorName,
+                                authorAvatarUrl = annotItem.authorAvatarUrl,
+                                isVerified = annotItem.verified,
+                                votesTotal = annotItem.votesTotal,
+                                explanationTranslation = null,
+                                geniusSongId = songId,
+                                geniusUrl = annotItem.url
+                            )
+                        )
+                    }
+                    fetchedAnnotations = annotList
+                }
+
+                // 并发极速翻译
+                val transSemaphore = Semaphore(4)
+                coroutineScope {
+                    val storyTransDeferred = async {
+                        val curStory = fetchedStory
+                        if (curStory != null && curStory.descriptionPlain.isNotBlank() &&
+                            !AiAnnotationCurator.isAlreadyChinese(curStory.descriptionPlain)
+                        ) {
+                            transSemaphore.withPermit {
+                                try {
+                                    val res = translationService.translateTrack("Story", curStory.descriptionPlain)
+                                    val tr = res?.translatedLyrics
+                                    if (!tr.isNullOrBlank()) {
+                                        fetchedStory = curStory.copy(descriptionTranslation = tr)
+                                    }
+                                } catch (e: Exception) { }
+                            }
+                        }
+                    }
+
+                    val annotTransDeferredList = fetchedAnnotations.map { annot ->
+                        async {
+                            if (annot.explanationText.isNotBlank() && !AiAnnotationCurator.isAlreadyChinese(annot.explanationText)) {
                                 transSemaphore.withPermit {
                                     try {
-                                        val res = translationService.translateTrack("Story", curStory.descriptionPlain)
+                                        val res = translationService.translateTrack("Annotation", annot.explanationText)
                                         val tr = res?.translatedLyrics
-                                        if (!tr.isNullOrBlank()) {
-                                            fetchedStory = curStory.copy(descriptionTranslation = tr)
-                                        }
-                                    } catch (e: Exception) { }
-                                }
-                            }
-                        }
-
-                        val annotTransDeferredList = fetchedAnnotations.map { annot ->
-                            async {
-                                if (annot.explanationText.isNotBlank() && !AiAnnotationCurator.isAlreadyChinese(annot.explanationText)) {
-                                    transSemaphore.withPermit {
-                                        try {
-                                            val res = translationService.translateTrack("Annotation", annot.explanationText)
-                                            val tr = res?.translatedLyrics
-                                            if (!tr.isNullOrBlank()) annot.copy(explanationTranslation = tr) else annot
-                                        } catch (e: Exception) {
-                                            annot
-                                        }
+                                        if (!tr.isNullOrBlank()) annot.copy(explanationTranslation = tr) else annot
+                                    } catch (e: Exception) {
+                                        annot
                                     }
-                                } else {
-                                    annot
                                 }
+                            } else {
+                                annot
                             }
                         }
-
-                        storyTransDeferred.await()
-                        fetchedAnnotations = annotTransDeferredList.awaitAll()
                     }
 
-                    // 本地持久化
-                    try {
-                        lyricAnnotationDao.replaceAnnotationsForTrack(songId, fetchedAnnotations)
-                        fetchedStory?.let { lyricAnnotationDao.insertSongStory(it) }
-                    } catch (e: Exception) { }
+                    storyTransDeferred.await()
+                    fetchedAnnotations = annotTransDeferredList.awaitAll()
                 }
             }
         } catch (e: Exception) {
