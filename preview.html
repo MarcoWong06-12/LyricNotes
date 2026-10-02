@@ -3,308 +3,262 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
-    <title>LyricNotes 手机端独创 UI 方案预览与流畅度实测</title>
-    <!-- 引入移动端轻量 Tailwind -->
+    <title>LyricNotes 纯净极简 UI 提案（告别花哨）</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <style>
-        /* 避免 iOS / Android 移动端点击高亮遮罩 */
         * { -webkit-tap-highlight-color: transparent; }
 
-        /* 流体光斑呼吸 */
-        @keyframes ambient-glow {
-            0%, 100% { transform: scale(1) translate(0, 0); opacity: 0.6; }
-            50% { transform: scale(1.15) translate(15px, -15px); opacity: 0.85; }
-        }
-        .ambient-glow-1 { animation: ambient-glow 8s infinite ease-in-out; }
-        .ambient-glow-2 { animation: ambient-glow 10s infinite ease-in-out reverse; }
-
-        /* iOS 标准 Cubic-Bezier 丝滑过渡曲线 */
-        .smooth-transition {
-            transition: all 550ms cubic-bezier(0.22, 1, 0.36, 1);
+        /* 真实的 iOS 标准 550ms 三次贝塞尔缓动曲线 */
+        .lyric-motion {
+            transition: transform 550ms cubic-bezier(0.22, 1, 0.36, 1), opacity 450ms ease, filter 450ms ease;
         }
     </style>
 </head>
-<body class="bg-[#0b0c10] text-slate-100 min-h-screen flex flex-col font-sans antialiased overflow-x-hidden selection:bg-emerald-500 selection:text-black">
+<body class="bg-[#0b0b0e] text-slate-100 min-h-screen flex flex-col font-sans antialiased overflow-x-hidden">
 
-    <!-- 顶部固定控制条 (针对手机端适配) -->
-    <header class="sticky top-0 z-50 bg-[#0b0c10]/85 backdrop-blur-xl border-b border-white/10 px-4 py-3">
-        <div class="flex items-center justify-between max-w-md mx-auto">
-            <div class="flex items-center gap-2">
-                <span class="w-2.5 h-2.5 rounded-full bg-emerald-400 animate-pulse"></span>
-                <span class="text-sm font-extrabold tracking-tight text-white">LyricNotes UI 实验室</span>
-            </div>
-            <span class="text-[11px] font-medium text-emerald-400 bg-emerald-500/10 border border-emerald-500/20 px-2 py-0.5 rounded-full">手机专用版</span>
+    <!-- 顶部极简导航 -->
+    <header class="sticky top-0 z-50 bg-[#0b0b0e]/90 backdrop-blur-md border-b border-white/5 px-4 py-3">
+        <div class="flex items-center justify-between max-w-md mx-auto mb-2">
+            <span class="text-xs font-bold tracking-wider uppercase text-white/50">LyricNotes · 纯净美学重塑</span>
+            <span class="text-[11px] text-white/40 bg-white/5 px-2 py-0.5 rounded-full">零杂色 · 纯黑白灰阶</span>
         </div>
 
-        <!-- 3 大方案切换器 (底部圆润胶囊) -->
-        <div class="grid grid-cols-3 gap-1.5 bg-white/[0.06] p-1 rounded-xl max-w-md mx-auto mt-2.5 border border-white/5">
-            <button onclick="switchScheme(1)" id="tab-1" class="py-2 rounded-lg text-xs font-bold transition-all bg-emerald-500 text-slate-950 shadow-md">
-                1. 赛博光轨
+        <!-- 3 款纯净方案切换 -->
+        <div class="grid grid-cols-3 gap-1 bg-white/[0.05] p-1 rounded-xl max-w-md mx-auto border border-white/5">
+            <button onclick="selectScheme(1)" id="tab-1" class="py-1.5 rounded-lg text-xs font-semibold bg-white text-black shadow-sm transition-all">
+                纯粹灰阶
             </button>
-            <button onclick="switchScheme(2)" id="tab-2" class="py-2 rounded-lg text-xs font-medium text-slate-400 transition-all hover:text-white">
-                2. 舞台聚光
+            <button onclick="selectScheme(2)" id="tab-2" class="py-1.5 rounded-lg text-xs font-medium text-white/50 hover:text-white transition-all">
+                杂志留白
             </button>
-            <button onclick="switchScheme(3)" id="tab-3" class="py-2 rounded-lg text-xs font-medium text-slate-400 transition-all hover:text-white">
-                3. 灵动居中
+            <button onclick="selectScheme(3)" id="tab-3" class="py-1.5 rounded-lg text-xs font-medium text-white/50 hover:text-white transition-all">
+                呼吸虚化
             </button>
         </div>
     </header>
 
-    <!-- 主展示区 (模拟真机全屏呈现) -->
-    <main class="flex-1 flex flex-col items-center justify-start p-3 sm:p-6 w-full max-w-md mx-auto relative">
+    <!-- 主展示区 -->
+    <main class="flex-1 flex flex-col items-center justify-start p-3 sm:p-5 w-full max-w-md mx-auto">
 
-        <!-- 方案说明卡片 (点击切换时动态更新) -->
-        <div id="scheme-intro" class="w-full bg-white/[0.04] border border-white/10 rounded-2xl p-3.5 mb-3 backdrop-blur-md">
-            <div class="flex items-center justify-between mb-1">
-                <h2 id="intro-title" class="text-sm font-bold text-emerald-400">方案 1 · 赛博光轨流 (Cyber Track)</h2>
-                <span id="intro-badge" class="text-[10px] font-semibold text-slate-400 bg-white/10 px-2 py-0.5 rounded-full">呼应声波胶囊图标</span>
+        <!-- 方案简述 -->
+        <div class="w-full bg-white/[0.03] border border-white/5 rounded-2xl p-3 mb-3">
+            <div class="flex items-center justify-between">
+                <h2 id="scheme-title" class="text-xs font-bold text-white">方案 1 · 纯粹灰阶 (Pure Monochrome)</h2>
+                <span id="scheme-tag" class="text-[10px] text-white/40">100% 纯白与多阶通透灰</span>
             </div>
-            <p id="intro-desc" class="text-xs text-slate-400 leading-relaxed">
-                屏幕左侧附带纵向发光时间轴导轨，随播放像黑胶唱针般平滑垂直滑移，歌词错落展开，极具科技动感！
+            <p id="scheme-desc" class="text-[11px] text-white/50 mt-1 leading-relaxed">
+                彻底移除了所有绿色、紫色与花哨图标。当前句为 100% 纯白，译文为 75% 柔白，未播行为 20% 幽暗灰。克制、沉稳、永不审美疲劳。
             </p>
         </div>
 
         <!-- 手机模拟屏幕容器 -->
-        <div id="phone-stage" class="w-full h-[620px] rounded-[36px] bg-[#0d0e14] border-2 border-white/15 relative overflow-hidden shadow-2xl flex flex-col justify-between p-4">
+        <div class="w-full h-[620px] rounded-[36px] bg-[#0d0d11] border border-white/10 relative overflow-hidden shadow-2xl flex flex-col justify-between p-5">
             
-            <!-- 动态流体光斑背景 (真机质感) -->
-            <div id="glow-1" class="absolute -top-16 -left-16 w-56 h-56 bg-emerald-500/20 rounded-full blur-3xl ambient-glow-1 pointer-events-none"></div>
-            <div id="glow-2" class="absolute -bottom-20 -right-20 w-64 h-64 bg-purple-600/25 rounded-full blur-3xl ambient-glow-2 pointer-events-none"></div>
+            <!-- 极淡深空氛围底色 (非高饱和杂色) -->
+            <div class="absolute inset-0 bg-gradient-to-b from-white/[0.03] via-transparent to-black pointer-events-none"></div>
 
-            <!-- 1. 顶部 Header (各方案独有风格) -->
-            <div id="stage-header" class="relative z-20">
-                <!-- 由 JS 动态注入 -->
+            <!-- 1. 顶部栏 (各方案独有) -->
+            <div id="view-header" class="relative z-20">
+                <!-- 由 JS 渲染 -->
             </div>
 
-            <!-- 2. 歌词展示核心区 (支持实时换句动画测试) -->
-            <div id="lyrics-viewport" class="relative z-10 flex-1 my-3 overflow-hidden flex flex-col justify-center">
-                <!-- 歌词容器，由 JS 渲染与驱动 -->
-                <div id="lyrics-scroll-container" class="smooth-transition space-y-5">
+            <!-- 2. 歌词视口核心区 -->
+            <div class="relative z-10 flex-1 my-2 overflow-hidden flex flex-col justify-center">
+                <div id="lyric-list" class="lyric-motion space-y-5">
                     <!-- 动态歌词行注入 -->
                 </div>
             </div>
 
-            <!-- 3. 底部快捷操作条 -->
-            <div class="relative z-20 pt-2 border-t border-white/10 flex items-center justify-between text-xs">
-                <span class="text-slate-400 text-[11px]">轻触下方按键感受换行丝滑度 ➔</span>
-                <button onclick="nextLyric()" class="px-3.5 py-1.5 rounded-full bg-white/15 hover:bg-white/25 active:scale-95 text-white font-semibold transition-all flex items-center gap-1.5 border border-white/20">
-                    <span>切下一句歌词</span>
-                    <span class="text-emerald-400 font-mono">▶</span>
+            <!-- 3. 底部极简触控条 -->
+            <div class="relative z-20 pt-3 border-t border-white/5 flex items-center justify-between">
+                <span class="text-[11px] text-white/40">实测丝滑中心锁定 ➔</span>
+                <button onclick="advanceLyric()" class="px-4 py-1.5 rounded-full bg-white/10 active:bg-white/20 active:scale-95 text-xs text-white font-medium transition-all border border-white/10">
+                    换下一句 ▶
                 </button>
             </div>
 
         </div>
 
-        <!-- 动画技术对比面板 -->
-        <div class="w-full mt-4 bg-white/[0.03] border border-white/10 rounded-2xl p-4 text-xs text-slate-300 space-y-2">
-            <div class="font-bold text-white flex items-center gap-1.5">
-                <span>⚡ 为什么这个动画如此丝滑？</span>
-            </div>
-            <p class="text-slate-400 leading-relaxed text-[11px]">
-                点击上方<strong class="text-emerald-400">「切下一句歌词」</strong>体验：无论句子长短（1行还是2行英文折行），当前句的<strong>几何重心始终平稳锁定在黄金高度</strong>，配合 iOS 标准 550ms 三次贝塞尔曲线与高斯景深柔焦，告别旧版的抽搐跳帧！
-            </p>
+        <!-- 丝滑换行说明 -->
+        <div class="w-full mt-3 p-3 bg-white/[0.02] border border-white/5 rounded-2xl text-[11px] text-white/50 leading-relaxed">
+            💡 <strong>点击右下角「换下一句」测试</strong>：每句歌词的视觉重心绝对不会上下乱窜，以稳定的几何中心平滑滑动，文字全为纯净白灰排版，告别一切刺眼杂色。
         </div>
 
     </main>
 
-    <!-- 交互脚本 -->
     <script>
         const songData = {
             title: "Family Matters",
             artist: "Drake",
             album: "Certified Lover Boy",
-            cover: "https://images.unsplash.com/photo-1614613535308-eb5fbd3d2c17?w=150&auto=format&fit=crop&q=80",
             lyrics: [
                 {
                     orig: "Drop a fifty bag for the mob in the spot",
-                    trans: "装满现金的钱袋，给我在场的帮派好友们挥洒",
-                    hasGenius: false
+                    trans: "装满现金的钱袋，给我在场的帮派好友们挥洒"
                 },
                 {
                     orig: "Drop a fifty bag,\ntwenty-nine for the thot",
-                    trans: "装满现金的钱袋，给29区我那最爱的舞女挥洒",
-                    hasGenius: true
+                    trans: "装满现金的钱袋，给29区我那最爱的舞女挥洒"
                 },
                 {
                     orig: "Uh, I was really, really tryna keep it PG",
-                    trans: "我其实不想搞得那么少儿不宜，都是你们逼我下场",
-                    hasGenius: false
+                    trans: "我其实不想搞得那么少儿不宜，都是你们逼我下场"
                 },
                 {
                     orig: "I was really, really tryna keep it PG",
-                    trans: "我其实不想搞得那么少儿不宜",
-                    hasGenius: false
+                    trans: "我其实不想搞得那么少儿不宜"
                 },
                 {
                     orig: "If you had a set, they'd give your ass a DP",
-                    trans: "如果你真有地盘，他们早就把你打成筛子了",
-                    hasGenius: true
+                    trans: "如果你真有地盘，他们早就把你打成筛子了"
                 }
             ]
         };
 
         let currentScheme = 1;
-        let activeLyricIndex = 1;
+        let activeIndex = 1;
 
-        // 切换 UI 方案
-        function switchScheme(schemeId) {
-            currentScheme = schemeId;
-            
-            // 更新选项卡样式
+        function selectScheme(id) {
+            currentScheme = id;
+
             for (let i = 1; i <= 3; i++) {
-                const tab = document.getElementById(`tab-${i}`);
-                if (i === schemeId) {
-                    tab.className = "py-2 rounded-lg text-xs font-bold transition-all bg-emerald-500 text-slate-950 shadow-md";
+                const btn = document.getElementById(`tab-${i}`);
+                if (i === id) {
+                    btn.className = "py-1.5 rounded-lg text-xs font-semibold bg-white text-black shadow-sm transition-all";
                 } else {
-                    tab.className = "py-2 rounded-lg text-xs font-medium text-slate-400 transition-all hover:text-white";
+                    btn.className = "py-1.5 rounded-lg text-xs font-medium text-white/50 hover:text-white transition-all";
                 }
             }
 
-            // 更新说明
-            const introTitle = document.getElementById('intro-title');
-            const introBadge = document.getElementById('intro-badge');
-            const introDesc = document.getElementById('intro-desc');
+            const title = document.getElementById('scheme-title');
+            const tag = document.getElementById('scheme-tag');
+            const desc = document.getElementById('scheme-desc');
 
-            if (schemeId === 1) {
-                introTitle.innerText = "方案 1 · 赛博光轨流 (Cyber Track)";
-                introTitle.className = "text-sm font-bold text-emerald-400";
-                introBadge.innerText = "呼应声波胶囊图标";
-                introDesc.innerText = "左侧附带纵向发光时间轴导轨，随播放像黑胶唱针般平滑垂直滑移，歌词错落展开，彻底打破市面同质化！";
-            } else if (schemeId === 2) {
-                introTitle.innerText = "方案 2 · 舞台聚光流 (Stage Spotlight)";
-                introTitle.className = "text-sm font-bold text-purple-400";
-                introBadge.innerText = "Apple Music 舞台沉浸";
-                introDesc.innerText = "媲美 Apple Music macOS 全屏舞台。当前句包裹在柔光聚光灯卡片中，前后的歌词柔焦虚化，观赏质感拉满。";
+            if (id === 1) {
+                title.innerText = "方案 1 · 纯粹灰阶 (Pure Monochrome)";
+                tag.innerText = "100% 纯白与多阶通透灰";
+                desc.innerText = "彻底移除了所有绿色、紫色与花哨图标。当前句为 100% 纯白，译文为 75% 柔白，未播行为 20% 幽暗灰。克制、沉稳、永不审美疲劳。";
+            } else if (id === 2) {
+                title.innerText = "方案 2 · 杂志留白 (Editorial Minimal)";
+                tag.innerText = "北欧极简杂志风 · 大留白";
+                desc.innerText = "顶部采用精巧细线分割，标题与作者采用超轻细体排版。歌词整齐靠左，当前句采用精致阶梯缩进，没有任何花哨装饰。";
             } else {
-                introTitle.innerText = "方案 3 · 灵动居中流 (Island Minimalist)";
-                introTitle.className = "text-sm font-bold text-sky-400";
-                introBadge.innerText = "居中纯净对称";
-                introDesc.innerText = "顶部悬浮灵动音乐微岛，歌词全屏大字居中对称，视线重心极度平衡纯净，适合纯粹听歌党。";
+                title.innerText = "方案 3 · 呼吸虚化 (Focus Blur)";
+                tag.innerText = "纯黑极简 · 景深柔焦虚化";
+                desc.innerText = "全黑纯黑背景，视线仅锁定在中央活跃行。上下歌词带有渐进式高斯景深柔焦（非活跃行模糊褪去），呼吸感极佳。";
             }
 
             renderHeader();
             renderLyrics();
         }
 
-        // 渲染顶部 Header
         function renderHeader() {
-            const container = document.getElementById('stage-header');
+            const h = document.getElementById('view-header');
             if (currentScheme === 1) {
-                // 方案 1: 超椭圆流线胶囊
-                container.innerHTML = `
-                    <div class="flex items-center justify-between bg-white/[0.08] backdrop-blur-lg px-3.5 py-2 rounded-2xl border border-white/10 shadow-lg">
+                // 方案 1: 极简灰阶 Header (黑白无杂色)
+                h.innerHTML = `
+                    <div class="flex items-center justify-between py-1">
                         <div class="flex items-center gap-2.5">
-                            <div class="w-8 h-8 rounded-xl bg-gradient-to-tr from-emerald-500 to-teal-400 flex items-center justify-center shadow-md">
-                                <span class="text-sm">🎵</span>
+                            <div class="w-8 h-8 rounded-lg bg-white/10 flex items-center justify-center border border-white/10">
+                                <span class="w-2.5 h-2.5 rounded-full bg-white/70"></span>
                             </div>
-                            <div class="leading-none">
+                            <div>
                                 <div class="text-[13px] font-bold text-white tracking-tight">${songData.title}</div>
-                                <div class="text-[11px] text-slate-400 mt-0.5">${songData.artist}</div>
+                                <div class="text-[11px] text-white/40">${songData.artist}</div>
                             </div>
                         </div>
-                        <div class="w-7 h-7 rounded-full bg-white/10 flex items-center justify-center text-xs text-white">⚙️</div>
+                        <div class="w-7 h-7 rounded-full bg-white/5 border border-white/10 flex items-center justify-center text-[11px] text-white/60">
+                            ···
+                        </div>
                     </div>
                 `;
             } else if (currentScheme === 2) {
-                // 方案 2: 唱片折角 Header
-                container.innerHTML = `
-                    <div class="flex items-center justify-between pt-1">
-                        <div class="flex items-center gap-3">
-                            <div class="w-10 h-10 rounded-full bg-slate-900 border-2 border-white/20 flex items-center justify-center relative shadow-xl">
-                                <div class="w-4 h-4 rounded-full bg-emerald-500 animate-spin" style="animation-duration: 8s;"></div>
-                            </div>
-                            <div>
-                                <div class="text-[14px] font-extrabold text-white tracking-tight">${songData.title}</div>
-                                <div class="text-[11px] text-purple-300/80">${songData.artist} · ${songData.album}</div>
-                            </div>
+                // 方案 2: 杂志小字 Header
+                h.innerHTML = `
+                    <div class="flex items-center justify-between pb-2 border-b border-white/5">
+                        <div class="flex items-baseline gap-2">
+                            <span class="text-[14px] font-bold text-white tracking-tight">${songData.title}</span>
+                            <span class="text-[11px] text-white/30 uppercase tracking-widest font-mono">${songData.artist}</span>
                         </div>
-                        <div class="w-8 h-8 rounded-full bg-white/10 backdrop-blur-md flex items-center justify-center text-xs text-white">···</div>
+                        <span class="text-[10px] text-white/30 font-mono tracking-widest">LYRICNOTES</span>
                     </div>
                 `;
             } else {
-                // 方案 3: 灵动音乐微岛
-                container.innerHTML = `
-                    <div class="flex items-center justify-center relative pt-1">
-                        <div class="bg-slate-900/90 border border-white/15 px-4 py-1.5 rounded-full flex items-center gap-2.5 shadow-2xl">
-                            <div class="w-3.5 h-3.5 rounded-full bg-emerald-400 animate-ping"></div>
-                            <span class="text-[12px] font-bold text-white">${songData.title}</span>
-                            <span class="text-[11px] text-slate-400">· ${songData.artist}</span>
+                // 方案 3: 极致隐形 Header (几乎无侵扰)
+                h.innerHTML = `
+                    <div class="flex items-center justify-between py-1">
+                        <div class="text-[12px] font-medium text-white/50 tracking-wider">
+                            ${songData.title} <span class="text-white/20">/</span> ${songData.artist}
                         </div>
-                        <div class="absolute right-0 top-1 w-7 h-7 rounded-full bg-white/10 flex items-center justify-center text-xs text-white">⚙️</div>
+                        <div class="w-2 h-2 rounded-full bg-white/30"></div>
                     </div>
                 `;
             }
         }
 
-        // 渲染歌词
         function renderLyrics() {
-            const container = document.getElementById('lyrics-scroll-container');
+            const list = document.getElementById('lyric-list');
             let html = '';
 
             songData.lyrics.forEach((item, idx) => {
-                const isActive = (idx === activeLyricIndex);
-                const distance = Math.abs(idx - activeLyricIndex);
+                const isActive = (idx === activeIndex);
+                const distance = Math.abs(idx - activeIndex);
 
                 if (currentScheme === 1) {
-                    // 方案 1: 带左侧时间轴导轨与唱针光核
+                    // 方案 1: 纯粹灰阶 (纯白加粗 + 柔白译文 + 幽暗灰未播)
                     html += `
-                        <div class="flex items-start gap-3 smooth-transition ${isActive ? 'scale-[1.03] translate-x-1.5' : 'scale-95'}">
-                            <div class="w-5 flex flex-col items-center pt-1.5">
-                                <div class="w-3 h-3 rounded-full transition-all duration-500 ${isActive ? 'bg-emerald-400 shadow-[0_0_12px_#10b981] scale-125' : 'bg-white/15'}"></div>
-                            </div>
-                            <div class="flex-1 ${isActive ? 'opacity-100' : (distance === 1 ? 'opacity-40 blur-[0.4px]' : 'opacity-15 blur-[1px]') }">
-                                <div class="text-[17px] font-extrabold ${isActive ? 'text-white' : 'text-slate-300'} leading-snug whitespace-pre-line">
+                        <div class="lyric-motion ${isActive ? 'scale-[1.02] pl-1' : 'scale-95'}">
+                            <div class="${isActive ? 'opacity-100' : (distance === 1 ? 'opacity-35' : 'opacity-15')}">
+                                <div class="text-[17px] font-bold ${isActive ? 'text-white' : 'text-white/60'} leading-tight whitespace-pre-line tracking-tight">
                                     ${item.orig}
                                 </div>
-                                <div class="text-[12px] font-medium ${isActive ? 'text-emerald-300/95 font-semibold' : 'text-slate-400'} mt-1">
+                                <div class="text-[13px] font-normal ${isActive ? 'text-white/70' : 'text-white/30'} mt-1">
                                     ${item.trans}
                                 </div>
                             </div>
                         </div>
                     `;
                 } else if (currentScheme === 2) {
-                    // 方案 2: 舞台聚光流
+                    // 方案 2: 杂志阶梯留白
                     html += `
-                        <div class="smooth-transition ${isActive ? 'scale-[1.03]' : 'scale-95'}">
-                            <div class="p-3 rounded-2xl transition-all duration-500 ${isActive ? 'bg-white/[0.09] backdrop-blur-md border border-white/15 shadow-[0_8px_24px_rgba(168,85,247,0.2)]' : (distance === 1 ? 'opacity-40 blur-[0.6px]' : 'opacity-15 blur-[1.2px]') }">
-                                <div class="flex justify-between items-start">
-                                    <div class="flex-1 text-[18px] font-black ${isActive ? 'text-white' : 'text-slate-300'} leading-tight whitespace-pre-line">
-                                        ${item.orig}
-                                    </div>
-                                    ${item.hasGenius && isActive ? '<span class="ml-2 text-[10px] font-bold bg-amber-400/25 border border-amber-400/60 text-amber-300 px-2 py-0.5 rounded-full flex-shrink-0">💡 典故</span>' : ''}
+                        <div class="lyric-motion ${isActive ? 'translate-x-2' : ''}">
+                            <div class="${isActive ? 'opacity-100' : (distance === 1 ? 'opacity-30' : 'opacity-10')}">
+                                <div class="text-[16px] font-extrabold ${isActive ? 'text-white' : 'text-white/50'} leading-tight whitespace-pre-line">
+                                    ${item.orig}
                                 </div>
-                                <div class="text-[13px] font-normal ${isActive ? 'text-white/85' : 'text-slate-400'} mt-1.5">
+                                <div class="text-[12px] font-light ${isActive ? 'text-white/65' : 'text-white/25'} mt-1">
                                     ${item.trans}
                                 </div>
                             </div>
                         </div>
                     `;
                 } else {
-                    // 方案 3: 灵动居中流
+                    // 方案 3: 呼吸景深虚化
                     html += `
-                        <div class="smooth-transition text-center ${isActive ? 'scale-[1.06]' : 'scale-95'} ${isActive ? 'opacity-100' : (distance === 1 ? 'opacity-35' : 'opacity-15') }">
-                            <div class="text-[18px] font-black ${isActive ? 'text-white' : 'text-slate-300'} leading-snug whitespace-pre-line">
-                                ${item.orig}
-                            </div>
-                            <div class="text-[13px] font-medium ${isActive ? 'text-sky-300' : 'text-slate-400'} mt-1.5">
-                                ${item.trans}
+                        <div class="lyric-motion">
+                            <div class="${isActive ? 'opacity-100 filter-none scale-100' : (distance === 1 ? 'opacity-35 blur-[1px] scale-95' : 'opacity-10 blur-[2px] scale-90')}">
+                                <div class="text-[18px] font-bold text-white leading-tight whitespace-pre-line">
+                                    ${item.orig}
+                                </div>
+                                <div class="text-[13px] font-normal text-white/70 mt-1">
+                                    ${item.trans}
+                                </div>
                             </div>
                         </div>
                     `;
                 }
             });
 
-            container.innerHTML = html;
+            list.innerHTML = html;
         }
 
-        // 切歌词行
-        function nextLyric() {
-            activeLyricIndex = (activeLyricIndex + 1) % songData.lyrics.length;
+        function advanceLyric() {
+            activeIndex = (activeIndex + 1) % songData.lyrics.length;
             renderLyrics();
         }
 
         // 初始化
-        switchScheme(1);
+        selectScheme(1);
     </script>
 </body>
 </html>
