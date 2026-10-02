@@ -89,6 +89,11 @@ class NowPlayingRepository @Inject constructor(
             currentSongKey = songKey
             loadSongLyricsAndGenius(state.title, state.artist, songKey)
         }
+
+        // 待播队列静默预加载：提取队列下首曲目，提前静默拉取歌词与翻译并存入内存缓存
+        if (state.queueItems.isNotEmpty()) {
+            preloadNextTracks(state.queueItems)
+        }
     }
 
     private var lyricOffsetMs: Long = 0L
@@ -217,6 +222,15 @@ class NowPlayingRepository @Inject constructor(
                     if (searchResult != null) {
                         val songId = searchResult.id
 
+                        // 回填云端超高清专辑封面
+                        val cloudCover = searchResult.coverUrl ?: searchResult.thumbUrl
+                        if (!cloudCover.isNullOrBlank()) {
+                            val cur = playbackStateManager.playbackState.value
+                            if (cur.coverUrl.isNullOrBlank() || cur.coverUrl.startsWith("/")) {
+                                playbackStateManager.updateState(cur.copy(coverUrl = cloudCover))
+                            }
+                        }
+
                         // 抓取整曲背景故事
                         val songDetail = GeniusService.getSongDetails(songId)
                         if (songDetail != null) {
@@ -315,6 +329,63 @@ class NowPlayingRepository @Inject constructor(
                     isLoadingGenius = false
                 )
             }
+        }
+    }
+
+    private var preloadingJob: Job? = null
+
+    private fun preloadNextTracks(queueItems: List<com.linernotes.app.core.playback.QueueTrackItem>) {
+        if (queueItems.isEmpty()) return
+        preloadingJob?.cancel()
+        preloadingJob = repositoryScope.launch {
+            val candidates = queueItems.take(2)
+            for (item in candidates) {
+                if (item.title.isBlank() || item.artist.isBlank()) continue
+                val nextKey = "${item.artist.trim().lowercase()} - ${item.title.trim().lowercase()}"
+                if (memoryCache.containsKey(nextKey)) continue
+
+                try {
+                    silentFetchAndCacheLyrics(item.title, item.artist, nextKey)
+                } catch (e: Exception) {
+                    // 静默容灾
+                }
+            }
+        }
+    }
+
+    private suspend fun silentFetchAndCacheLyrics(title: String, artist: String, songKey: String) {
+        val rawResult = UnifiedLyricsService.fetchLyrics(
+            trackTitle = title,
+            artistName = artist,
+            sourcePref = aiPreferences.lyricsSource
+        ) ?: return
+
+        if (rawResult.originalLyrics.isBlank()) return
+
+        var origLyrics = rawResult.originalLyrics
+        var transLyrics = rawResult.translatedLyrics
+
+        if (transLyrics.isNullOrBlank()) {
+            try {
+                val transResult = translationService.translateTrack(title, origLyrics)
+                if (transResult != null && transResult.translatedLyrics.isNotBlank()) {
+                    transLyrics = transResult.translatedLyrics
+                }
+            } catch (e: Exception) {
+                // 忽略
+            }
+        }
+
+        val cleanOrig = LyricSanitizer.decensorLyrics(origLyrics)
+        val cleanTrans = LyricSanitizer.decensorChineseLyrics(transLyrics, cleanOrig)
+        val aligned = LyricAligner.align(cleanOrig, cleanTrans)
+
+        if (aligned.isNotEmpty()) {
+            memoryCache[songKey] = CachedSongData(
+                lyrics = aligned,
+                annotatedLines = emptyMap(),
+                songStory = null
+            )
         }
     }
 

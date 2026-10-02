@@ -37,6 +37,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.hilt.navigation.compose.hiltViewModel
 import coil.compose.AsyncImage
+import coil.request.ImageRequest
 import com.linernotes.app.core.playback.MediaPlaybackSyncService
 import com.linernotes.app.core.playback.TrackPlaybackState
 import com.linernotes.app.core.util.ChineseConverter
@@ -153,7 +154,6 @@ fun NowPlayingScreen(
                     onNext = { viewModel.skipToNext() },
                     onPrevious = { viewModel.skipToPrevious() },
                     onToggleShuffle = { viewModel.toggleShuffle() },
-                    onCycleRepeat = { viewModel.cycleRepeatMode() },
                     onSeekTo = { posMs -> viewModel.seekTo(posMs) },
                     onOpenQueue = { viewModel.openQueueSheet() },
                     onOpenSettings = { viewModel.openSettings() }
@@ -607,7 +607,6 @@ private fun NowPlayingFloatingGlassPlayer(
     onNext: () -> Unit,
     onPrevious: () -> Unit,
     onToggleShuffle: () -> Unit,
-    onCycleRepeat: () -> Unit,
     onSeekTo: (Long) -> Unit,
     onOpenQueue: () -> Unit,
     onOpenSettings: () -> Unit,
@@ -717,7 +716,10 @@ private fun NowPlayingFloatingGlassPlayer(
                         ) {
                             if (!trackState.coverUrl.isNullOrBlank()) {
                                 AsyncImage(
-                                    model = trackState.coverUrl,
+                                    model = ImageRequest.Builder(LocalContext.current)
+                                        .data(trackState.coverUrl)
+                                        .crossfade(true)
+                                        .build(),
                                     contentDescription = "Cover",
                                     contentScale = ContentScale.Crop,
                                     modifier = Modifier
@@ -773,34 +775,34 @@ private fun NowPlayingFloatingGlassPlayer(
                         }
                     }
 
-                    // 播放按键群 (随机 / 上一首 / 播放暂停 / 下一首 / 循环)
+                    // 播放按键群 (单按键切换随机/顺序播放 + 上一首 + 播放暂停 + 下一首，与 Spotify 逻辑 1:1 一致)
                     Row(
                         verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(2.dp)
+                        horizontalArrangement = Arrangement.spacedBy(4.dp)
                     ) {
-                        // 随机播放 (Shuffle)
+                        // 随机/顺序播放切换按键 (与 Spotify 一模一样：点击切换，开启时高亮 Spotify 绿，关闭时半透白即顺序播放)
                         IconButton(
                             onClick = onToggleShuffle,
-                            modifier = Modifier.size(30.dp)
+                            modifier = Modifier.size(32.dp)
                         ) {
                             Icon(
                                 imageVector = Icons.Default.Shuffle,
-                                contentDescription = "随机播放",
+                                contentDescription = if (trackState.isShuffleActive) "随机播放 (已开启)" else "顺序播放 (已开启)",
                                 tint = if (trackState.isShuffleActive) Color(0xFF1ED760) else Color.White.copy(alpha = 0.55f),
-                                modifier = Modifier.size(17.dp)
+                                modifier = Modifier.size(19.dp)
                             )
                         }
 
                         // 上一首 (Previous)
                         IconButton(
                             onClick = onPrevious,
-                            modifier = Modifier.size(30.dp)
+                            modifier = Modifier.size(32.dp)
                         ) {
                             Icon(
                                 imageVector = Icons.Default.SkipPrevious,
                                 contentDescription = "上一首",
                                 tint = Color.White.copy(alpha = 0.85f),
-                                modifier = Modifier.size(19.dp)
+                                modifier = Modifier.size(20.dp)
                             )
                         }
 
@@ -810,7 +812,7 @@ private fun NowPlayingFloatingGlassPlayer(
                             shape = CircleShape,
                             shadowElevation = 4.dp,
                             modifier = Modifier
-                                .size(34.dp)
+                                .size(36.dp)
                                 .clickable(onClick = onPlayPause)
                         ) {
                             Box(contentAlignment = Alignment.Center) {
@@ -818,7 +820,7 @@ private fun NowPlayingFloatingGlassPlayer(
                                     imageVector = if (trackState.isPlaying) Icons.Default.Pause else Icons.Default.PlayArrow,
                                     contentDescription = if (trackState.isPlaying) "暂停" else "播放",
                                     tint = Color.Black,
-                                    modifier = Modifier.size(19.dp)
+                                    modifier = Modifier.size(20.dp)
                                 )
                             }
                         }
@@ -826,28 +828,13 @@ private fun NowPlayingFloatingGlassPlayer(
                         // 下一首 (Next)
                         IconButton(
                             onClick = onNext,
-                            modifier = Modifier.size(30.dp)
+                            modifier = Modifier.size(32.dp)
                         ) {
                             Icon(
                                 imageVector = Icons.Default.SkipNext,
                                 contentDescription = "下一首",
                                 tint = Color.White.copy(alpha = 0.85f),
-                                modifier = Modifier.size(19.dp)
-                            )
-                        }
-
-                        // 循环播放 (Repeat / Repeat One)
-                        val repeatIcon = if (trackState.repeatMode == 2) Icons.Default.RepeatOne else Icons.Default.Repeat
-                        val isRepeatActive = trackState.repeatMode != 0
-                        IconButton(
-                            onClick = onCycleRepeat,
-                            modifier = Modifier.size(30.dp)
-                        ) {
-                            Icon(
-                                imageVector = repeatIcon,
-                                contentDescription = "循环播放",
-                                tint = if (isRepeatActive) Color(0xFF1ED760) else Color.White.copy(alpha = 0.55f),
-                                modifier = Modifier.size(17.dp)
+                                modifier = Modifier.size(20.dp)
                             )
                         }
                     }

@@ -7,15 +7,20 @@ import android.media.MediaMetadata
 import android.media.session.MediaController
 import android.media.session.MediaSessionManager
 import android.media.session.PlaybackState
+import android.app.Notification
+import android.graphics.Bitmap
 import android.os.Build
 import android.os.SystemClock
 import android.provider.Settings
 import android.service.notification.NotificationListenerService
 import android.service.notification.StatusBarNotification
+import android.support.v4.media.MediaMetadataCompat
 import android.support.v4.media.session.MediaControllerCompat
 import android.support.v4.media.session.MediaSessionCompat
 import android.support.v4.media.session.PlaybackStateCompat
 import androidx.core.app.NotificationManagerCompat
+import java.io.File
+import java.io.FileOutputStream
 
 /**
  * 基于 Android NotificationListenerService 与 MediaSessionManager 的核心媒体同步服务
@@ -117,6 +122,40 @@ class MediaPlaybackSyncService : NotificationListenerService(), MediaControlActi
         if (pkg == "com.spotify.music" && (activeController == null || activeController?.packageName != pkg)) {
             findAndAttachActiveController()
         }
+
+        // 尝试从 Spotify 通知栏中抓取大图作为兜底封面
+        if (pkg == "com.spotify.music") {
+            try {
+                val extras = sbn.notification?.extras
+                @Suppress("DEPRECATION")
+                val notifBitmap = (extras?.getParcelable(Notification.EXTRA_PICTURE) as? Bitmap)
+                    ?: (extras?.getParcelable(Notification.EXTRA_LARGE_ICON) as? Bitmap)
+                if (notifBitmap != null) {
+                    val localCoverPath = saveBitmapToLocalFile(notifBitmap)
+                    if (localCoverPath != null) {
+                        val current = playbackStateManager.playbackState.value
+                        if (current.coverUrl.isNullOrBlank()) {
+                            playbackStateManager.updateState(current.copy(coverUrl = localCoverPath))
+                        }
+                    }
+                }
+            } catch (e: Exception) {
+                e.printStackTrace()
+            }
+        }
+    }
+
+    private fun saveBitmapToLocalFile(bitmap: Bitmap): String? {
+        return try {
+            val artFile = File(cacheDir, "current_media_art.png")
+            FileOutputStream(artFile).use { out ->
+                bitmap.compress(Bitmap.CompressFormat.PNG, 95, out)
+            }
+            artFile.absolutePath
+        } catch (e: Exception) {
+            e.printStackTrace()
+            null
+        }
     }
 
     private fun findAndAttachActiveController() {
@@ -192,9 +231,27 @@ class MediaPlaybackSyncService : NotificationListenerService(), MediaControlActi
             ?: ""
         val album = metadata.getString(MediaMetadata.METADATA_KEY_ALBUM) ?: ""
         val duration = metadata.getLong(MediaMetadata.METADATA_KEY_DURATION)
-        val coverUri = metadata.getString(MediaMetadata.METADATA_KEY_ALBUM_ART_URI)
-            ?: metadata.getString(MediaMetadata.METADATA_KEY_ART_URI)
-            ?: metadata.getString(MediaMetadata.METADATA_KEY_DISPLAY_ICON_URI)
+
+        // 1. 优先提取系统跨进程解包的专辑封面 Bitmap (Spotify 原生以 Bitmap 传递)
+        val rawBitmap = metadata.getBitmap(MediaMetadata.METADATA_KEY_ALBUM_ART)
+            ?: metadata.getBitmap(MediaMetadata.METADATA_KEY_ART)
+            ?: metadata.description?.iconBitmap
+            ?: activeCompatController?.metadata?.getBitmap(MediaMetadataCompat.METADATA_KEY_ALBUM_ART)
+            ?: activeCompatController?.metadata?.getBitmap(MediaMetadataCompat.METADATA_KEY_ART)
+            ?: activeCompatController?.metadata?.description?.iconBitmap
+
+        var coverUri = rawBitmap?.let { saveBitmapToLocalFile(it) }
+
+        // 2. 若没有 Bitmap，过滤掉无法跨进程读取的 content:// 协议，仅保留可直接下载的 HTTP/HTTPS 或本地文件
+        if (coverUri == null) {
+            val candidateUri = metadata.getString(MediaMetadata.METADATA_KEY_ALBUM_ART_URI)
+                ?: metadata.getString(MediaMetadata.METADATA_KEY_ART_URI)
+                ?: metadata.getString(MediaMetadata.METADATA_KEY_DISPLAY_ICON_URI)
+                ?: metadata.description?.iconUri?.toString()
+            if (!candidateUri.isNullOrBlank() && (candidateUri.startsWith("http://") || candidateUri.startsWith("https://") || candidateUri.startsWith("file://"))) {
+                coverUri = candidateUri
+            }
+        }
 
         val pkg = activeController?.packageName ?: ""
         val sourceApp = MediaSourceApp.fromPackageName(pkg)
