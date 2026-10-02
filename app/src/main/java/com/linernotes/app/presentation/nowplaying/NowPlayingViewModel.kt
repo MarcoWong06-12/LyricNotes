@@ -29,7 +29,7 @@ data class NowPlayingUiState(
     val furiganaMode: FuriganaDisplayMode = FuriganaDisplayMode.OFF,
     val isTraditionalChinese: Boolean = false,
     val isDeCensorEnabled: Boolean = true,
-    val showPlaybackControls: Boolean = false,
+    val showPlaybackControls: Boolean = true,
     val lyricOffsetMs: Long = 0L,
     val userMessage: String? = null
 )
