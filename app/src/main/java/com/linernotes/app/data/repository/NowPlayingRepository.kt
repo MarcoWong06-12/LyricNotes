@@ -156,7 +156,7 @@ class NowPlayingRepository @Inject constructor(
                     val rawResult = UnifiedLyricsService.fetchLyrics(
                         trackTitle = title,
                         artistName = artist,
-                        sourcePref = aiPreferences.lyricsSourcePreference
+                        sourcePref = aiPreferences.lyricsSource
                     )
 
                     if (rawResult != null && rawResult.originalLyrics.isNotBlank()) {
@@ -176,8 +176,8 @@ class NowPlayingRepository @Inject constructor(
                         }
 
                         // 脏字脱敏反屏蔽处理
-                        val cleanOrig = LyricSanitizer.sanitizeLyrics(origLyrics, null)
-                        val cleanTrans = transLyrics?.let { LyricSanitizer.sanitizeLyrics(it, null) }
+                        val cleanOrig = LyricSanitizer.decensorLyrics(origLyrics)
+                        val cleanTrans = LyricSanitizer.decensorChineseLyrics(transLyrics, cleanOrig)
 
                         // 结构化时间轴对齐
                         fetchedLyrics = LyricAligner.align(cleanOrig, cleanTrans)
@@ -195,7 +195,7 @@ class NowPlayingRepository @Inject constructor(
                         val songId = searchResult.id
 
                         // 抓取整曲背景故事
-                        val songDetail = GeniusService.fetchSongDetail(songId)
+                        val songDetail = GeniusService.getSongDetails(songId)
                         if (songDetail != null) {
                             var transDesc: String? = null
                             if (songDetail.descriptionPlain.isNotBlank()) {
@@ -222,7 +222,7 @@ class NowPlayingRepository @Inject constructor(
                         }
 
                         // 抓取歌词行内典故
-                        val referents = GeniusService.fetchReferents(songId)
+                        val referents = GeniusService.getReferents(songId)
                         val annotList = mutableListOf<LyricAnnotationEntity>()
                         for (ref in referents) {
                             val annotItem = ref.annotations.firstOrNull() ?: continue
