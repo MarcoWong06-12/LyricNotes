@@ -141,7 +141,62 @@ fun NowPlayingScreen(
                 modifier = Modifier.align(Alignment.TopCenter)
             )
 
-            // 4. 方案 1：底栏悬浮毛玻璃全能胶囊 (复刻 LinerNotes 经典底栏，集合歌曲信息、滑条与播控)
+            // 4. Genius 获取失败/状态提醒微浮标 (Gemini / TG 悬浮微胶囊风格)
+            AnimatedVisibility(
+                visible = nowData.geniusNoticeMessage != null && hasTrack,
+                enter = fadeIn(tween(260)) + slideInVertically(tween(300)) { -it },
+                exit = fadeOut(tween(200)) + slideOutVertically(tween(260)) { -it },
+                modifier = Modifier
+                    .align(Alignment.TopCenter)
+                    .statusBarsPadding()
+                    .padding(top = 56.dp, start = 16.dp, end = 16.dp)
+            ) {
+                Surface(
+                    color = Color(0xFF1E202B).copy(alpha = 0.94f),
+                    shape = RoundedCornerShape(20.dp),
+                    border = BorderStroke(1.dp, Color.White.copy(alpha = 0.12f)),
+                    shadowElevation = 8.dp
+                ) {
+                    Row(
+                        modifier = Modifier.padding(horizontal = 14.dp, vertical = 8.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        Text("💡", fontSize = 12.sp)
+                        Text(
+                            text = nowData.geniusNoticeMessage ?: "",
+                            color = Color.White.copy(alpha = 0.85f),
+                            fontSize = 12.sp,
+                            fontFamily = FontFamily.SansSerif,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis
+                        )
+                        Spacer(modifier = Modifier.width(2.dp))
+                        Text(
+                            text = "重试",
+                            color = Color(0xFF1ED760),
+                            fontSize = 12.sp,
+                            fontWeight = FontWeight.Bold,
+                            fontFamily = FontFamily.SansSerif,
+                            modifier = Modifier
+                                .clip(RoundedCornerShape(6.dp))
+                                .clickable { viewModel.retryGenius() }
+                                .padding(horizontal = 6.dp, vertical = 2.dp)
+                        )
+                        Icon(
+                            imageVector = Icons.Default.Close,
+                            contentDescription = "关闭",
+                            tint = Color.White.copy(alpha = 0.5f),
+                            modifier = Modifier
+                                .size(16.dp)
+                                .clip(CircleShape)
+                                .clickable { viewModel.dismissGeniusNotice() }
+                        )
+                    }
+                }
+            }
+
+            // 5. 方案 1：底栏悬浮毛玻璃全能胶囊 (复刻 LinerNotes 经典底栏，集合歌曲信息、滑条与播控)
             AnimatedVisibility(
                 visible = hasTrack && state.showPlaybackControls,
                 enter = fadeIn(tween(260)) + slideInVertically(tween(320)) { it / 2 },
@@ -177,12 +232,14 @@ fun NowPlayingScreen(
             LyricNotesSettingsSheet(
                 trackState = trackState,
                 hasSongStory = nowData.songStory != null,
+                geniusNotice = nowData.geniusNoticeMessage,
                 furiganaMode = state.furiganaMode,
                 isTraditionalChinese = state.isTraditionalChinese,
                 isDeCensorEnabled = state.isDeCensorEnabled,
                 showPlaybackControls = state.showPlaybackControls,
                 lyricOffsetMs = state.lyricOffsetMs,
                 onOpenSongStory = { viewModel.openSongStory() },
+                onReloadGenius = { viewModel.retryGenius() },
                 onAdjustOffset = { delta -> viewModel.adjustLyricOffset(delta) },
                 onResetOffset = { viewModel.resetLyricOffset() },
                 onSetFuriganaMode = { mode -> viewModel.setFuriganaMode(mode) },

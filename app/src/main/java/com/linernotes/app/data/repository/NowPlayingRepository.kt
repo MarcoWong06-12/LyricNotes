@@ -1,7 +1,6 @@
 package com.linernotes.app.data.repository
 
 import android.os.SystemClock
-import com.linernotes.app.core.lyric.AiAnnotationCurator
 import com.linernotes.app.core.lyric.LyricAligner
 import com.linernotes.app.core.lyric.LyricFragmentMatcher
 import com.linernotes.app.core.lyric.LyricSanitizer
@@ -10,7 +9,6 @@ import com.linernotes.app.core.playback.TrackPlaybackState
 import com.linernotes.app.core.preference.AiPreferences
 import com.linernotes.app.data.local.entity.LyricAnnotationEntity
 import com.linernotes.app.data.local.entity.SongStoryEntity
-import com.linernotes.app.data.local.entity.TrackEntity
 import com.linernotes.app.data.remote.GeniusService
 import com.linernotes.app.data.remote.TranslationService
 import com.linernotes.app.data.remote.UnifiedLyricsService
@@ -27,6 +25,7 @@ data class NowPlayingData(
     val songStory: SongStoryEntity? = null,
     val isLoadingLyrics: Boolean = false,
     val isLoadingGenius: Boolean = false,
+    val geniusNoticeMessage: String? = null,
     val currentLineIndex: Int = -1,
     val errorMessage: String? = null
 )
@@ -57,7 +56,8 @@ class NowPlayingRepository @Inject constructor(
     private data class CachedSongData(
         val lyrics: List<BilingualLyricLine>,
         val annotatedLines: Map<Int, LyricAnnotationEntity>,
-        val songStory: SongStoryEntity?
+        val songStory: SongStoryEntity?,
+        val geniusNotice: String? = null
     )
 
     init {
@@ -158,6 +158,7 @@ class NowPlayingRepository @Inject constructor(
                     songStory = cached.songStory,
                     isLoadingLyrics = false,
                     isLoadingGenius = false,
+                    geniusNoticeMessage = cached.geniusNotice,
                     errorMessage = null
                 )
             }
@@ -173,6 +174,7 @@ class NowPlayingRepository @Inject constructor(
                     songStory = null,
                     isLoadingLyrics = false,
                     isLoadingGenius = true,
+                    geniusNoticeMessage = null,
                     errorMessage = null
                 )
             }
@@ -184,6 +186,7 @@ class NowPlayingRepository @Inject constructor(
                     songStory = null,
                     isLoadingLyrics = true,
                     isLoadingGenius = true,
+                    geniusNoticeMessage = null,
                     errorMessage = null
                 )
             }
@@ -233,10 +236,13 @@ class NowPlayingRepository @Inject constructor(
             }
 
             // 2. 并发抓取 Genius 歌曲创作背景与歌词行典故
+            var geniusSongFound = false
             val geniusJob = async {
                 try {
-                    val searchResult = GeniusService.searchSong(title, artist)
+                    val customToken = aiPreferences.geniusToken.takeIf { it.isNotBlank() }
+                    val searchResult = GeniusService.searchSong(title, artist, customToken)
                     if (searchResult != null) {
+                        geniusSongFound = true
                         val songId = searchResult.id
 
                         // 回填云端超高清专辑封面
@@ -249,7 +255,7 @@ class NowPlayingRepository @Inject constructor(
                         }
 
                         // 抓取整曲背景故事
-                        val songDetail = GeniusService.getSongDetails(songId)
+                        val songDetail = GeniusService.getSongDetails(songId, customToken)
                         if (songDetail != null) {
                             var transDesc: String? = null
                             if (songDetail.descriptionPlain.isNotBlank()) {
@@ -276,7 +282,7 @@ class NowPlayingRepository @Inject constructor(
                         }
 
                         // 抓取歌词行内典故
-                        val referents = GeniusService.getReferents(songId)
+                        val referents = GeniusService.getReferents(songId, customToken)
                         val annotList = mutableListOf<LyricAnnotationEntity>()
                         for (ref in referents) {
                             val annotItem = ref.annotations.firstOrNull() ?: continue
@@ -322,54 +328,28 @@ class NowPlayingRepository @Inject constructor(
 
             geniusJob.await()
 
-            // 智能保底：若 Genius API 网络受限/未收录且歌词非空，调用内置深度策展引擎
-            if (fetchedAnnotations.isEmpty() && fetchedLyrics.isNotEmpty()) {
-                try {
-                    val dummyTrack = TrackEntity(
-                        id = System.currentTimeMillis() % 1000000,
-                        albumId = "",
-                        trackNumber = 1,
-                        title = title,
-                        durationMs = 0
-                    )
-                    val (curatedStory, curatedAnnots) = AiAnnotationCurator.curateTrack(
-                        track = dummyTrack,
-                        artist = artist,
-                        alignedLines = fetchedLyrics.map { it.original }
-                    )
-                    if (fetchedStory == null) {
-                        fetchedStory = curatedStory
-                    }
-                    if (curatedAnnots.isNotEmpty()) {
-                        fetchedAnnotations = curatedAnnots
-                    }
-                } catch (e: Exception) {
-                    e.printStackTrace()
-                }
-            }
-
-            // 将 Genius / 策展典故通过片段匹配器锚定到歌词行
-            var matchedAnnotations = if (fetchedLyrics.isNotEmpty() && fetchedAnnotations.isNotEmpty()) {
+            // 真实典故片段匹配：仅将 Genius 官方典故精确锚定到歌词行，坚决不伪造或自动生成虚假内容
+            val matchedAnnotations = if (fetchedLyrics.isNotEmpty() && fetchedAnnotations.isNotEmpty()) {
                 LyricFragmentMatcher.matchAnnotationsToLines(fetchedLyrics, fetchedAnnotations)
             } else {
                 emptyMap()
             }
 
-            // 二次防呆保底：若依然未锚定成功，且歌词与典故都存在，确保至少有代表性行显示典故
-            if (matchedAnnotations.isEmpty() && fetchedLyrics.isNotEmpty() && fetchedAnnotations.isNotEmpty()) {
-                val fallbackMap = mutableMapOf<Int, LyricAnnotationEntity>()
-                fetchedAnnotations.forEachIndexed { idx, annot ->
-                    val lineIdx = (idx * (fetchedLyrics.size / (fetchedAnnotations.size + 1).coerceAtLeast(1))).coerceIn(0, fetchedLyrics.lastIndex)
-                    fallbackMap[lineIdx] = annot
-                }
-                matchedAnnotations = fallbackMap
+            // 获取失败精准提示：当 Genius 典故与背景故事未能获取时，生成清晰诚实的通知提醒用户
+            val failureNotice: String? = when {
+                matchedAnnotations.isNotEmpty() || (fetchedStory != null && fetchedStory.descriptionPlain.isNotBlank()) -> null
+                !GeniusService.lastRequestConnected -> "Genius 网络连接受阻，无法获取典故"
+                !geniusSongFound -> "未在 Genius 检索到本曲收录"
+                fetchedAnnotations.isEmpty() -> "Genius 尚未收录本曲歌词典故"
+                else -> "Genius 典故与当前歌词版本未能成功匹配"
             }
 
             // 写入内存缓存
             val cachedData = CachedSongData(
                 lyrics = fetchedLyrics,
                 annotatedLines = matchedAnnotations,
-                songStory = fetchedStory
+                songStory = fetchedStory,
+                geniusNotice = failureNotice
             )
             memoryCache[songKey] = cachedData
 
@@ -379,8 +359,19 @@ class NowPlayingRepository @Inject constructor(
                     annotatedLines = matchedAnnotations,
                     songStory = fetchedStory,
                     isLoadingLyrics = false,
-                    isLoadingGenius = false
+                    isLoadingGenius = false,
+                    geniusNoticeMessage = failureNotice
                 )
+            }
+
+            // 若有失败提醒，7 秒后自动淡化提示，避免持续遮挡歌词
+            if (failureNotice != null) {
+                repositoryScope.launch {
+                    delay(7000)
+                    _nowPlayingData.update {
+                        if (it.geniusNoticeMessage == failureNotice) it.copy(geniusNoticeMessage = null) else it
+                    }
+                }
             }
         }
     }
@@ -434,35 +425,25 @@ class NowPlayingRepository @Inject constructor(
         val aligned = LyricAligner.align(cleanOrig, cleanTrans)
 
         if (aligned.isNotEmpty()) {
-            var preStory: SongStoryEntity? = null
-            var preAnnots: Map<Int, LyricAnnotationEntity> = emptyMap()
-            try {
-                val dummyTrack = TrackEntity(
-                    id = System.currentTimeMillis() % 1000000,
-                    albumId = "",
-                    trackNumber = 1,
-                    title = title,
-                    durationMs = 0
-                )
-                val (curStory, curAnnots) = AiAnnotationCurator.curateTrack(
-                    track = dummyTrack,
-                    artist = artist,
-                    alignedLines = aligned.map { it.original }
-                )
-                preStory = curStory
-                if (curAnnots.isNotEmpty()) {
-                    preAnnots = LyricFragmentMatcher.matchAnnotationsToLines(aligned, curAnnots)
-                }
-            } catch (e: Exception) {
-                // ignore
-            }
-
             memoryCache[songKey] = CachedSongData(
                 lyrics = aligned,
-                annotatedLines = preAnnots,
-                songStory = preStory
+                annotatedLines = emptyMap(),
+                songStory = null
             )
         }
+    }
+
+    fun dismissGeniusNotice() {
+        _nowPlayingData.update { it.copy(geniusNoticeMessage = null) }
+    }
+
+    fun reloadGeniusOnly() {
+        val current = _nowPlayingData.value
+        val state = current.playbackState
+        if (!state.hasValidTrack) return
+        val songKey = "${state.artist.trim().lowercase()} - ${state.title.trim().lowercase()}"
+        memoryCache.remove(songKey)
+        loadSongLyricsAndGenius(state.title, state.artist, songKey)
     }
 
     // 播控方法代理回传 Spotify

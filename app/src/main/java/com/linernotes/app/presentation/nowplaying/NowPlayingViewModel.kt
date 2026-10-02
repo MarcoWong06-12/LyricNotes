@@ -165,4 +165,12 @@ class NowPlayingViewModel @Inject constructor(
     fun clearUserMessage() {
         _uiState.update { it.copy(userMessage = null) }
     }
+
+    fun dismissGeniusNotice() {
+        nowPlayingRepository.dismissGeniusNotice()
+    }
+
+    fun retryGenius() {
+        nowPlayingRepository.reloadGeniusOnly()
+    }
 }

@@ -33,12 +33,14 @@ import com.linernotes.app.presentation.nowplaying.FuriganaDisplayMode
 fun LyricNotesSettingsSheet(
     trackState: TrackPlaybackState,
     hasSongStory: Boolean,
+    geniusNotice: String? = null,
     furiganaMode: FuriganaDisplayMode,
     isTraditionalChinese: Boolean,
     isDeCensorEnabled: Boolean,
     showPlaybackControls: Boolean,
     lyricOffsetMs: Long,
     onOpenSongStory: () -> Unit,
+    onReloadGenius: () -> Unit = {},
     onAdjustOffset: (Long) -> Unit,
     onResetOffset: () -> Unit,
     onSetFuriganaMode: (FuriganaDisplayMode) -> Unit,
@@ -148,7 +150,7 @@ fun LyricNotesSettingsSheet(
                 }
             }
 
-            // 2. Genius 歌曲创作背景 (Song Story)
+            // 2. Genius 歌曲创作背景与典故状态
             if (hasSongStory) {
                 Surface(
                     color = Color(0xFFFFD54F).copy(alpha = 0.12f),
@@ -192,6 +194,46 @@ fun LyricNotesSettingsSheet(
                             contentDescription = null,
                             tint = Color(0xFFFFE082)
                         )
+                    }
+                }
+            } else {
+                Surface(
+                    color = Color.White.copy(alpha = 0.05f),
+                    shape = RoundedCornerShape(16.dp),
+                    border = androidx.compose.foundation.BorderStroke(0.5.dp, Color.White.copy(alpha = 0.12f)),
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Row(
+                        modifier = Modifier.padding(14.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.SpaceBetween
+                    ) {
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(10.dp),
+                            modifier = Modifier.weight(1f)
+                        ) {
+                            Text("💡", fontSize = 18.sp)
+                            Column {
+                                Text(
+                                    text = "Genius 典故与背景故事",
+                                    color = Color.White.copy(alpha = 0.85f),
+                                    fontSize = 14.sp,
+                                    fontWeight = FontWeight.SemiBold
+                                )
+                                Text(
+                                    text = geniusNotice ?: "未检索到本曲 Genius 典故注释",
+                                    color = Color.White.copy(alpha = 0.5f),
+                                    fontSize = 12.sp
+                                )
+                            }
+                        }
+                        TextButton(
+                            onClick = onReloadGenius,
+                            colors = ButtonDefaults.textButtonColors(contentColor = Color(0xFF1ED760))
+                        ) {
+                            Text("重试", fontSize = 13.sp, fontWeight = FontWeight.Bold)
+                        }
                     }
                 }
             }
