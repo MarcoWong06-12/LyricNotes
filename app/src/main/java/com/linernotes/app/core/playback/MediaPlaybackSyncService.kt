@@ -145,12 +145,12 @@ class MediaPlaybackSyncService : NotificationListenerService(), MediaControlActi
         }
     }
 
-    private var coverSequence = 0
+    private val coverSequence = java.util.concurrent.atomic.AtomicInteger(0)
 
     private fun saveBitmapToLocalFile(bitmap: Bitmap): String? {
         return try {
-            coverSequence++
-            val artFile = File(cacheDir, "media_art_${System.currentTimeMillis()}_$coverSequence.png")
+            val seq = coverSequence.incrementAndGet()
+            val artFile = File(cacheDir, "media_art_${System.currentTimeMillis()}_$seq.png")
             FileOutputStream(artFile).use { out ->
                 bitmap.compress(Bitmap.CompressFormat.PNG, 95, out)
             }
@@ -164,10 +164,12 @@ class MediaPlaybackSyncService : NotificationListenerService(), MediaControlActi
 
     private fun cleanupOldArtFiles(currentFileName: String) {
         try {
-            cacheDir.listFiles()?.forEach { f ->
-                if (f.name.startsWith("media_art_") && f.name != currentFileName) {
-                    f.delete()
-                }
+            val files = cacheDir.listFiles { _, name -> name.startsWith("media_art_") } ?: return
+            if (files.size > 2) {
+                files.filter { it.name != currentFileName }
+                    .sortedByDescending { it.lastModified() }
+                    .drop(1)
+                    .forEach { it.delete() }
             }
         } catch (e: Exception) {
             // ignore

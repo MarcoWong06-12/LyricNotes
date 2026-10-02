@@ -169,7 +169,8 @@ fun NowPlayingScreen(
                             fontSize = 12.sp,
                             fontFamily = FontFamily.SansSerif,
                             maxLines = 1,
-                            overflow = TextOverflow.Ellipsis
+                            overflow = TextOverflow.Ellipsis,
+                            modifier = Modifier.weight(1f, fill = false)
                         )
                         Spacer(modifier = Modifier.width(2.dp))
                         Text(

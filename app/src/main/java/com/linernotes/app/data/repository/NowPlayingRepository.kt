@@ -49,9 +49,14 @@ class NowPlayingRepository @Inject constructor(
     private var currentSongKey: String? = null
     private var dataLoadJob: Job? = null
     private var positionTrackerJob: Job? = null
+    private var noticeDismissJob: Job? = null
 
-    // 内存高速缓存 (同一首歌二次播放 0ms 响应)
-    private val memoryCache = mutableMapOf<String, CachedSongData>()
+    // 内存高速缓存 (同一首歌二次播放 0ms 响应，LRU 淘汰上限 50 首，线程安全)
+    private val memoryCache: MutableMap<String, CachedSongData> = java.util.Collections.synchronizedMap(
+        object : java.util.LinkedHashMap<String, CachedSongData>(50, 0.75f, true) {
+            override fun removeEldestEntry(eldest: MutableMap.MutableEntry<String, CachedSongData>?): Boolean = size > 50
+        }
+    )
 
     private data class CachedSongData(
         val lyrics: List<BilingualLyricLine>,
@@ -147,6 +152,7 @@ class NowPlayingRepository @Inject constructor(
 
     fun loadSongLyricsAndGenius(title: String, artist: String, songKey: String) {
         dataLoadJob?.cancel()
+        noticeDismissJob?.cancel()
 
         // 检查内存缓存：若歌词和典故都已具备，直接秒开
         val cached = memoryCache[songKey]
@@ -366,7 +372,8 @@ class NowPlayingRepository @Inject constructor(
 
             // 若有失败提醒，7 秒后自动淡化提示，避免持续遮挡歌词
             if (failureNotice != null) {
-                repositoryScope.launch {
+                noticeDismissJob?.cancel()
+                noticeDismissJob = repositoryScope.launch {
                     delay(7000)
                     _nowPlayingData.update {
                         if (it.geniusNoticeMessage == failureNotice) it.copy(geniusNoticeMessage = null) else it
@@ -434,6 +441,7 @@ class NowPlayingRepository @Inject constructor(
     }
 
     fun dismissGeniusNotice() {
+        noticeDismissJob?.cancel()
         _nowPlayingData.update { it.copy(geniusNoticeMessage = null) }
     }
 
@@ -442,7 +450,17 @@ class NowPlayingRepository @Inject constructor(
         val state = current.playbackState
         if (!state.hasValidTrack) return
         val songKey = "${state.artist.trim().lowercase()} - ${state.title.trim().lowercase()}"
-        memoryCache.remove(songKey)
+        val existingLyrics = memoryCache[songKey]?.lyrics ?: current.lyrics
+        if (existingLyrics.isNotEmpty()) {
+            memoryCache[songKey] = CachedSongData(
+                lyrics = existingLyrics,
+                annotatedLines = emptyMap(),
+                songStory = null,
+                geniusNotice = null
+            )
+        } else {
+            memoryCache.remove(songKey)
+        }
         loadSongLyricsAndGenius(state.title, state.artist, songKey)
     }
 
