@@ -325,4 +325,6 @@ class NowPlayingRepository @Inject constructor(
     fun skipToNext() = playbackStateManager.skipToNext()
     fun skipToPrevious() = playbackStateManager.skipToPrevious()
     fun seekTo(positionMs: Long) = playbackStateManager.seekTo(positionMs)
+    fun toggleShuffle() = playbackStateManager.toggleShuffle()
+    fun cycleRepeatMode() = playbackStateManager.cycleRepeatMode()
 }

@@ -13,6 +13,8 @@ interface MediaControlActionHandler {
     fun skipToNext()
     fun skipToPrevious()
     fun seekTo(positionMs: Long)
+    fun toggleShuffle()
+    fun cycleRepeatMode()
 }
 
 /**
@@ -66,6 +68,8 @@ class PlaybackStateManager @Inject constructor() {
     fun skipToNext() = controlActionHandler?.skipToNext()
     fun skipToPrevious() = controlActionHandler?.skipToPrevious()
     fun seekTo(positionMs: Long) = controlActionHandler?.seekTo(positionMs)
+    fun toggleShuffle() = controlActionHandler?.toggleShuffle()
+    fun cycleRepeatMode() = controlActionHandler?.cycleRepeatMode()
 
     companion object {
         @Volatile

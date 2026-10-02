@@ -12,6 +12,9 @@ import android.os.SystemClock
 import android.provider.Settings
 import android.service.notification.NotificationListenerService
 import android.service.notification.StatusBarNotification
+import android.support.v4.media.session.MediaControllerCompat
+import android.support.v4.media.session.MediaSessionCompat
+import android.support.v4.media.session.PlaybackStateCompat
 import androidx.core.app.NotificationManagerCompat
 
 /**
@@ -22,7 +25,40 @@ class MediaPlaybackSyncService : NotificationListenerService(), MediaControlActi
 
     private var mediaSessionManager: MediaSessionManager? = null
     private var activeController: MediaController? = null
+    private var activeCompatController: MediaControllerCompat? = null
     private val playbackStateManager = PlaybackStateManager.getInstance()
+
+    private val compatCallback = object : MediaControllerCompat.Callback() {
+        override fun onShuffleModeChanged(shuffleMode: Int) {
+            val isShuffle = shuffleMode != PlaybackStateCompat.SHUFFLE_MODE_NONE
+            val current = playbackStateManager.playbackState.value
+            playbackStateManager.updateState(current.copy(isShuffleActive = isShuffle))
+        }
+
+        override fun onRepeatModeChanged(repeatMode: Int) {
+            val mapped = when (repeatMode) {
+                PlaybackStateCompat.REPEAT_MODE_ALL, PlaybackStateCompat.REPEAT_MODE_GROUP -> 1
+                PlaybackStateCompat.REPEAT_MODE_ONE -> 2
+                else -> 0
+            }
+            val current = playbackStateManager.playbackState.value
+            playbackStateManager.updateState(current.copy(repeatMode = mapped))
+        }
+
+        override fun onQueueChanged(queue: MutableList<MediaSessionCompat.QueueItem>?) {
+            val items = queue?.map { item ->
+                QueueTrackItem(
+                    id = item.queueId,
+                    title = item.description.title?.toString() ?: "",
+                    artist = item.description.subtitle?.toString() ?: "",
+                    album = item.description.description?.toString() ?: "",
+                    coverUri = item.description.iconUri?.toString()
+                )
+            } ?: emptyList()
+            val current = playbackStateManager.playbackState.value
+            playbackStateManager.updateState(current.copy(queueItems = items))
+        }
+    }
 
     private val controllerCallback = object : MediaController.Callback() {
         override fun onPlaybackStateChanged(state: PlaybackState?) {
@@ -66,7 +102,9 @@ class MediaPlaybackSyncService : NotificationListenerService(), MediaControlActi
         try {
             mediaSessionManager?.removeOnActiveSessionsChangedListener(sessionsChangedListener)
             activeController?.unregisterCallback(controllerCallback)
+            activeCompatController?.unregisterCallback(compatCallback)
             activeController = null
+            activeCompatController = null
         } catch (e: Exception) {
             e.printStackTrace()
         }
@@ -101,8 +139,43 @@ class MediaPlaybackSyncService : NotificationListenerService(), MediaControlActi
 
         if (chosen != null && chosen != activeController) {
             activeController?.unregisterCallback(controllerCallback)
+            activeCompatController?.unregisterCallback(compatCallback)
             activeController = chosen
             chosen.registerCallback(controllerCallback)
+
+            try {
+                val tokenCompat = MediaSessionCompat.Token.fromToken(chosen.sessionToken)
+                val compat = MediaControllerCompat(this, tokenCompat)
+                activeCompatController = compat
+                compat.registerCallback(compatCallback)
+
+                val initShuffle = compat.shuffleMode != PlaybackStateCompat.SHUFFLE_MODE_NONE
+                val initRepeat = when (compat.repeatMode) {
+                    PlaybackStateCompat.REPEAT_MODE_ALL, PlaybackStateCompat.REPEAT_MODE_GROUP -> 1
+                    PlaybackStateCompat.REPEAT_MODE_ONE -> 2
+                    else -> 0
+                }
+                val initQueue = compat.queue?.map { item ->
+                    QueueTrackItem(
+                        id = item.queueId,
+                        title = item.description.title?.toString() ?: "",
+                        artist = item.description.subtitle?.toString() ?: "",
+                        album = item.description.description?.toString() ?: "",
+                        coverUri = item.description.iconUri?.toString()
+                    )
+                } ?: emptyList()
+
+                val cur = playbackStateManager.playbackState.value
+                playbackStateManager.updateState(
+                    cur.copy(
+                        isShuffleActive = initShuffle,
+                        repeatMode = initRepeat,
+                        queueItems = initQueue
+                    )
+                )
+            } catch (e: Exception) {
+                e.printStackTrace()
+            }
 
             chosen.metadata?.let { handleMetadataUpdate(it) }
             chosen.playbackState?.let { handlePlaybackStateUpdate(it) }
@@ -187,6 +260,33 @@ class MediaPlaybackSyncService : NotificationListenerService(), MediaControlActi
 
     override fun seekTo(positionMs: Long) {
         activeController?.transportControls?.seekTo(positionMs)
+    }
+
+    override fun toggleShuffle() {
+        val compat = activeCompatController ?: return
+        val currentShuffle = compat.shuffleMode
+        val targetMode = if (currentShuffle == PlaybackStateCompat.SHUFFLE_MODE_ALL) {
+            PlaybackStateCompat.SHUFFLE_MODE_NONE
+        } else {
+            PlaybackStateCompat.SHUFFLE_MODE_ALL
+        }
+        compat.transportControls.setShuffleMode(targetMode)
+        val cur = playbackStateManager.playbackState.value
+        playbackStateManager.updateState(cur.copy(isShuffleActive = targetMode != PlaybackStateCompat.SHUFFLE_MODE_NONE))
+    }
+
+    override fun cycleRepeatMode() {
+        val compat = activeCompatController ?: return
+        val currentRepeat = compat.repeatMode
+        val (targetMode, mappedMode) = when (currentRepeat) {
+            PlaybackStateCompat.REPEAT_MODE_NONE -> Pair(PlaybackStateCompat.REPEAT_MODE_ALL, 1)
+            PlaybackStateCompat.REPEAT_MODE_ALL -> Pair(PlaybackStateCompat.REPEAT_MODE_ONE, 2)
+            PlaybackStateCompat.REPEAT_MODE_ONE -> Pair(PlaybackStateCompat.REPEAT_MODE_NONE, 0)
+            else -> Pair(PlaybackStateCompat.REPEAT_MODE_ALL, 1)
+        }
+        compat.transportControls.setRepeatMode(targetMode)
+        val cur = playbackStateManager.playbackState.value
+        playbackStateManager.updateState(cur.copy(repeatMode = mappedMode))
     }
 
     companion object {

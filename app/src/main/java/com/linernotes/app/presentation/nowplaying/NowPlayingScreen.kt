@@ -45,6 +45,7 @@ import com.linernotes.app.domain.model.BilingualLyricLine
 import com.linernotes.app.presentation.booklet.components.AmbientGlowBackground
 import com.linernotes.app.presentation.nowplaying.components.LyricNotesSettingsSheet
 import com.linernotes.app.presentation.nowplaying.components.NowPlayingGeniusSheet
+import com.linernotes.app.presentation.nowplaying.components.NowPlayingQueueSheet
 import com.linernotes.app.presentation.nowplaying.components.NowPlayingSongStorySheet
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
@@ -134,6 +135,7 @@ fun NowPlayingScreen(
             // 3. 极简顶部状态微栏 (为歌词留出 80% 屏幕纵向空间)
             NowPlayingTopBar(
                 trackState = trackState,
+                onOpenQueue = { viewModel.openQueueSheet() },
                 onOpenSettings = { viewModel.openSettings() },
                 modifier = Modifier.align(Alignment.TopCenter)
             )
@@ -150,10 +152,24 @@ fun NowPlayingScreen(
                     onPlayPause = { viewModel.togglePlayPause() },
                     onNext = { viewModel.skipToNext() },
                     onPrevious = { viewModel.skipToPrevious() },
+                    onToggleShuffle = { viewModel.toggleShuffle() },
+                    onCycleRepeat = { viewModel.cycleRepeatMode() },
                     onSeekTo = { posMs -> viewModel.seekTo(posMs) },
+                    onOpenQueue = { viewModel.openQueueSheet() },
                     onOpenSettings = { viewModel.openSettings() }
                 )
             }
+        }
+
+        // 待播队列 (Queue) 底部抽屉 (仿 Spotify 队列界面)
+        if (state.isQueueSheetOpen) {
+            NowPlayingQueueSheet(
+                trackState = trackState,
+                onToggleShuffle = { viewModel.toggleShuffle() },
+                onCycleRepeat = { viewModel.cycleRepeatMode() },
+                onPlayPause = { viewModel.togglePlayPause() },
+                onDismiss = { viewModel.closeQueueSheet() }
+            )
         }
 
         // 统一设置抽屉 (包含时间轴微调、繁简、假名、控制栏开关等)
@@ -204,6 +220,7 @@ fun NowPlayingScreen(
 @Composable
 private fun NowPlayingTopBar(
     trackState: TrackPlaybackState,
+    onOpenQueue: () -> Unit,
     onOpenSettings: () -> Unit,
     modifier: Modifier = Modifier
 ) {
@@ -250,22 +267,45 @@ private fun NowPlayingTopBar(
             )
         }
 
-        // 右侧纯净微型设置按钮 "···"
-        Surface(
-            color = Color.White.copy(alpha = 0.1f),
-            shape = CircleShape,
-            border = BorderStroke(0.5.dp, Color.White.copy(alpha = 0.16f)),
-            modifier = Modifier
-                .size(34.dp)
-                .clickable(onClick = onOpenSettings)
+        // 右侧操作群：待播队列 (Queue) + 更多设置 (···)
+        Row(
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(8.dp)
         ) {
-            Box(contentAlignment = Alignment.Center) {
-                Icon(
-                    imageVector = Icons.Default.MoreHoriz,
-                    contentDescription = "设置",
-                    tint = Color.White.copy(alpha = 0.85f),
-                    modifier = Modifier.size(18.dp)
-                )
+            Surface(
+                color = Color.White.copy(alpha = 0.1f),
+                shape = CircleShape,
+                border = BorderStroke(0.5.dp, Color.White.copy(alpha = 0.16f)),
+                modifier = Modifier
+                    .size(34.dp)
+                    .clickable(onClick = onOpenQueue)
+            ) {
+                Box(contentAlignment = Alignment.Center) {
+                    Icon(
+                        imageVector = Icons.Default.QueueMusic,
+                        contentDescription = "待播队列",
+                        tint = Color.White.copy(alpha = 0.85f),
+                        modifier = Modifier.size(18.dp)
+                    )
+                }
+            }
+
+            Surface(
+                color = Color.White.copy(alpha = 0.1f),
+                shape = CircleShape,
+                border = BorderStroke(0.5.dp, Color.White.copy(alpha = 0.16f)),
+                modifier = Modifier
+                    .size(34.dp)
+                    .clickable(onClick = onOpenSettings)
+            ) {
+                Box(contentAlignment = Alignment.Center) {
+                    Icon(
+                        imageVector = Icons.Default.MoreHoriz,
+                        contentDescription = "设置",
+                        tint = Color.White.copy(alpha = 0.85f),
+                        modifier = Modifier.size(18.dp)
+                    )
+                }
             }
         }
     }
@@ -566,7 +606,10 @@ private fun NowPlayingFloatingGlassPlayer(
     onPlayPause: () -> Unit,
     onNext: () -> Unit,
     onPrevious: () -> Unit,
+    onToggleShuffle: () -> Unit,
+    onCycleRepeat: () -> Unit,
     onSeekTo: (Long) -> Unit,
+    onOpenQueue: () -> Unit,
     onOpenSettings: () -> Unit,
     modifier: Modifier = Modifier
 ) {
@@ -657,41 +700,45 @@ private fun NowPlayingFloatingGlassPlayer(
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.SpaceBetween
                 ) {
-                    // 歌曲信息群 (点击可弹出详细设置抽屉)
+                    // 歌曲信息群 (点击封面查看待播队列，点击文字打开设置)
                     Row(
                         modifier = Modifier
                             .weight(1f)
-                            .clickable(
-                                interactionSource = remember { MutableInteractionSource() },
-                                indication = null,
-                                onClick = onOpenSettings
-                            ),
+                            .padding(end = 4.dp),
                         verticalAlignment = Alignment.CenterVertically,
                         horizontalArrangement = Arrangement.spacedBy(10.dp)
                     ) {
-                        if (!trackState.coverUrl.isNullOrBlank()) {
-                            AsyncImage(
-                                model = trackState.coverUrl,
-                                contentDescription = "Cover",
-                                contentScale = ContentScale.Crop,
-                                modifier = Modifier
-                                    .size(38.dp)
-                                    .clip(RoundedCornerShape(8.dp))
-                                    .border(BorderStroke(0.5.dp, Color.White.copy(alpha = 0.18f)), RoundedCornerShape(8.dp))
+                        Box(
+                            modifier = Modifier.clickable(
+                                interactionSource = remember { MutableInteractionSource() },
+                                indication = null,
+                                onClick = onOpenQueue
                             )
-                        } else {
-                            Surface(
-                                color = Color.White.copy(alpha = 0.1f),
-                                shape = RoundedCornerShape(8.dp),
-                                modifier = Modifier.size(38.dp)
-                            ) {
-                                Box(contentAlignment = Alignment.Center) {
-                                    Icon(
-                                        imageVector = Icons.Default.MusicNote,
-                                        contentDescription = null,
-                                        tint = Color.White.copy(alpha = 0.65f),
-                                        modifier = Modifier.size(18.dp)
-                                    )
+                        ) {
+                            if (!trackState.coverUrl.isNullOrBlank()) {
+                                AsyncImage(
+                                    model = trackState.coverUrl,
+                                    contentDescription = "Cover",
+                                    contentScale = ContentScale.Crop,
+                                    modifier = Modifier
+                                        .size(38.dp)
+                                        .clip(RoundedCornerShape(8.dp))
+                                        .border(BorderStroke(0.5.dp, Color.White.copy(alpha = 0.18f)), RoundedCornerShape(8.dp))
+                                )
+                            } else {
+                                Surface(
+                                    color = Color.White.copy(alpha = 0.1f),
+                                    shape = RoundedCornerShape(8.dp),
+                                    modifier = Modifier.size(38.dp)
+                                ) {
+                                    Box(contentAlignment = Alignment.Center) {
+                                        Icon(
+                                            imageVector = Icons.Default.MusicNote,
+                                            contentDescription = null,
+                                            tint = Color.White.copy(alpha = 0.65f),
+                                            modifier = Modifier.size(18.dp)
+                                        )
+                                    }
                                 }
                             }
                         }
@@ -699,7 +746,11 @@ private fun NowPlayingFloatingGlassPlayer(
                         Column(
                             modifier = Modifier
                                 .weight(1f)
-                                .padding(end = 8.dp)
+                                .clickable(
+                                    interactionSource = remember { MutableInteractionSource() },
+                                    indication = null,
+                                    onClick = onOpenSettings
+                                )
                         ) {
                             Text(
                                 text = if (trackState.hasValidTrack) trackState.title else "LyricNotes",
@@ -722,23 +773,38 @@ private fun NowPlayingFloatingGlassPlayer(
                         }
                     }
 
-                    // 播放按键群 (上一首 / 播放暂停 / 下一首)
+                    // 播放按键群 (随机 / 上一首 / 播放暂停 / 下一首 / 循环)
                     Row(
                         verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(4.dp)
+                        horizontalArrangement = Arrangement.spacedBy(2.dp)
                     ) {
+                        // 随机播放 (Shuffle)
+                        IconButton(
+                            onClick = onToggleShuffle,
+                            modifier = Modifier.size(30.dp)
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.Shuffle,
+                                contentDescription = "随机播放",
+                                tint = if (trackState.isShuffleActive) Color(0xFF1ED760) else Color.White.copy(alpha = 0.55f),
+                                modifier = Modifier.size(17.dp)
+                            )
+                        }
+
+                        // 上一首 (Previous)
                         IconButton(
                             onClick = onPrevious,
-                            modifier = Modifier.size(32.dp)
+                            modifier = Modifier.size(30.dp)
                         ) {
                             Icon(
                                 imageVector = Icons.Default.SkipPrevious,
                                 contentDescription = "上一首",
-                                tint = Color.White.copy(alpha = 0.75f),
+                                tint = Color.White.copy(alpha = 0.85f),
                                 modifier = Modifier.size(19.dp)
                             )
                         }
 
+                        // 播放/暂停 (Play/Pause)
                         Surface(
                             color = Color.White,
                             shape = CircleShape,
@@ -757,15 +823,31 @@ private fun NowPlayingFloatingGlassPlayer(
                             }
                         }
 
+                        // 下一首 (Next)
                         IconButton(
                             onClick = onNext,
-                            modifier = Modifier.size(32.dp)
+                            modifier = Modifier.size(30.dp)
                         ) {
                             Icon(
                                 imageVector = Icons.Default.SkipNext,
                                 contentDescription = "下一首",
-                                tint = Color.White.copy(alpha = 0.75f),
+                                tint = Color.White.copy(alpha = 0.85f),
                                 modifier = Modifier.size(19.dp)
+                            )
+                        }
+
+                        // 循环播放 (Repeat / Repeat One)
+                        val repeatIcon = if (trackState.repeatMode == 2) Icons.Default.RepeatOne else Icons.Default.Repeat
+                        val isRepeatActive = trackState.repeatMode != 0
+                        IconButton(
+                            onClick = onCycleRepeat,
+                            modifier = Modifier.size(30.dp)
+                        ) {
+                            Icon(
+                                imageVector = repeatIcon,
+                                contentDescription = "循环播放",
+                                tint = if (isRepeatActive) Color(0xFF1ED760) else Color.White.copy(alpha = 0.55f),
+                                modifier = Modifier.size(17.dp)
                             )
                         }
                     }

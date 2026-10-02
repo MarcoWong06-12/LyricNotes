@@ -31,6 +31,7 @@ data class NowPlayingUiState(
     val isDeCensorEnabled: Boolean = true,
     val showPlaybackControls: Boolean = true,
     val lyricOffsetMs: Long = 0L,
+    val isQueueSheetOpen: Boolean = false,
     val userMessage: String? = null
 )
 
@@ -65,6 +66,22 @@ class NowPlayingViewModel @Inject constructor(
 
     fun seekTo(positionMs: Long) {
         nowPlayingRepository.seekTo(positionMs)
+    }
+
+    fun toggleShuffle() {
+        nowPlayingRepository.toggleShuffle()
+    }
+
+    fun cycleRepeatMode() {
+        nowPlayingRepository.cycleRepeatMode()
+    }
+
+    fun openQueueSheet() {
+        _uiState.update { it.copy(isQueueSheetOpen = true) }
+    }
+
+    fun closeQueueSheet() {
+        _uiState.update { it.copy(isQueueSheetOpen = false) }
     }
 
     fun openSettings() {

@@ -18,6 +18,14 @@ enum class MediaSourceApp(val displayName: String, val packageName: String) {
     }
 }
 
+data class QueueTrackItem(
+    val id: Long = 0L,
+    val title: String = "",
+    val artist: String = "",
+    val album: String = "",
+    val coverUri: String? = null
+)
+
 /**
  * 流媒体实时播放状态数据载体
  */
@@ -33,7 +41,10 @@ data class TrackPlaybackState(
     val coverUrl: String? = null,
     val packageName: String = "",
     val trackId: String? = null,
-    val sourceApp: MediaSourceApp = MediaSourceApp.UNKNOWN
+    val sourceApp: MediaSourceApp = MediaSourceApp.UNKNOWN,
+    val isShuffleActive: Boolean = false,
+    val repeatMode: Int = 0, // 0: OFF, 1: ALL (列表循环), 2: ONE (单曲循环)
+    val queueItems: List<QueueTrackItem> = emptyList()
 ) {
     val isSpotify: Boolean
         get() = packageName == "com.spotify.music" || sourceApp == MediaSourceApp.SPOTIFY
