@@ -72,7 +72,15 @@ class NowPlayingRepository @Inject constructor(
 
     private fun handlePlaybackStateUpdate(state: TrackPlaybackState) {
         val current = _nowPlayingData.value
-        _nowPlayingData.value = current.copy(playbackState = state)
+        val activeLine = if (current.lyrics.isNotEmpty()) {
+            val currentPos = (state.getEstimatedPositionMs() + lyricOffsetMs).coerceAtLeast(0L)
+            calculateActiveLineIndex(current.lyrics, currentPos)
+        } else current.currentLineIndex
+
+        _nowPlayingData.value = current.copy(
+            playbackState = state,
+            currentLineIndex = activeLine
+        )
 
         if (!state.hasValidTrack) return
 
@@ -95,7 +103,7 @@ class NowPlayingRepository @Inject constructor(
             while (isActive) {
                 val current = _nowPlayingData.value
                 val state = current.playbackState
-                if (state.isPlaying && current.lyrics.isNotEmpty()) {
+                if (current.lyrics.isNotEmpty() && state.hasValidTrack) {
                     val currentPos = (state.getEstimatedPositionMs() + lyricOffsetMs).coerceAtLeast(0L)
                     val lineIndex = calculateActiveLineIndex(current.lyrics, currentPos)
                     if (lineIndex != current.currentLineIndex) {
@@ -117,6 +125,10 @@ class NowPlayingRepository @Inject constructor(
             } else {
                 break
             }
+        }
+        // 如果处于曲目前奏期 (positionMs 小于第 1 句歌词时间)，聚焦首句，避免全屏歌词落入非活跃暗色
+        if (activeIndex == -1 && lyrics.isNotEmpty()) {
+            return 0
         }
         return activeIndex
     }

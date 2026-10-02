@@ -210,6 +210,15 @@ private fun NowPlayingTopBar(
     Row(
         modifier = modifier
             .fillMaxWidth()
+            .background(
+                Brush.verticalGradient(
+                    colors = listOf(
+                        Color(0xFF0F0F12),
+                        Color(0xFF0F0F12).copy(alpha = 0.85f),
+                        Color.Transparent
+                    )
+                )
+            )
             .statusBarsPadding()
             .padding(horizontal = 20.dp, vertical = 10.dp),
         horizontalArrangement = Arrangement.SpaceBetween,
@@ -233,7 +242,7 @@ private fun NowPlayingTopBar(
             )
             Text(
                 text = "LYRICNOTES",
-                color = Color.White.copy(alpha = 0.5f),
+                color = Color.White.copy(alpha = 0.65f),
                 fontSize = 11.sp,
                 fontWeight = FontWeight.Bold,
                 fontFamily = FontFamily.Monospace,
@@ -243,9 +252,9 @@ private fun NowPlayingTopBar(
 
         // 右侧纯净微型设置按钮 "···"
         Surface(
-            color = Color.White.copy(alpha = 0.08f),
+            color = Color.White.copy(alpha = 0.1f),
             shape = CircleShape,
-            border = BorderStroke(0.5.dp, Color.White.copy(alpha = 0.14f)),
+            border = BorderStroke(0.5.dp, Color.White.copy(alpha = 0.16f)),
             modifier = Modifier
                 .size(34.dp)
                 .clickable(onClick = onOpenSettings)
@@ -263,10 +272,11 @@ private fun NowPlayingTopBar(
 }
 
 /**
- * 丝滑流畅歌词滚动列表 (Apple Music / Lyricify 风格物理学)
+ * 丝滑流畅歌词滚动列表 (高对比度、清晰防遮挡排版)
  * 1. 采用物理级几何中心对齐：动态计算歌词行垂直中点与视口黄金分割线 (34%) 的精确差值
  * 2. 硬件级 graphicsLayer 缩放与透明度变换，杜绝跳行重绘抖动
- * 3. 顶部与底部双向电影感渐隐光晕，歌词柔和自迷雾中浮现并隐入底栏
+ * 3. 增强非活跃行与翻译行对比度（从 10% 提升至 35%~65%），确保全屏歌词清晰舒适可读
+ * 4. 加高顶部与底部遮罩，避免与手机状态栏发生文字重叠穿透
  */
 @Composable
 private fun NowPlayingLyricsContent(
@@ -291,7 +301,7 @@ private fun NowPlayingLyricsContent(
                 )
                 Text(
                     text = "正在同步歌词...",
-                    color = Color.White.copy(alpha = 0.6f),
+                    color = Color.White.copy(alpha = 0.7f),
                     fontSize = 13.sp,
                     fontFamily = FontFamily.SansSerif
                 )
@@ -304,7 +314,7 @@ private fun NowPlayingLyricsContent(
         Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
             Text(
                 text = "暂无带时间轴的歌词",
-                color = Color.White.copy(alpha = 0.45f),
+                color = Color.White.copy(alpha = 0.55f),
                 fontSize = 15.sp,
                 fontFamily = FontFamily.SansSerif
             )
@@ -348,7 +358,7 @@ private fun NowPlayingLyricsContent(
     Box(modifier = Modifier.fillMaxSize()) {
         LazyColumn(
             state = listState,
-            contentPadding = PaddingValues(top = 96.dp, bottom = 150.dp, start = 22.dp, end = 22.dp),
+            contentPadding = PaddingValues(top = 110.dp, bottom = 160.dp, start = 22.dp, end = 22.dp),
             verticalArrangement = Arrangement.spacedBy(26.dp),
             modifier = Modifier.fillMaxSize()
         ) {
@@ -357,7 +367,7 @@ private fun NowPlayingLyricsContent(
                 key = { index, line -> "${line.startTimeMs ?: index}_${line.original.hashCode()}" }
             ) { index, line ->
                 val isActive = (index == currentLineIndex)
-                val distance = if (currentLineIndex >= 0) kotlin.math.abs(index - currentLineIndex) else 999
+                val distance = if (currentLineIndex >= 0) kotlin.math.abs(index - currentLineIndex) else index
                 val annotation = annotatedLines[index]
 
                 LyricLineRow(
@@ -372,16 +382,17 @@ private fun NowPlayingLyricsContent(
             }
         }
 
-        // 顶部柔和渐隐暗角遮罩 (Apple Music 级电影质感)
+        // 顶部柔和渐隐暗角遮罩 (覆盖高度达 130dp，完全阻隔歌词冲撞系统状态栏)
         Box(
             modifier = Modifier
                 .fillMaxWidth()
-                .height(84.dp)
+                .height(130.dp)
                 .align(Alignment.TopCenter)
                 .background(
                     Brush.verticalGradient(
                         colors = listOf(
-                            Color(0xFF0F0F12).copy(alpha = 0.82f),
+                            Color(0xFF0F0F12),
+                            Color(0xFF0F0F12).copy(alpha = 0.85f),
                             Color.Transparent
                         )
                     )
@@ -392,13 +403,14 @@ private fun NowPlayingLyricsContent(
         Box(
             modifier = Modifier
                 .fillMaxWidth()
-                .height(110.dp)
+                .height(140.dp)
                 .align(Alignment.BottomCenter)
                 .background(
                     Brush.verticalGradient(
                         colors = listOf(
                             Color.Transparent,
-                            Color(0xFF0F0F12).copy(alpha = 0.85f)
+                            Color(0xFF0F0F12).copy(alpha = 0.85f),
+                            Color(0xFF0F0F12)
                         )
                     )
                 )
@@ -407,7 +419,7 @@ private fun NowPlayingLyricsContent(
 }
 
 /**
- * 单行双语歌词组件 (纯白单色系极致无杂色质感)
+ * 单行双语歌词组件 (高对比度纯正无杂色，彻底告别看不清)
  */
 @Composable
 private fun LyricLineRow(
@@ -419,9 +431,9 @@ private fun LyricLineRow(
     onClick: () -> Unit,
     onAnnotationClick: () -> Unit
 ) {
-    // 硬件级平滑缩放动效 (左边缘锚定，绝无重绘抖动)
+    // 硬件级平滑缩放动效 (左边缘锚定，幅度适中保真清晰)
     val animatedScale by animateFloatAsState(
-        targetValue = if (isActive) 1.04f else 0.95f,
+        targetValue = if (isActive) 1.04f else 0.98f,
         animationSpec = tween(
             durationMillis = 520,
             easing = CubicBezierEasing(0.22f, 1.0f, 0.36f, 1.0f)
@@ -429,13 +441,14 @@ private fun LyricLineRow(
         label = "lyricScale"
     )
 
-    // 依据距离多阶柔和淡出 (高层级无杂色纯净白与半透白)
+    // 大幅提升非活跃行对比度：相邻行 65%，次近行 50%，远行 35%（告别原来的 10% 昏暗看不清）
     val animatedAlpha by animateFloatAsState(
         targetValue = when {
             isActive -> 1.0f
-            distance == 1 -> 0.38f
-            distance == 2 -> 0.20f
-            else -> 0.10f
+            distance == 1 -> 0.65f
+            distance == 2 -> 0.50f
+            distance == 3 -> 0.40f
+            else -> 0.32f
         },
         animationSpec = tween(
             durationMillis = 480,
@@ -444,11 +457,14 @@ private fun LyricLineRow(
         label = "lyricAlpha"
     )
 
+    // 中文翻译对比度大幅提亮：活跃行 88%，非活跃行 45%~58%，绝不发黑
     val animatedTransAlpha by animateFloatAsState(
         targetValue = when {
-            isActive -> 0.76f
-            distance == 1 -> 0.32f
-            else -> 0.12f
+            isActive -> 0.88f
+            distance == 1 -> 0.58f
+            distance == 2 -> 0.45f
+            distance == 3 -> 0.36f
+            else -> 0.28f
         },
         animationSpec = tween(
             durationMillis = 480,
@@ -492,16 +508,16 @@ private fun LyricLineRow(
                     lineHeight = 32.sp
                 )
 
-                // 中文翻译 (柔和白色半透)
+                // 中文翻译 (舒适字号与清晰行高)
                 if (displayTranslation.isNotBlank()) {
                     Spacer(modifier = Modifier.height(4.dp))
                     Text(
                         text = displayTranslation,
                         color = Color.White.copy(alpha = animatedTransAlpha),
                         fontSize = 15.sp,
-                        fontWeight = FontWeight.Normal,
+                        fontWeight = if (isActive) FontWeight.Medium else FontWeight.Normal,
                         fontFamily = FontFamily.SansSerif,
-                        lineHeight = 21.sp
+                        lineHeight = 22.sp
                     )
                 }
             }
@@ -601,9 +617,11 @@ private fun NowPlayingFloatingGlassPlayer(
                 ) {
                     Text(
                         text = formatMs(estimatedPosition),
-                        color = Color.White.copy(alpha = 0.6f),
-                        fontSize = 10.sp,
-                        fontFamily = FontFamily.Monospace
+                        color = Color.White.copy(alpha = 0.7f),
+                        fontSize = 11.sp,
+                        fontFamily = FontFamily.Monospace,
+                        modifier = Modifier.width(38.dp),
+                        textAlign = TextAlign.Start
                     )
 
                     Slider(
@@ -615,19 +633,21 @@ private fun NowPlayingFloatingGlassPlayer(
                         colors = SliderDefaults.colors(
                             thumbColor = Color.White,
                             activeTrackColor = Color.White,
-                            inactiveTrackColor = Color.White.copy(alpha = 0.16f)
+                            inactiveTrackColor = Color.White.copy(alpha = 0.18f)
                         ),
                         modifier = Modifier
                             .weight(1f)
                             .height(14.dp)
-                            .padding(horizontal = 6.dp)
+                            .padding(horizontal = 4.dp)
                     )
 
                     Text(
                         text = formatMs(duration),
-                        color = Color.White.copy(alpha = 0.4f),
-                        fontSize = 10.sp,
-                        fontFamily = FontFamily.Monospace
+                        color = Color.White.copy(alpha = 0.5f),
+                        fontSize = 11.sp,
+                        fontFamily = FontFamily.Monospace,
+                        modifier = Modifier.width(38.dp),
+                        textAlign = TextAlign.End
                     )
                 }
 

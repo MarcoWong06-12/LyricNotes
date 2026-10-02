@@ -296,25 +296,25 @@
                     el.style.transform = 'scale(1.04)';
                     el.style.opacity = '1';
                     el.style.filter = 'blur(0px)';
-                    if (transEl) transEl.style.opacity = '0.78';
+                    if (transEl) transEl.style.opacity = '0.88';
                 } else if (distance === 1) {
-                    // 相邻前后句：柔焦、半透
-                    el.style.transform = 'scale(0.97)';
-                    el.style.opacity = '0.38';
-                    el.style.filter = 'blur(0.8px)';
-                    if (transEl) transEl.style.opacity = '0.45';
+                    // 相邻前后句：保持清晰可读 (65% 纯白)
+                    el.style.transform = 'scale(0.98)';
+                    el.style.opacity = '0.65';
+                    el.style.filter = 'blur(0px)';
+                    if (transEl) transEl.style.opacity = '0.58';
                 } else if (distance === 2) {
-                    // 远距离句：较深淡出
-                    el.style.transform = 'scale(0.95)';
-                    el.style.opacity = '0.18';
-                    el.style.filter = 'blur(1.6px)';
-                    if (transEl) transEl.style.opacity = '0.2';
+                    // 次相邻句：良好可读性 (50% 纯白)
+                    el.style.transform = 'scale(0.96)';
+                    el.style.opacity = '0.50';
+                    el.style.filter = 'blur(0.5px)';
+                    if (transEl) transEl.style.opacity = '0.45';
                 } else {
-                    // 遥远句：几乎隐藏在雾气中
-                    el.style.transform = 'scale(0.93)';
-                    el.style.opacity = '0.08';
-                    el.style.filter = 'blur(2.2px)';
-                    if (transEl) transEl.style.opacity = '0.1';
+                    // 较远背景句：自然从属但依然可见 (35% 纯白)
+                    el.style.transform = 'scale(0.94)';
+                    el.style.opacity = '0.35';
+                    el.style.filter = 'blur(0.8px)';
+                    if (transEl) transEl.style.opacity = '0.30';
                 }
             });
 
