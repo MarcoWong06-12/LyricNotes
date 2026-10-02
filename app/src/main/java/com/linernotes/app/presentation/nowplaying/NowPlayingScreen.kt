@@ -44,6 +44,7 @@ import com.linernotes.app.core.util.ChineseConverter
 import com.linernotes.app.data.local.entity.LyricAnnotationEntity
 import com.linernotes.app.domain.model.BilingualLyricLine
 import com.linernotes.app.presentation.booklet.components.AmbientGlowBackground
+import com.linernotes.app.presentation.common.bouncyClickable
 import com.linernotes.app.presentation.nowplaying.components.LyricNotesSettingsSheet
 import com.linernotes.app.presentation.nowplaying.components.NowPlayingGeniusSheet
 import com.linernotes.app.presentation.nowplaying.components.NowPlayingQueueSheet
@@ -310,9 +311,8 @@ private fun NowPlayingTopBar(
             color = Color.White.copy(alpha = 0.08f),
             shape = RoundedCornerShape(16.dp),
             border = BorderStroke(0.5.dp, Color.White.copy(alpha = 0.14f)),
-            modifier = Modifier.clickable(
-                interactionSource = remember { MutableInteractionSource() },
-                indication = null,
+            modifier = Modifier.bouncyClickable(
+                pressedScale = 0.94f,
                 onClick = onOpenSettings
             )
         ) {
@@ -339,21 +339,35 @@ private fun NowPlayingTopBar(
         }
 
         // 右侧操作群：歌曲背景故事直达入口 (📖 故事) + 待播队列 (Queue) + 更多设置 (···)
+        val storyInfiniteTransition = rememberInfiniteTransition(label = "storyGlow")
+        val storyGlowAlpha by storyInfiniteTransition.animateFloat(
+            initialValue = 0.35f,
+            targetValue = 0.70f,
+            animationSpec = infiniteRepeatable(
+                animation = tween(1600, easing = FastOutSlowInEasing),
+                repeatMode = RepeatMode.Reverse
+            ),
+            label = "storyGlowAlpha"
+        )
+
         Row(
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(8.dp)
         ) {
             // 歌曲背景故事外层高频入口（当有故事时呈现柔和微光，1 步直达）
             Surface(
-                color = if (hasSongStory) Color(0xFFFFD54F).copy(alpha = 0.16f) else Color.White.copy(alpha = 0.08f),
+                color = if (hasSongStory) Color(0xFFFFD54F).copy(alpha = 0.18f) else Color.White.copy(alpha = 0.08f),
                 shape = RoundedCornerShape(18.dp),
                 border = BorderStroke(
                     0.5.dp,
-                    if (hasSongStory) Color(0xFFFFD54F).copy(alpha = 0.45f) else Color.White.copy(alpha = 0.14f)
+                    if (hasSongStory) Color(0xFFFFD54F).copy(alpha = storyGlowAlpha) else Color.White.copy(alpha = 0.14f)
                 ),
                 modifier = Modifier
                     .height(36.dp)
-                    .clickable(onClick = onOpenSongStory)
+                    .bouncyClickable(
+                        pressedScale = 0.92f,
+                        onClick = onOpenSongStory
+                    )
             ) {
                 Row(
                     modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp),
@@ -382,7 +396,10 @@ private fun NowPlayingTopBar(
                 border = BorderStroke(0.5.dp, Color.White.copy(alpha = 0.14f)),
                 modifier = Modifier
                     .size(36.dp)
-                    .clickable(onClick = onOpenQueue)
+                    .bouncyClickable(
+                        pressedScale = 0.90f,
+                        onClick = onOpenQueue
+                    )
             ) {
                 Box(contentAlignment = Alignment.Center) {
                     Icon(
@@ -400,7 +417,10 @@ private fun NowPlayingTopBar(
                 border = BorderStroke(0.5.dp, Color.White.copy(alpha = 0.14f)),
                 modifier = Modifier
                     .size(36.dp)
-                    .clickable(onClick = onOpenSettings)
+                    .bouncyClickable(
+                        pressedScale = 0.90f,
+                        onClick = onOpenSettings
+                    )
             ) {
                 Box(contentAlignment = Alignment.Center) {
                     Icon(
@@ -467,10 +487,23 @@ private fun NowPlayingLyricsContent(
     }
 
     val listState = rememberLazyListState()
+    var lastUserInteractionTime by remember { mutableLongStateOf(0L) }
 
-    // 智能黄金聚焦点对齐动力学 (视口 34% 黄金阅读带，上方留出 1~2 行空间，下方预留充足阅读预判)
+    // 监听用户主动滑动浏览，防止自动对齐与用户手势发生拉扯
+    LaunchedEffect(listState.isScrollInProgress) {
+        if (listState.isScrollInProgress) {
+            lastUserInteractionTime = System.currentTimeMillis()
+        }
+    }
+
+    // 物理级黄金聚焦点对齐动力学 (Lyricify 经典 Spring 弹性物理阻尼与低刚度阻尼衰减)
     LaunchedEffect(currentLineIndex) {
         if (currentLineIndex in lyrics.indices) {
+            val isInteracting = (System.currentTimeMillis() - lastUserInteractionTime) < 2500L && listState.isScrollInProgress
+            if (isInteracting) {
+                return@LaunchedEffect
+            }
+
             val viewportHeight = listState.layoutInfo.viewportSize.height.toFloat()
             val targetFocalY = if (viewportHeight > 0f) viewportHeight * 0.34f else 300f
             val visibleItem = listState.layoutInfo.visibleItemsInfo.find { it.index == currentLineIndex }
@@ -479,12 +512,12 @@ private fun NowPlayingLyricsContent(
                 val currentCenter = visibleItem.offset.toFloat() + (visibleItem.size.toFloat() / 2f)
                 val scrollDelta = currentCenter - targetFocalY
 
-                if (kotlin.math.abs(scrollDelta) > 1.2f) {
+                if (kotlin.math.abs(scrollDelta) > 1.0f) {
                     listState.animateScrollBy(
                         value = scrollDelta,
-                        animationSpec = tween(
-                            durationMillis = 560,
-                            easing = CubicBezierEasing(0.20f, 0.0f, 0.0f, 1.0f)
+                        animationSpec = spring(
+                            dampingRatio = 0.82f, // 黄金次临界阻尼：消除机械顿挫感，平滑衰减沉降
+                            stiffness = 240f      // 柔和低刚度：丝滑滑动耗时约 520ms，如水般流淌
                         )
                     )
                 }
@@ -574,41 +607,45 @@ private fun LyricLineRow(
     onClick: () -> Unit,
     onAnnotationClick: () -> Unit
 ) {
-    // Lyricify / Apple Music 经典动力学：活跃行 1.0f，非活跃行 0.94f，左边缘锚定，无回弹平滑缓动
+    // Lyricify / Apple Music 经典动力学：活跃行 1.035f 微弹聚焦，非活跃行 0.95f，左边缘锚定，弹性平滑缓动
     val animatedScale by animateFloatAsState(
-        targetValue = if (isActive) 1.0f else 0.94f,
-        animationSpec = tween(
-            durationMillis = 480,
-            easing = CubicBezierEasing(0.20f, 0.0f, 0.0f, 1.0f)
+        targetValue = when {
+            isActive -> 1.035f
+            distance == 1 -> 0.985f
+            else -> 0.95f
+        },
+        animationSpec = spring(
+            dampingRatio = 0.80f,
+            stiffness = 320f
         ),
         label = "lyricScale"
     )
 
-    // 原文透明度动力学：活跃行 100% 纯白锁定，相邻行 65%，远行 38%~50%，清晰可读杜绝暗黑发灰
+    // 原文透明度动力学：活跃行 100% 纯白锁定，相邻行 70%，远行 38%~52%，清晰可读杜绝暗黑发灰
     val animatedOriginalAlpha by animateFloatAsState(
         targetValue = when {
             isActive -> 1.0f
-            distance == 1 -> 0.65f
-            distance == 2 -> 0.50f
+            distance == 1 -> 0.70f
+            distance == 2 -> 0.52f
             else -> 0.38f
         },
         animationSpec = tween(
-            durationMillis = 400,
+            durationMillis = 380,
             easing = CubicBezierEasing(0.20f, 0.0f, 0.0f, 1.0f)
         ),
         label = "origAlpha"
     )
 
-    // 中文翻译透明度动力学：独立控制透明度（避免与外层叠加相乘导致只有3%~6%），活跃行 92%，相邻行 58%，远行 34%~44%
+    // 中文翻译透明度动力学：独立控制透明度（避免与外层叠加相乘导致只有3%~6%），活跃行 95%，相邻行 64%，远行 34%~46%
     val animatedTransAlpha by animateFloatAsState(
         targetValue = when {
-            isActive -> 0.92f
-            distance == 1 -> 0.58f
-            distance == 2 -> 0.44f
+            isActive -> 0.95f
+            distance == 1 -> 0.64f
+            distance == 2 -> 0.46f
             else -> 0.34f
         },
         animationSpec = tween(
-            durationMillis = 400,
+            durationMillis = 380,
             easing = CubicBezierEasing(0.20f, 0.0f, 0.0f, 1.0f)
         ),
         label = "transAlpha"
@@ -663,34 +700,70 @@ private fun LyricLineRow(
                 }
             }
 
-            // 极简现代高颜值典故微光标 (替换原粗重黄色胶囊，极简香槟金磨砂微标)
+            // 极简灵动微胶囊典故徽标 (替代原粗重黄色圆圈，打造珠宝级香槟金磨砂微标)
             if (annotation != null) {
-                Surface(
-                    color = if (isActive) Color(0xFFFFD54F).copy(alpha = 0.18f) else Color.White.copy(alpha = 0.08f),
-                    shape = CircleShape,
-                    border = BorderStroke(
-                        0.5.dp,
-                        if (isActive) Color(0xFFFFD54F).copy(alpha = 0.55f) else Color.White.copy(alpha = 0.16f)
-                    ),
-                    modifier = Modifier
-                        .padding(start = 12.dp)
-                        .size(28.dp)
-                        .clickable(
-                            interactionSource = remember { MutableInteractionSource() },
-                            indication = null,
-                            onClick = onAnnotationClick
-                        )
-                ) {
-                    Box(contentAlignment = Alignment.Center) {
-                        Icon(
-                            imageVector = Icons.Default.AutoAwesome,
-                            contentDescription = "典故注解",
-                            tint = if (isActive) Color(0xFFFFD54F) else Color.White.copy(alpha = 0.65f),
-                            modifier = Modifier.size(14.dp)
-                        )
-                    }
-                }
+                LyricAnnotationBadge(
+                    isActive = isActive,
+                    onClick = onAnnotationClick
+                )
             }
+        }
+    }
+}
+
+/**
+ * 珠宝级香槟金磨砂微胶囊典故徽标 (流媒体原生微交互设计)
+ */
+@Composable
+private fun LyricAnnotationBadge(
+    isActive: Boolean,
+    onClick: () -> Unit
+) {
+    // 活跃行柔和呼吸光晕
+    val infiniteTransition = rememberInfiniteTransition(label = "badgeGlow")
+    val glowAlpha by infiniteTransition.animateFloat(
+        initialValue = 0.35f,
+        targetValue = 0.85f,
+        animationSpec = infiniteRepeatable(
+            animation = tween(1500, easing = FastOutSlowInEasing),
+            repeatMode = RepeatMode.Reverse
+        ),
+        label = "glowAlpha"
+    )
+
+    Surface(
+        color = if (isActive) Color(0xFFFFD54F).copy(alpha = 0.16f) else Color.White.copy(alpha = 0.07f),
+        shape = RoundedCornerShape(12.dp),
+        border = BorderStroke(
+            0.5.dp,
+            if (isActive) Color(0xFFFFD54F).copy(alpha = glowAlpha) else Color.White.copy(alpha = 0.16f)
+        ),
+        modifier = Modifier
+            .padding(start = 12.dp, top = 2.dp)
+            .bouncyClickable(
+                pressedScale = 0.90f,
+                onClick = onClick
+            )
+    ) {
+        Row(
+            modifier = Modifier.padding(horizontal = 8.dp, vertical = 3.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(4.dp)
+        ) {
+            Icon(
+                imageVector = Icons.Default.AutoAwesome,
+                contentDescription = "典故",
+                tint = if (isActive) Color(0xFFFFD54F) else Color.White.copy(alpha = 0.70f),
+                modifier = Modifier.size(11.dp)
+            )
+            Text(
+                text = "典故",
+                color = if (isActive) Color(0xFFFFD54F) else Color.White.copy(alpha = 0.75f),
+                fontSize = 11.sp,
+                fontWeight = FontWeight.SemiBold,
+                fontFamily = FontFamily.SansSerif,
+                letterSpacing = 0.3.sp
+            )
         }
     }
 }
@@ -808,9 +881,8 @@ private fun NowPlayingFloatingGlassPlayer(
                         horizontalArrangement = Arrangement.spacedBy(10.dp)
                     ) {
                         Box(
-                            modifier = Modifier.clickable(
-                                interactionSource = remember { MutableInteractionSource() },
-                                indication = null,
+                            modifier = Modifier.bouncyClickable(
+                                pressedScale = 0.92f,
                                 onClick = onOpenQueue
                             )
                         ) {
@@ -848,9 +920,8 @@ private fun NowPlayingFloatingGlassPlayer(
                         Column(
                             modifier = Modifier
                                 .weight(1f)
-                                .clickable(
-                                    interactionSource = remember { MutableInteractionSource() },
-                                    indication = null,
+                                .bouncyClickable(
+                                    pressedScale = 0.96f,
                                     onClick = onOpenSettings
                                 )
                         ) {
@@ -887,7 +958,10 @@ private fun NowPlayingFloatingGlassPlayer(
                             shape = CircleShape,
                             modifier = Modifier
                                 .size(32.dp)
-                                .clickable(onClick = onToggleShuffle)
+                                .bouncyClickable(
+                                    pressedScale = 0.86f,
+                                    onClick = onToggleShuffle
+                                )
                         ) {
                             Box(contentAlignment = Alignment.Center) {
                                 Icon(
@@ -900,9 +974,14 @@ private fun NowPlayingFloatingGlassPlayer(
                         }
 
                         // 上一首 (Previous)
-                        IconButton(
-                            onClick = onPrevious,
-                            modifier = Modifier.size(32.dp)
+                        Box(
+                            contentAlignment = Alignment.Center,
+                            modifier = Modifier
+                                .size(32.dp)
+                                .bouncyClickable(
+                                    pressedScale = 0.86f,
+                                    onClick = onPrevious
+                                )
                         ) {
                             Icon(
                                 imageVector = Icons.Default.SkipPrevious,
@@ -919,7 +998,10 @@ private fun NowPlayingFloatingGlassPlayer(
                             shadowElevation = 6.dp,
                             modifier = Modifier
                                 .size(38.dp)
-                                .clickable(onClick = onPlayPause)
+                                .bouncyClickable(
+                                    pressedScale = 0.88f,
+                                    onClick = onPlayPause
+                                )
                         ) {
                             Box(contentAlignment = Alignment.Center) {
                                 Icon(
@@ -932,9 +1014,14 @@ private fun NowPlayingFloatingGlassPlayer(
                         }
 
                         // 下一首 (Next)
-                        IconButton(
-                            onClick = onNext,
-                            modifier = Modifier.size(32.dp)
+                        Box(
+                            contentAlignment = Alignment.Center,
+                            modifier = Modifier
+                                .size(32.dp)
+                                .bouncyClickable(
+                                    pressedScale = 0.86f,
+                                    onClick = onNext
+                                )
                         ) {
                             Icon(
                                 imageVector = Icons.Default.SkipNext,

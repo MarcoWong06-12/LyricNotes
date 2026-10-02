@@ -224,27 +224,29 @@ fun BilingualContentView(
                         Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                             para.units.forEach { unit ->
                                 Column(verticalArrangement = Arrangement.spacedBy(3.dp)) {
-                                    // 1. 中文译文句子在上方 (主阅读字号)
                                     val chineseText = if (isTraditional) ChineseConverter.toTraditional(unit.chinese) else unit.chinese
+                                    // 1. 中文译文句子在上方 (主阅读字号)
                                     if (chineseText.isNotBlank()) {
                                         Text(
                                             text = chineseText,
                                             style = MaterialTheme.typography.bodyMedium.copy(
                                                 fontSize = 14.5.sp,
                                                 lineHeight = 22.sp,
-                                                color = primaryTextColor
+                                                color = primaryTextColor,
+                                                fontWeight = FontWeight.Medium
                                             )
                                         )
                                     }
 
-                                    // 2. 英文原文句子紧随其下 (字号偏小，不占过多空间)
+                                    // 2. 英文原文句子紧随其下 (若已有中文则字号偏小作对照；若尚未翻译则作为主文本清晰呈现)
                                     if (unit.original.isNotBlank()) {
+                                        val hasChinese = chineseText.isNotBlank()
                                         Text(
                                             text = unit.original,
                                             style = MaterialTheme.typography.bodySmall.copy(
-                                                fontSize = 12.sp,
-                                                lineHeight = 17.sp,
-                                                color = secondaryTextColor
+                                                fontSize = if (hasChinese) 12.sp else 14.5.sp,
+                                                lineHeight = if (hasChinese) 17.sp else 22.sp,
+                                                color = if (hasChinese) secondaryTextColor else primaryTextColor
                                             )
                                         )
                                     }

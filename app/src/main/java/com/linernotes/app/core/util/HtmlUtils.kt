@@ -78,14 +78,23 @@ object HtmlUtils {
         return res
     }
 
+    private val MARKDOWN_LINK_REGEX = Regex("""\[([^\]]+)\]\([^)]+\)""")
+    private val INLINE_METADATA_REGEX = Regex("""\[(?:embedded\s+content|image:[^\]]+|Chorus|Verse\s*\d*|Intro|Outro|Bridge|Hook|Pre-Chorus|Post-Chorus)\]""", RegexOption.IGNORE_CASE)
+
     /**
-     * 剥离所有 HTML/XML 标签、Genius 实体标签（如 <e:1>、andr<e:1>）及嵌入式占位符
+     * 剥离所有 HTML/XML 标签、Genius 实体标签（如 <e:1>、andr<e:1>）、Markdown 链接及嵌入式占位符
      */
     fun stripTags(text: String): String {
         if (text.isBlank()) return text
         return text
             .replace(PLACEHOLDER_REGEX, "")
+            .replace(INLINE_METADATA_REGEX, "")
             .replace(GENIUS_TAG_REGEX, "")
+            .replace(MARKDOWN_LINK_REGEX, "$1") // 保留 Markdown 链接中的文字，剥离 URL
+            .replace("\u200B", "") // 零宽空格
+            .replace("\uFEFF", "") // BOM
+            .replace("\u00A0", " ") // 不换行空格
+            .replace("\r", "")
     }
 
     /**
@@ -111,6 +120,7 @@ object HtmlUtils {
         return cleanPlainText(text)
             .replace(Regex("""(?:andr|and|or|和|与|及)?\s*<e:\d+>""", RegexOption.IGNORE_CASE), "")
             .replace(Regex("""<[^>]+>"""), "")
+            .replace(Regex("""^[\s\-·•]+"""), "") // 清除行首无谓的项目符号
             .trim()
     }
 }
