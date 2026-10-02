@@ -2,6 +2,8 @@ package com.linernotes.app.presentation.nowplaying
 
 import android.content.Intent
 import android.os.SystemClock
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.isActive
 import androidx.compose.animation.*
 import androidx.compose.animation.core.*
 import androidx.compose.foundation.BorderStroke
