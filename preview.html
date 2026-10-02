@@ -3,74 +3,78 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
-    <title>国外顶级音乐播放器 UI 哲学与实测</title>
+    <title>LyricNotes 完整封面与信息界面重做预览</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <style>
         * { -webkit-tap-highlight-color: transparent; }
         .lyric-motion {
             transition: transform 550ms cubic-bezier(0.22, 1, 0.36, 1), opacity 450ms ease, filter 450ms ease;
         }
+        @keyframes vinyl-spin {
+            from { transform: rotate(0deg); }
+            to { transform: rotate(360deg); }
+        }
+        .anim-spin-slow {
+            animation: vinyl-spin 12s linear infinite;
+        }
     </style>
 </head>
-<body class="bg-[#0a0a0c] text-slate-100 min-h-screen flex flex-col font-sans antialiased overflow-x-hidden">
+<body class="bg-[#08080a] text-slate-100 min-h-screen flex flex-col font-sans antialiased overflow-x-hidden selection:bg-white selection:text-black">
 
     <!-- 顶部固定导航 -->
-    <header class="sticky top-0 z-50 bg-[#0a0a0c]/90 backdrop-blur-md border-b border-white/5 px-4 py-3">
+    <header class="sticky top-0 z-50 bg-[#08080a]/95 backdrop-blur-xl border-b border-white/5 px-4 py-3">
         <div class="flex items-center justify-between max-w-md mx-auto mb-2">
-            <span class="text-xs font-bold tracking-wider uppercase text-white/50">海外主流播放器 UI 范式实测</span>
-            <span class="text-[10px] text-white/40 bg-white/5 px-2 py-0.5 rounded-full">三大设计流派</span>
+            <span class="text-xs font-bold tracking-wider uppercase text-white/50">完整封面 + 曲目信息 + 歌词</span>
+            <span class="text-[10px] text-white/50 bg-white/10 px-2 py-0.5 rounded-full">3 种国外经典版式</span>
         </div>
 
-        <!-- 3 大海外流派切换 -->
-        <div class="grid grid-cols-3 gap-1 bg-white/[0.04] p-1 rounded-xl max-w-md mx-auto border border-white/5">
-            <button onclick="selectPlayer(1)" id="tab-1" class="py-1.5 rounded-lg text-xs font-semibold bg-white text-black shadow-sm transition-all">
-                Apple Music
+        <!-- 3 大版式切换 -->
+        <div class="grid grid-cols-3 gap-1 bg-white/[0.05] p-1 rounded-xl max-w-md mx-auto border border-white/5">
+            <button onclick="setMode(1)" id="tab-1" class="py-2 rounded-lg text-xs font-bold bg-white text-black shadow-sm transition-all">
+                A. 顶部精致封面
             </button>
-            <button onclick="selectPlayer(2)" id="tab-2" class="py-1.5 rounded-lg text-xs font-medium text-white/50 hover:text-white transition-all">
-                Spotify 极简
+            <button onclick="setMode(2)" id="tab-2" class="py-2 rounded-lg text-xs font-medium text-white/50 hover:text-white transition-all">
+                B. 上大封面下歌词
             </button>
-            <button onclick="selectPlayer(3)" id="tab-3" class="py-1.5 rounded-lg text-xs font-medium text-white/50 hover:text-white transition-all">
-                TIDAL 纯黑
+            <button onclick="setMode(3)" id="tab-3" class="py-2 rounded-lg text-xs font-medium text-white/50 hover:text-white transition-all">
+                C. 艺术黑胶唱片
             </button>
         </div>
     </header>
 
-    <!-- 主展示区 -->
+    <!-- 手机模拟屏幕主展示区 -->
     <main class="flex-1 flex flex-col items-center justify-start p-3 sm:p-5 w-full max-w-md mx-auto">
 
-        <!-- 流派设计精髓说明 -->
+        <!-- 当前版式说明 -->
         <div class="w-full bg-white/[0.03] border border-white/5 rounded-2xl p-3.5 mb-3">
-            <div class="flex items-center justify-between">
-                <h2 id="player-title" class="text-xs font-bold text-white">Apple Music · 电影级景深流 (Cinematic Depth)</h2>
-                <span id="player-tag" class="text-[10px] text-white/40">业界公认视觉标杆</span>
-            </div>
-            <p id="player-desc" class="text-[11px] text-white/50 mt-1 leading-relaxed">
-                柔和极暗弥散底色 + 大字纯白 + 景深柔焦（当前句锐利，前后句高斯虚化），视线极其沉浸，绝无杂色。
+            <h2 id="mode-title" class="text-xs font-bold text-white">版式 A · 顶部精致封面卡片 (Apple Music 经典态)</h2>
+            <p id="mode-desc" class="text-[11px] text-white/50 mt-1 leading-relaxed">
+                顶部保留一块 60×60dp 的高清圆角大封面，配有清晰大字曲名、歌手与专辑，下方大面积留给丝滑景深歌词，既清晰看封面又不抢歌词视线。
             </p>
         </div>
 
         <!-- 手机模拟屏幕容器 -->
-        <div id="player-screen" class="w-full h-[620px] rounded-[36px] bg-[#0d0d12] border border-white/10 relative overflow-hidden shadow-2xl flex flex-col justify-between p-5 transition-colors duration-500">
+        <div id="screen-container" class="w-full h-[640px] rounded-[36px] bg-[#0c0d11] border border-white/10 relative overflow-hidden shadow-2xl flex flex-col justify-between p-4 transition-colors duration-500">
             
-            <!-- 动态环境底色 (各流派不同) -->
-            <div id="ambient-layer" class="absolute inset-0 bg-gradient-to-b from-white/[0.04] via-transparent to-black pointer-events-none transition-all duration-700"></div>
+            <!-- 极淡氛围底色 (由当前封面主色虚化衍生) -->
+            <div id="ambient-bg" class="absolute inset-0 bg-gradient-to-b from-white/[0.05] via-transparent to-black pointer-events-none"></div>
 
-            <!-- 1. 顶部栏 -->
-            <div id="player-header" class="relative z-20">
-                <!-- 由 JS 渲染 -->
+            <!-- 1. 顶部/上半部：专辑封面与完整歌曲信息 (由 JS 切换呈现) -->
+            <div id="meta-section" class="relative z-20">
+                <!-- 动态注入封面与信息 -->
             </div>
 
-            <!-- 2. 歌词视口核心区 -->
-            <div class="relative z-10 flex-1 my-2 overflow-hidden flex flex-col justify-center">
-                <div id="player-lyrics" class="lyric-motion space-y-6">
-                    <!-- 动态歌词行注入 -->
+            <!-- 2. 中下部：丝滑双语滚动歌词视口 -->
+            <div id="lyrics-section" class="relative z-10 flex-1 my-2 overflow-hidden flex flex-col justify-center">
+                <div id="lyrics-wrapper" class="lyric-motion space-y-5">
+                    <!-- 歌词行动态注入 -->
                 </div>
             </div>
 
-            <!-- 3. 底部极简触控条 -->
-            <div class="relative z-20 pt-3 border-t border-white/5 flex items-center justify-between">
-                <span class="text-[11px] text-white/40">实测丝滑中心锁定 ➔</span>
-                <button onclick="advanceLyric()" class="px-4 py-1.5 rounded-full bg-white/10 active:bg-white/20 active:scale-95 text-xs text-white font-medium transition-all border border-white/10">
+            <!-- 3. 底部轻触测试栏 -->
+            <div class="relative z-20 pt-2.5 border-t border-white/5 flex items-center justify-between text-xs">
+                <span class="text-[11px] text-white/40">轻触换句测试中心锁定 ➔</span>
+                <button onclick="nextStep()" class="px-3.5 py-1.5 rounded-full bg-white/10 active:bg-white/20 active:scale-95 text-white font-medium text-xs transition-all border border-white/10">
                     换下一句 ▶
                 </button>
             </div>
@@ -80,9 +84,12 @@
     </main>
 
     <script>
-        const songData = {
+        const songInfo = {
             title: "Family Matters",
             artist: "Drake",
+            album: "Certified Lover Boy (2024)",
+            // 真实高清专辑封面质感图
+            coverUrl: "https://images.unsplash.com/photo-1514525253161-7a46d19cd819?w=300&auto=format&fit=crop&q=80",
             lyrics: [
                 {
                     orig: "Drop a fifty bag for the mob in the spot",
@@ -107,140 +114,153 @@
             ]
         };
 
-        let currentPlayer = 1;
+        let currentMode = 1;
         let activeIndex = 1;
 
-        function selectPlayer(id) {
-            currentPlayer = id;
+        function setMode(modeId) {
+            currentMode = modeId;
 
+            // 切换选项卡
             for (let i = 1; i <= 3; i++) {
                 const btn = document.getElementById(`tab-${i}`);
-                if (i === id) {
-                    btn.className = "py-1.5 rounded-lg text-xs font-semibold bg-white text-black shadow-sm transition-all";
+                if (i === modeId) {
+                    btn.className = "py-2 rounded-lg text-xs font-bold bg-white text-black shadow-sm transition-all";
                 } else {
-                    btn.className = "py-1.5 rounded-lg text-xs font-medium text-white/50 hover:text-white transition-all";
+                    btn.className = "py-2 rounded-lg text-xs font-medium text-white/50 hover:text-white transition-all";
                 }
             }
 
-            const title = document.getElementById('player-title');
-            const tag = document.getElementById('player-tag');
-            const desc = document.getElementById('player-desc');
-            const screen = document.getElementById('player-screen');
+            const title = document.getElementById('mode-title');
+            const desc = document.getElementById('mode-desc');
 
-            if (id === 1) {
-                // Apple Music
-                title.innerText = "Apple Music · 电影级景深流 (Cinematic Depth)";
-                tag.innerText = "全球公认视觉标杆";
-                desc.innerText = "柔和极暗弥散底色 + 大字号纯白 + 景深高斯柔焦虚化（未播行模糊淡出），视线如电影大光圈对焦，纯粹宁静。";
-                screen.style.backgroundColor = "#0d0d12";
-            } else if (id === 2) {
-                // Spotify
-                title.innerText = "Spotify · 结构化高对比流 (Structured High-Contrast)";
-                tag.innerText = "紧凑跟唱 · 纯白与深墨灰";
-                desc.innerText = "深碳黑背景（#121212）+ 紧凑左对齐。当前句纯白高亮，未播行深墨灰，绝不用任何彩色文字，跟唱节奏感极强。";
-                screen.style.backgroundColor = "#121212";
+            if (modeId === 1) {
+                title.innerText = "版式 A · 顶部精致封面卡片 (Apple Music 经典态)";
+                desc.innerText = "顶部保留 56×56dp 高清圆角封面 + 纯白大字曲名、歌手与专辑，下方大面积留给丝滑景深歌词。封面不抢戏，歌词沉浸看。";
+            } else if (modeId === 2) {
+                title.innerText = "版式 B · 上半部大封面海报 + 下半部歌词 (Spotify / 经典播放器态)";
+                desc.innerText = "上部展示 100×100dp 居中大封面、居中大字曲名与进度条；下半部显示大字纯白滚动歌词，听歌、看封面、看歌词三不误！";
             } else {
-                // TIDAL
-                title.innerText = "TIDAL · 瑞士极简工作室流 (Swiss Studio)";
-                tag.innerText = "发烧级纯黑 OLED 奢华";
-                desc.innerText = "100% OLED 纯黑（#000000）底色 + 瑞士国际平面排版风格。小字微型元数据，大字清晰锐利，无任何花哨渲染，克制到了极致。";
-                screen.style.backgroundColor = "#000000";
+                title.innerText = "版式 C · 黑胶唱片出鞘画册风 (TIDAL / Roon 艺术态)";
+                desc.innerText = "左侧为精致黑胶封套，黑胶唱片优雅旋转探出半圈，配以极细瑞士无衬线排版，充满实体唱片收藏质感与仪式感。";
             }
 
-            renderHeader();
+            renderMeta();
             renderLyrics();
         }
 
-        function renderHeader() {
-            const h = document.getElementById('player-header');
-            if (currentPlayer === 1) {
-                // Apple Music 风格：极简小圆角封面 + 纯白曲名与浅灰歌手
-                h.innerHTML = `
-                    <div class="flex items-center justify-between py-1">
+        // 渲染封面与歌曲信息
+        function renderMeta() {
+            const container = document.getElementById('meta-section');
+            if (currentMode === 1) {
+                // 版式 A: 顶部精致横向卡片
+                container.innerHTML = `
+                    <div class="flex items-center justify-between bg-white/[0.04] border border-white/10 rounded-2xl p-2.5 backdrop-blur-md shadow-lg">
                         <div class="flex items-center gap-3">
-                            <div class="w-9 h-9 rounded-xl bg-white/10 flex items-center justify-center border border-white/10 shadow-lg">
-                                <span class="w-3 h-3 rounded-full bg-white/70"></span>
-                            </div>
+                            <!-- 高清大封面 -->
+                            <img src="${songInfo.coverUrl}" class="w-14 h-14 rounded-xl object-cover shadow-md border border-white/15" alt="Cover">
                             <div>
-                                <div class="text-[14px] font-bold text-white tracking-tight">${songData.title}</div>
-                                <div class="text-[11px] text-white/50">${songData.artist}</div>
+                                <div class="text-[15px] font-extrabold text-white tracking-tight">${songInfo.title}</div>
+                                <div class="text-[12px] text-white/70 mt-0.5">${songInfo.artist}</div>
+                                <div class="text-[10px] text-white/40 mt-0.5">${songInfo.album}</div>
                             </div>
                         </div>
-                        <div class="w-7 h-7 rounded-full bg-white/5 flex items-center justify-center text-[12px] text-white/60">
+                        <div class="w-8 h-8 rounded-full bg-white/10 flex items-center justify-center text-xs text-white/70 cursor-pointer">
                             ···
                         </div>
                     </div>
                 `;
-            } else if (currentPlayer === 2) {
-                // Spotify 风格：紧凑微型标题栏
-                h.innerHTML = `
-                    <div class="flex items-center justify-between py-1">
-                        <div>
-                            <div class="text-[13px] font-bold text-white">${songData.title}</div>
-                            <div class="text-[11px] text-white/60">${songData.artist}</div>
+            } else if (currentMode === 2) {
+                // 版式 B: 上半部大封面海报 + 居中信息
+                container.innerHTML = `
+                    <div class="flex flex-col items-center pt-2 pb-3 border-b border-white/5">
+                        <!-- 100x100 大封面 -->
+                        <div class="relative shadow-2xl">
+                            <img src="${songInfo.coverUrl}" class="w-24 h-24 rounded-2xl object-cover shadow-2xl border border-white/20" alt="Cover">
                         </div>
-                        <span class="text-[10px] font-bold text-white/40 tracking-wider">LYRICS</span>
+                        <div class="text-center mt-2.5">
+                            <div class="text-[16px] font-black text-white tracking-tight">${songInfo.title}</div>
+                            <div class="text-[12px] text-white/60 mt-0.5 font-medium">${songInfo.artist} · ${songInfo.album}</div>
+                        </div>
+                        <!-- 极细播放进度条 -->
+                        <div class="w-48 h-1 bg-white/15 rounded-full mt-3 overflow-hidden">
+                            <div class="w-2/5 h-full bg-white rounded-full"></div>
+                        </div>
                     </div>
                 `;
             } else {
-                // TIDAL 风格：瑞士极简微型排版
-                h.innerHTML = `
-                    <div class="flex items-baseline justify-between pb-2 border-b border-white/10">
-                        <div class="flex items-baseline gap-2">
-                            <span class="text-[13px] font-bold tracking-wider text-white uppercase">${songData.title}</span>
-                            <span class="text-[10px] text-white/40 font-mono">${songData.artist}</span>
+                // 版式 C: 艺术黑胶唱片出鞘
+                container.innerHTML = `
+                    <div class="flex items-center justify-between bg-white/[0.03] p-3 rounded-2xl border border-white/10">
+                        <div class="flex items-center gap-4">
+                            <!-- 唱片从封套探出 -->
+                            <div class="relative w-16 h-14 flex items-center">
+                                <!-- 封套 -->
+                                <img src="${songInfo.coverUrl}" class="w-13 h-13 rounded-lg object-cover absolute left-0 z-20 shadow-xl border border-white/20" style="width: 52px; height: 52px;" alt="Cover">
+                                <!-- 黑胶盘探出 -->
+                                <div class="w-12 h-12 rounded-full bg-[#111116] border border-white/30 absolute right-0 z-10 anim-spin-slow flex items-center justify-center shadow-lg">
+                                    <div class="w-4 h-4 rounded-full bg-white/20 flex items-center justify-center">
+                                        <div class="w-1.5 h-1.5 rounded-full bg-black"></div>
+                                    </div>
+                                </div>
+                            </div>
+                            <div>
+                                <div class="text-[14px] font-black text-white tracking-wider uppercase">${songInfo.title}</div>
+                                <div class="text-[11px] text-white/60 tracking-normal">${songInfo.artist}</div>
+                                <div class="text-[9px] text-white/30 font-mono tracking-widest mt-0.5">HI-RES AUDIO 24-BIT</div>
+                            </div>
                         </div>
-                        <span class="text-[9px] font-mono text-white/40 border border-white/20 px-1 rounded">MAX FLAC</span>
+                        <div class="text-white/40 text-xs px-2 py-1 rounded bg-white/5 border border-white/10">···</div>
                     </div>
                 `;
             }
         }
 
+        // 渲染歌词
         function renderLyrics() {
-            const list = document.getElementById('player-lyrics');
+            const wrapper = document.getElementById('lyrics-wrapper');
             let html = '';
 
-            songData.lyrics.forEach((item, idx) => {
+            songInfo.lyrics.forEach((item, idx) => {
                 const isActive = (idx === activeIndex);
                 const distance = Math.abs(idx - activeIndex);
 
-                if (currentPlayer === 1) {
-                    // Apple Music: 大字纯白 + 景深柔焦 (未播句高斯模糊)
+                if (currentMode === 1) {
+                    // 样式 A (Apple Music 景深流)
                     html += `
                         <div class="lyric-motion ${isActive ? 'scale-[1.03] pl-1' : 'scale-[0.96]'}">
-                            <div class="${isActive ? 'opacity-100 filter-none' : (distance === 1 ? 'opacity-40 blur-[1px]' : 'opacity-15 blur-[2.5px]')}">
-                                <div class="text-[18px] font-extrabold text-white leading-snug whitespace-pre-line tracking-tight">
+                            <div class="${isActive ? 'opacity-100 filter-none' : (distance === 1 ? 'opacity-35 blur-[1px]' : 'opacity-15 blur-[2px]')}">
+                                <div class="text-[17px] font-bold text-white leading-snug whitespace-pre-line">
                                     ${item.orig}
                                 </div>
-                                <div class="text-[13px] font-normal text-white/70 mt-1">
+                                <div class="text-[12px] font-normal text-white/70 mt-1">
                                     ${item.trans}
                                 </div>
                             </div>
                         </div>
                     `;
-                } else if (currentPlayer === 2) {
-                    // Spotify: 高对比 (当前句纯白加粗，未播句深墨灰，无模糊)
+                } else if (currentMode === 2) {
+                    // 样式 B (居中跟唱流)
                     html += `
-                        <div class="lyric-motion">
+                        <div class="lyric-motion text-center ${isActive ? 'scale-[1.05]' : 'scale-95'}">
                             <div class="${isActive ? 'opacity-100' : 'opacity-30'}">
-                                <div class="text-[16px] font-bold ${isActive ? 'text-white' : 'text-[#888888]'} leading-normal whitespace-pre-line">
+                                <div class="text-[16px] font-extrabold ${isActive ? 'text-white' : 'text-white/50'} leading-tight whitespace-pre-line">
                                     ${item.orig}
                                 </div>
-                                <div class="text-[12px] font-normal ${isActive ? 'text-white/80' : 'text-[#666666]'} mt-0.5">
+                                <div class="text-[12px] font-normal ${isActive ? 'text-white/75' : 'text-white/30'} mt-1">
                                     ${item.trans}
                                 </div>
                             </div>
                         </div>
                     `;
                 } else {
-                    // TIDAL: 纯黑瑞士极简 (超清晰无衬线，字距稍宽，优雅沉稳)
+                    // 样式 C (TIDAL 极简纯黑)
                     html += `
                         <div class="lyric-motion ${isActive ? 'translate-x-1.5' : ''}">
                             <div class="${isActive ? 'opacity-100' : (distance === 1 ? 'opacity-35' : 'opacity-15')}">
-                                <div class="text-[17px] font-bold text-white tracking-wide leading-relaxed whitespace-pre-line">
+                                <div class="text-[16px] font-bold text-white tracking-wide leading-relaxed whitespace-pre-line">
                                     ${item.orig}
                                 </div>
-                                <div class="text-[12px] font-light text-white/60 tracking-normal mt-1">
+                                <div class="text-[12px] font-light text-white/60 mt-1">
                                     ${item.trans}
                                 </div>
                             </div>
@@ -249,16 +269,16 @@
                 }
             });
 
-            list.innerHTML = html;
+            wrapper.innerHTML = html;
         }
 
-        function advanceLyric() {
-            activeIndex = (activeIndex + 1) % songData.lyrics.length;
+        function nextStep() {
+            activeIndex = (activeIndex + 1) % songInfo.lyrics.length;
             renderLyrics();
         }
 
         // 初始化
-        selectPlayer(1);
+        setMode(1);
     </script>
 </body>
 </html>
