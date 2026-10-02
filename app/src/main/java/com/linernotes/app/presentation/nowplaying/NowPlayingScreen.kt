@@ -468,11 +468,11 @@ private fun NowPlayingLyricsContent(
 
     val listState = rememberLazyListState()
 
-    // 智能黄金聚焦点对齐动力学 (仿 Apple Music / Lyricify 柔和阻尼弹簧平滑滚动)
+    // 智能黄金聚焦点对齐动力学 (对齐 Lyricify 录屏物理特性：26% 视口黄金聚焦点 + 零回弹 Quartic Ease-Out 丝滑缓动)
     LaunchedEffect(currentLineIndex) {
         if (currentLineIndex in lyrics.indices) {
             val viewportHeight = listState.layoutInfo.viewportSize.height.toFloat()
-            val targetFocalY = if (viewportHeight > 0f) viewportHeight * 0.35f else 320f
+            val targetFocalY = if (viewportHeight > 0f) viewportHeight * 0.26f else 260f
             val visibleItem = listState.layoutInfo.visibleItemsInfo.find { it.index == currentLineIndex }
 
             if (visibleItem != null && viewportHeight > 0f) {
@@ -482,14 +482,14 @@ private fun NowPlayingLyricsContent(
                 if (kotlin.math.abs(scrollDelta) > 1.2f) {
                     listState.animateScrollBy(
                         value = scrollDelta,
-                        animationSpec = spring(
-                            dampingRatio = 0.88f,
-                            stiffness = Spring.StiffnessLow
+                        animationSpec = tween(
+                            durationMillis = 560,
+                            easing = CubicBezierEasing(0.20f, 0.0f, 0.0f, 1.0f)
                         )
                     )
                 }
             } else {
-                val focalOffset = -(targetFocalY - 60f).toInt()
+                val focalOffset = -(targetFocalY - 40f).toInt()
                 listState.animateScrollToItem(
                     index = currentLineIndex,
                     scrollOffset = focalOffset.coerceAtMost(0)
@@ -501,8 +501,8 @@ private fun NowPlayingLyricsContent(
     Box(modifier = Modifier.fillMaxSize()) {
         LazyColumn(
             state = listState,
-            contentPadding = PaddingValues(top = 110.dp, bottom = 160.dp, start = 22.dp, end = 22.dp),
-            verticalArrangement = Arrangement.spacedBy(26.dp),
+            contentPadding = PaddingValues(top = 130.dp, bottom = 220.dp, start = 24.dp, end = 24.dp),
+            verticalArrangement = Arrangement.spacedBy(30.dp),
             modifier = Modifier.fillMaxSize()
         ) {
             itemsIndexed(
@@ -525,11 +525,11 @@ private fun NowPlayingLyricsContent(
             }
         }
 
-        // 顶部柔和渐隐暗角遮罩 (覆盖高度达 130dp，完全阻隔歌词冲撞系统状态栏)
+        // 顶部柔和渐隐暗角遮罩 (覆盖高度达 140dp，完全阻隔歌词冲撞系统状态栏与顶部栏)
         Box(
             modifier = Modifier
                 .fillMaxWidth()
-                .height(130.dp)
+                .height(140.dp)
                 .align(Alignment.TopCenter)
                 .background(
                     Brush.verticalGradient(
@@ -546,7 +546,7 @@ private fun NowPlayingLyricsContent(
         Box(
             modifier = Modifier
                 .fillMaxWidth()
-                .height(140.dp)
+                .height(200.dp)
                 .align(Alignment.BottomCenter)
                 .background(
                     Brush.verticalGradient(
@@ -574,44 +574,42 @@ private fun LyricLineRow(
     onClick: () -> Unit,
     onAnnotationClick: () -> Unit
 ) {
-    // Lyricify 弹性物理缩放动力学：活跃行微弹放大，边缘平滑锚定
+    // Lyricify / Apple Music 经典动力学：活跃行 1.0f，非活跃行 0.94f，左边缘锚定，无回弹平滑缓动
     val animatedScale by animateFloatAsState(
-        targetValue = if (isActive) 1.05f else 0.96f,
-        animationSpec = spring(
-            dampingRatio = Spring.DampingRatioMediumBouncy,
-            stiffness = Spring.StiffnessMediumLow
+        targetValue = if (isActive) 1.0f else 0.94f,
+        animationSpec = tween(
+            durationMillis = 480,
+            easing = CubicBezierEasing(0.20f, 0.0f, 0.0f, 1.0f)
         ),
         label = "lyricScale"
     )
 
-    // 非活跃行透明度渐进 (高对比度舒适可读)
+    // 非活跃行透明度渐进 (高对比度纵深感，活跃行纯白锁定，相邻行柔和压暗)
     val animatedAlpha by animateFloatAsState(
         targetValue = when {
             isActive -> 1.0f
-            distance == 1 -> 0.65f
-            distance == 2 -> 0.50f
-            distance == 3 -> 0.40f
-            else -> 0.32f
+            distance == 1 -> 0.40f
+            distance == 2 -> 0.28f
+            else -> 0.20f
         },
-        animationSpec = spring(
-            dampingRatio = Spring.DampingRatioNoBouncy,
-            stiffness = Spring.StiffnessMedium
+        animationSpec = tween(
+            durationMillis = 450,
+            easing = CubicBezierEasing(0.20f, 0.0f, 0.0f, 1.0f)
         ),
         label = "lyricAlpha"
     )
 
-    // 中文翻译对比度大幅提亮：活跃行 88%，非活跃行 45%~58%，绝不发黑
+    // 中文翻译对比度动力学：活跃行 85%，相邻行 32%，远行 16%
     val animatedTransAlpha by animateFloatAsState(
         targetValue = when {
-            isActive -> 0.88f
-            distance == 1 -> 0.58f
-            distance == 2 -> 0.45f
-            distance == 3 -> 0.36f
-            else -> 0.28f
+            isActive -> 0.85f
+            distance == 1 -> 0.32f
+            distance == 2 -> 0.22f
+            else -> 0.16f
         },
-        animationSpec = spring(
-            dampingRatio = Spring.DampingRatioNoBouncy,
-            stiffness = Spring.StiffnessMedium
+        animationSpec = tween(
+            durationMillis = 450,
+            easing = CubicBezierEasing(0.20f, 0.0f, 0.0f, 1.0f)
         ),
         label = "transAlpha"
     )
@@ -641,26 +639,27 @@ private fun LyricLineRow(
             verticalAlignment = Alignment.CenterVertically
         ) {
             Column(modifier = Modifier.weight(1f)) {
-                // 原文歌词 (纯白高对比)
+                // 原文歌词 (纯白高对比，饱满视觉重心)
                 Text(
                     text = line.original,
                     color = Color.White,
-                    fontSize = 24.sp,
+                    fontSize = 26.sp,
                     fontWeight = if (isActive) FontWeight.Bold else FontWeight.SemiBold,
                     fontFamily = FontFamily.SansSerif,
-                    lineHeight = 32.sp
+                    lineHeight = 34.sp,
+                    letterSpacing = (-0.3).sp
                 )
 
                 // 中文翻译 (舒适字号与清晰行高)
                 if (displayTranslation.isNotBlank()) {
-                    Spacer(modifier = Modifier.height(4.dp))
+                    Spacer(modifier = Modifier.height(5.dp))
                     Text(
                         text = displayTranslation,
                         color = Color.White.copy(alpha = animatedTransAlpha),
-                        fontSize = 15.sp,
+                        fontSize = 14.5.sp,
                         fontWeight = if (isActive) FontWeight.Medium else FontWeight.Normal,
                         fontFamily = FontFamily.SansSerif,
-                        lineHeight = 22.sp
+                        lineHeight = 21.sp
                     )
                 }
             }
