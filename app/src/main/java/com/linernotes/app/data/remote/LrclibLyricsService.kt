@@ -18,13 +18,13 @@ object LrclibLyricsService {
 
     suspend fun fetchLyrics(
         trackTitle: String,
-        artistName: String
+        artistName: String,
+        targetDurationMs: Long = 0L
     ): OnlineLyricsResult? = withContext(Dispatchers.IO) {
         val queries = LyricSearchCleaner.buildSearchQueries(trackTitle, artistName)
-        val cleanArtist = LyricSearchCleaner.cleanArtist(artistName).lowercase()
 
         for (query in queries) {
-            val result = searchAndFetch(query, cleanArtist, trackTitle, artistName)
+            val result = searchAndFetch(query, trackTitle, artistName, targetDurationMs)
             if (result != null && result.originalLyrics.isNotBlank()) {
                 return@withContext result
             }
@@ -34,9 +34,9 @@ object LrclibLyricsService {
 
     private fun searchAndFetch(
         query: String,
-        cleanArtist: String,
-        fallbackTitle: String,
-        fallbackArtist: String
+        targetTitle: String,
+        targetArtist: String,
+        targetDurationMs: Long = 0L
     ): OnlineLyricsResult? {
         return try {
             val encQuery = URLEncoder.encode(query, "UTF-8")
@@ -46,39 +46,33 @@ object LrclibLyricsService {
             if (array.length() == 0) return null
 
             var bestItem: org.json.JSONObject? = null
+            var bestScore = -100
 
-            // 1. 优先挑选包含匹配歌手且含有同步歌词的项
-            if (cleanArtist.isNotBlank()) {
-                for (i in 0 until array.length()) {
-                    val item = array.optJSONObject(i) ?: continue
-                    val art = item.optString("artistName", "").lowercase()
-                    val hasSynced = item.optString("syncedLyrics", "").isNotBlank()
-                    if (art.isNotBlank() && (art.contains(cleanArtist) || cleanArtist.contains(art))) {
-                        if (hasSynced) {
-                            bestItem = item
-                            break
-                        } else if (bestItem == null) {
-                            bestItem = item
-                        }
-                    }
+            for (i in 0 until array.length()) {
+                val item = array.optJSONObject(i) ?: continue
+                val candTitle = item.optString("trackName", "")
+                val candArtist = item.optString("artistName", "")
+                val candDuration = (item.optDouble("duration", 0.0) * 1000).toLong()
+                val hasSynced = item.optString("syncedLyrics", "").isNotBlank()
+
+                var score = LyricSearchCleaner.scoreCandidateMatch(
+                    candidateTitle = candTitle,
+                    candidateArtist = candArtist,
+                    targetTitle = targetTitle,
+                    targetArtist = targetArtist,
+                    candidateDurationMs = candDuration,
+                    targetDurationMs = targetDurationMs
+                )
+
+                if (hasSynced) score += 30
+
+                if (score > bestScore && score >= 50) {
+                    bestScore = score
+                    bestItem = item
                 }
             }
 
-            // 2. 其次挑选包含同步歌词的第一项
-            if (bestItem == null) {
-                for (i in 0 until array.length()) {
-                    val item = array.optJSONObject(i) ?: continue
-                    if (item.optString("syncedLyrics", "").isNotBlank()) {
-                        bestItem = item
-                        break
-                    }
-                }
-            }
-
-            // 3. 最后保底选用第 1 项
-            if (bestItem == null) {
-                bestItem = array.optJSONObject(0) ?: return null
-            }
+            if (bestItem == null) return null
 
             val synced = bestItem.optString("syncedLyrics", "")
             val plain = bestItem.optString("plainLyrics", "")
@@ -89,8 +83,9 @@ object LrclibLyricsService {
                 else -> return null
             }
 
-            val trackName = bestItem.optString("trackName", fallbackTitle)
-            val artist = bestItem.optString("artistName", fallbackArtist)
+            val trackName = bestItem.optString("trackName", targetTitle)
+            val artist = bestItem.optString("artistName", targetArtist)
+            val duration = (bestItem.optDouble("duration", 0.0) * 1000).toLong()
 
             OnlineLyricsResult(
                 songId = bestItem.optLong("id", 0L),
@@ -98,7 +93,9 @@ object LrclibLyricsService {
                 artist = artist,
                 originalLyrics = lyrics,
                 translatedLyrics = null,
-                isBilingual = false
+                isBilingual = false,
+                coverUrl = null,
+                durationMs = duration
             )
         } catch (e: Exception) {
             null

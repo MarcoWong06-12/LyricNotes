@@ -26,13 +26,13 @@ object QQMusicLyricsService {
 
     suspend fun fetchLyrics(
         trackTitle: String,
-        artistName: String
+        artistName: String,
+        targetDurationMs: Long = 0L
     ): OnlineLyricsResult? = withContext(Dispatchers.IO) {
         val queries = LyricSearchCleaner.buildSearchQueries(trackTitle, artistName)
-        val cleanArtist = LyricSearchCleaner.cleanArtist(artistName).lowercase()
 
         for (query in queries) {
-            val result = searchAndFetch(query, cleanArtist, trackTitle, artistName)
+            val result = searchAndFetch(query, trackTitle, artistName, targetDurationMs)
             if (result != null && result.originalLyrics.isNotBlank()) {
                 return@withContext result
             }
@@ -42,9 +42,9 @@ object QQMusicLyricsService {
 
     private fun searchAndFetch(
         query: String,
-        cleanArtist: String,
-        fallbackTitle: String,
-        fallbackArtist: String
+        targetTitle: String,
+        targetArtist: String,
+        targetDurationMs: Long = 0L
     ): OnlineLyricsResult? {
         return try {
             val encodedQuery = URLEncoder.encode(query, "UTF-8")
@@ -58,33 +58,42 @@ object QQMusicLyricsService {
             if (songList.length() == 0) return null
 
             var targetSong: JSONObject? = null
+            var bestScore = -100
 
-            if (cleanArtist.isNotBlank()) {
-                for (i in 0 until songList.length()) {
-                    val s = songList.optJSONObject(i) ?: continue
-                    val singers = s.optJSONArray("singer")
-                    if (singers != null) {
-                        for (j in 0 until singers.length()) {
-                            val name = singers.optJSONObject(j)?.optString("name", "")?.lowercase() ?: ""
-                            if (name.isNotBlank() && (name.contains(cleanArtist) || cleanArtist.contains(name))) {
-                                targetSong = s
-                                break
-                            }
-                        }
-                    }
-                    if (targetSong != null) break
+            for (i in 0 until songList.length()) {
+                val s = songList.optJSONObject(i) ?: continue
+                val candTitle = s.optString("songname", "")
+                val singers = s.optJSONArray("singer")
+                val candArtist = if (singers != null) {
+                    (0 until singers.length()).mapNotNull { idx -> singers.optJSONObject(idx)?.optString("name") }.joinToString(", ")
+                } else ""
+                val candDuration = s.optLong("interval", 0L) * 1000L
+
+                val score = LyricSearchCleaner.scoreCandidateMatch(
+                    candidateTitle = candTitle,
+                    candidateArtist = candArtist,
+                    targetTitle = targetTitle,
+                    targetArtist = targetArtist,
+                    candidateDurationMs = candDuration,
+                    targetDurationMs = targetDurationMs
+                )
+
+                if (score > bestScore && score >= 50) {
+                    bestScore = score
+                    targetSong = s
                 }
             }
 
-            if (targetSong == null) {
-                targetSong = songList.optJSONObject(0) ?: return null
-            }
+            if (targetSong == null) return null
 
             val songmid = targetSong.optString("songmid", "")
             if (songmid.isBlank()) return null
 
-            val matchedTitle = targetSong.optString("songname", fallbackTitle)
-            val matchedArtist = targetSong.optJSONArray("singer")?.optJSONObject(0)?.optString("name", fallbackArtist) ?: fallbackArtist
+            val matchedTitle = targetSong.optString("songname", targetTitle)
+            val matchedArtist = targetSong.optJSONArray("singer")?.optJSONObject(0)?.optString("name", targetArtist) ?: targetArtist
+            val albummid = targetSong.optString("albummid", "")
+            val matchedCover = if (albummid.isNotBlank()) "https://y.gtimg.cn/music/photo_new/T002R300x300M000${albummid}.jpg" else null
+            val matchedDuration = targetSong.optLong("interval", 0L) * 1000L
 
             val lyricUrl = "$LYRIC_API?songmid=$songmid&format=json&nobase64=1"
             val lyricJson = LinerNotesHttpClient.get(lyricUrl, LYRIC_HEADERS) ?: return null
@@ -110,7 +119,9 @@ object QQMusicLyricsService {
                 artist = matchedArtist,
                 originalLyrics = alignedPair.first,
                 translatedLyrics = alignedPair.second.ifBlank { null },
-                isBilingual = alignedPair.second.isNotBlank()
+                isBilingual = alignedPair.second.isNotBlank(),
+                coverUrl = matchedCover,
+                durationMs = matchedDuration
             )
         } catch (e: Exception) {
             null

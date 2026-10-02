@@ -32,6 +32,18 @@ object LyricSearchCleaner {
         RegexOption.IGNORE_CASE
     )
 
+    private val TIMESTAMP_PARSER_REGEX = Regex("""\[(\d{2}):(\d{2})(?:\.(\d{1,3}))?\]""")
+
+    private val TITLE_STOP_WORDS = setOf(
+        "the", "a", "an", "and", "or", "in", "on", "at", "to", "for", "of", "with",
+        "feat", "ft", "version", "remix", "mix", "edit", "explicit", "clean", "audio", "video"
+    )
+
+    private val META_LINE_TAGS = setOf(
+        "作词", "作曲", "编曲", "制作", "ti:", "ar:", "al:", "by:", "offset:",
+        "lyricist", "composer", "producer", "written by"
+    )
+
     /**
      * 清理曲目标题中的音轨编号、音频扩展名以及多余的视频/混音/伴奏标签
      */
@@ -109,5 +121,154 @@ object LyricSearchCleaner {
         }
 
         return queries.distinct()
+    }
+
+    /**
+     * 严格比对候选曲目与目标曲目的置信度评分 (Anti-Mismatch Engine)
+     * 严防同歌手异曲、同名异曲、加长版混音以及无关热门曲目误匹配
+     */
+    fun scoreCandidateMatch(
+        candidateTitle: String,
+        candidateArtist: String,
+        targetTitle: String,
+        targetArtist: String,
+        candidateDurationMs: Long = 0L,
+        targetDurationMs: Long = 0L
+    ): Int {
+        val normCandTitle = normalizeForMatching(candidateTitle)
+        val normTargetTitle = normalizeForMatching(targetTitle)
+        val normCandArtist = normalizeForMatching(candidateArtist)
+        val normTargetArtist = normalizeForMatching(targetArtist)
+
+        if (normCandTitle.isBlank() || normTargetTitle.isBlank()) return -100
+
+        var score = 0
+
+        // 1. 标题匹配度核心判定
+        when {
+            normCandTitle == normTargetTitle -> score += 120
+            normCandTitle.startsWith(normTargetTitle) || normTargetTitle.startsWith(normCandTitle) -> score += 90
+            normCandTitle.contains(normTargetTitle) || normTargetTitle.contains(normCandTitle) -> score += 75
+            else -> {
+                val candWords = normCandTitle.split(" ").filter { it.length >= 2 }.toSet()
+                val targetWords = normTargetTitle.split(" ").filter { it.length >= 2 }.toSet()
+                val overlap = candWords.intersect(targetWords).size
+                if (overlap > 0 && targetWords.isNotEmpty()) {
+                    val ratio = overlap.toFloat() / targetWords.size
+                    if (ratio >= 0.5f) {
+                        score += (60 * ratio).toInt()
+                    } else {
+                        return -200 // 标题有效单词重合度过低，拒绝
+                    }
+                } else {
+                    return -500 // 标题零单词重合，绝对是错误歌曲，直接排除！
+                }
+            }
+        }
+
+        // 2. 歌手匹配度判定
+        if (normTargetArtist.isNotBlank() && normCandArtist.isNotBlank()) {
+            when {
+                normCandArtist == normTargetArtist -> score += 70
+                normCandArtist.contains(normTargetArtist) || normTargetArtist.contains(normCandArtist) -> score += 55
+                else -> {
+                    val candArtWords = normCandArtist.split(" ").filter { it.length >= 2 }.toSet()
+                    val targetArtWords = normTargetArtist.split(" ").filter { it.length >= 2 }.toSet()
+                    if (candArtWords.intersect(targetArtWords).isNotEmpty()) {
+                        score += 40
+                    } else {
+                        score -= 90 // 歌手完全不匹配
+                    }
+                }
+            }
+        }
+
+        // 3. 歌曲物理时长偏差判定 (若双方皆提供时长)
+        if (targetDurationMs > 0L && candidateDurationMs > 0L) {
+            val diffSec = Math.abs(targetDurationMs - candidateDurationMs) / 1000L
+            when {
+                diffSec <= 3L -> score += 40
+                diffSec <= 8L -> score += 20
+                diffSec > 25L -> score -= 200 // 时长偏差大于 25 秒，通常为不同版本或串烧，予以重罚
+            }
+        }
+
+        // 4. 特殊版本干扰项过滤
+        val isTargetRemix = targetTitle.contains("remix", ignoreCase = true)
+        val isCandRemix = candidateTitle.contains("remix", ignoreCase = true)
+        if (!isTargetRemix && isCandRemix) score -= 40
+
+        val isTargetLive = targetTitle.contains("live", ignoreCase = true)
+        val isCandLive = candidateTitle.contains("live", ignoreCase = true)
+        if (!isTargetLive && isCandLive) score -= 40
+
+        return score
+    }
+
+    fun normalizeForMatching(text: String): String {
+        var s = text.lowercase()
+        s = s.replace(Regex("""[\(\[\{（【［].*?[\)\]\}）】］]"""), " ")
+        s = s.replace(Regex("""[^a-z0-9\u4e00-\u9fa5\s]"""), " ")
+        return s.replace(Regex("""\s+"""), " ").trim()
+    }
+
+    /**
+     * 提取曲目标题中的实质性鉴别关键词 (排除冠词与虚词)
+     */
+    fun extractSignificantTitleKeywords(title: String): List<String> {
+        val norm = normalizeForMatching(title)
+        val words = norm.split(" ").filter { it.length >= 2 && !TITLE_STOP_WORDS.contains(it) }
+        return words.distinct()
+    }
+
+    /**
+     * 计算歌词文本中包含标题关键词的比例 (0.0 ~ 1.0)
+     */
+    fun calculateTitleKeywordRelevance(lyric: String, keywords: List<String>): Float {
+        if (keywords.isEmpty() || lyric.isBlank()) return 0.5f
+        val lyricLower = lyric.lowercase()
+        var hits = 0
+        for (kw in keywords) {
+            if (lyricLower.contains(kw)) {
+                hits++
+            }
+        }
+        return hits.toFloat() / keywords.size
+    }
+
+    /**
+     * 从 LRC 歌词中提取末句时间戳（毫秒）用于推算歌曲时长
+     */
+    fun extractLastTimestampMs(lyric: String): Long {
+        if (lyric.isBlank()) return 0L
+        val matches = TIMESTAMP_PARSER_REGEX.findAll(lyric).toList()
+        if (matches.isEmpty()) return 0L
+        val lastMatch = matches.last()
+        val minutes = lastMatch.groupValues[1].toLongOrNull() ?: 0L
+        val seconds = lastMatch.groupValues[2].toLongOrNull() ?: 0L
+        val msStr = lastMatch.groupValues.getOrNull(3).orEmpty()
+        val ms = msStr.padEnd(3, '0').take(3).toLongOrNull() ?: 0L
+        return (minutes * 60L + seconds) * 1000L + ms
+    }
+
+    /**
+     * 提取歌词纯正演唱正文指纹 (用于跨数据源一致性验证)
+     */
+    fun extractLyricSungFingerprint(lyric: String): List<String> {
+        if (lyric.isBlank()) return emptyList()
+        val results = mutableListOf<String>()
+        val lines = lyric.lines()
+        for (line in lines) {
+            val textOnly = line.replace(TIMESTAMP_PARSER_REGEX, "").trim()
+            if (textOnly.length < 3) continue
+            val lower = textOnly.lowercase()
+            if (META_LINE_TAGS.any { lower.contains(it) }) continue
+            val cleanNorm = lower.replace(Regex("""[^a-z0-9\u4e00-\u9fa5]"""), "")
+            if (cleanNorm.length >= 3) {
+                results.add(cleanNorm)
+                if (results.size >= 5) break
+            }
+        }
+        return results
     }
 }

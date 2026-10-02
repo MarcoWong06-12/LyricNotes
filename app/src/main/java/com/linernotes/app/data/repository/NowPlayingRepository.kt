@@ -207,13 +207,24 @@ class NowPlayingRepository @Inject constructor(
             val lyricsJob = async {
                 if (fetchedLyrics.isNotEmpty()) return@async
                 try {
+                    val curState = playbackStateManager.playbackState.value
                     val rawResult = UnifiedLyricsService.fetchLyrics(
                         trackTitle = title,
                         artistName = artist,
-                        sourcePref = aiPreferences.lyricsSource
+                        sourcePref = aiPreferences.lyricsSource,
+                        targetDurationMs = curState.durationMs
                     )
 
                     if (rawResult != null && rawResult.originalLyrics.isNotBlank()) {
+                        // 回填从歌词源中获取的高清官方专辑封面
+                        val lyricCover = rawResult.coverUrl
+                        if (!lyricCover.isNullOrBlank()) {
+                            val cur = playbackStateManager.playbackState.value
+                            if (cur.coverUrl.isNullOrBlank() || cur.coverUrl.startsWith("/")) {
+                                playbackStateManager.updateState(cur.copy(coverUrl = lyricCover))
+                            }
+                        }
+
                         var origLyrics = rawResult.originalLyrics
                         var transLyrics = rawResult.translatedLyrics
 
@@ -389,12 +400,15 @@ class NowPlayingRepository @Inject constructor(
         if (queueItems.isEmpty()) return
         preloadingJob?.cancel()
         preloadingJob = repositoryScope.launch {
-            val candidates = queueItems.take(2)
-            for (item in candidates) {
-                if (item.title.isBlank() || item.artist.isBlank()) continue
-                val nextKey = "${item.artist.trim().lowercase()} - ${item.title.trim().lowercase()}"
-                if (memoryCache.containsKey(nextKey)) continue
+            val currentKey = currentSongKey
+            val candidates = queueItems.filter { item ->
+                if (item.title.isBlank() || item.artist.isBlank()) return@filter false
+                val key = "${item.artist.trim().lowercase()} - ${item.title.trim().lowercase()}"
+                key != currentKey && !memoryCache.containsKey(key)
+            }.take(2)
 
+            for (item in candidates) {
+                val nextKey = "${item.artist.trim().lowercase()} - ${item.title.trim().lowercase()}"
                 try {
                     silentFetchAndCacheLyrics(item.title, item.artist, nextKey)
                 } catch (e: Exception) {
@@ -412,6 +426,15 @@ class NowPlayingRepository @Inject constructor(
         ) ?: return
 
         if (rawResult.originalLyrics.isBlank()) return
+
+        // 防缓存污染：严格核验预加载歌词的标题与歌手匹配度
+        val matchScore = LyricSearchCleaner.scoreCandidateMatch(
+            candidateTitle = rawResult.title,
+            candidateArtist = rawResult.artist,
+            targetTitle = title,
+            targetArtist = artist
+        )
+        if (matchScore < 50) return
 
         var origLyrics = rawResult.originalLyrics
         var transLyrics = rawResult.translatedLyrics
@@ -435,7 +458,8 @@ class NowPlayingRepository @Inject constructor(
             memoryCache[songKey] = CachedSongData(
                 lyrics = aligned,
                 annotatedLines = emptyMap(),
-                songStory = null
+                songStory = null,
+                geniusNotice = null
             )
         }
     }

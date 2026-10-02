@@ -54,13 +54,13 @@ object NetEaseLyricsService {
 
     suspend fun fetchLyrics(
         trackTitle: String,
-        artistName: String
+        artistName: String,
+        targetDurationMs: Long = 0L
     ): OnlineLyricsResult? = withContext(Dispatchers.IO) {
         val queries = LyricSearchCleaner.buildSearchQueries(trackTitle, artistName)
-        val cleanArtist = LyricSearchCleaner.cleanArtist(artistName).lowercase()
 
         for (query in queries) {
-            val result = searchAndFetch(query, cleanArtist, trackTitle, artistName)
+            val result = searchAndFetch(query, trackTitle, artistName, targetDurationMs)
             if (result != null && result.originalLyrics.isNotBlank()) {
                 return@withContext result
             }
@@ -70,44 +70,50 @@ object NetEaseLyricsService {
 
     private fun searchAndFetch(
         query: String,
-        cleanArtist: String,
-        fallbackTitle: String,
-        fallbackArtist: String
+        targetTitle: String,
+        targetArtist: String,
+        targetDurationMs: Long = 0L
     ): OnlineLyricsResult? {
         val songs = searchSongs(query) ?: return null
         if (songs.length() == 0) return null
 
         var bestSong: JSONObject? = null
+        var bestScore = -100
 
-        // 1. 若提供了歌手名，优先挑选包含匹配歌手的条目
-        if (cleanArtist.isNotBlank()) {
-            for (i in 0 until songs.length()) {
-                val s = songs.optJSONObject(i) ?: continue
-                val artists = s.optJSONArray("ar") ?: s.optJSONArray("artists")
-                if (artists != null) {
-                    for (j in 0 until artists.length()) {
-                        val aName = artists.optJSONObject(j)?.optString("name", "")?.lowercase() ?: ""
-                        if (aName.isNotBlank() && (aName.contains(cleanArtist) || cleanArtist.contains(aName))) {
-                            bestSong = s
-                            break
-                        }
-                    }
-                }
-                if (bestSong != null) break
+        for (i in 0 until songs.length()) {
+            val s = songs.optJSONObject(i) ?: continue
+            val candTitle = s.optString("name", "")
+            val artists = s.optJSONArray("ar") ?: s.optJSONArray("artists")
+            val candArtist = if (artists != null) {
+                (0 until artists.length()).mapNotNull { idx -> artists.optJSONObject(idx)?.optString("name") }.joinToString(", ")
+            } else ""
+            val candDuration = s.optLong("dt", 0L)
+
+            val score = LyricSearchCleaner.scoreCandidateMatch(
+                candidateTitle = candTitle,
+                candidateArtist = candArtist,
+                targetTitle = targetTitle,
+                targetArtist = targetArtist,
+                candidateDurationMs = candDuration,
+                targetDurationMs = targetDurationMs
+            )
+
+            if (score > bestScore && score >= 50) {
+                bestScore = score
+                bestSong = s
             }
         }
 
-        // 2. 无匹配或未指定歌手时，使用检索权重最高的第 1 个结果
-        if (bestSong == null) {
-            bestSong = songs.optJSONObject(0) ?: return null
-        }
+        if (bestSong == null) return null
 
         val songId = bestSong.optLong("id", 0L)
         if (songId <= 0L) return null
 
-        val matchedTitle = bestSong.optString("name", fallbackTitle)
+        val matchedTitle = bestSong.optString("name", targetTitle)
         val matchedArtists = bestSong.optJSONArray("ar") ?: bestSong.optJSONArray("artists")
-        val matchedArtist = matchedArtists?.optJSONObject(0)?.optString("name", fallbackArtist) ?: fallbackArtist
+        val matchedArtist = matchedArtists?.optJSONObject(0)?.optString("name", targetArtist) ?: targetArtist
+        val matchedDuration = bestSong.optLong("dt", 0L)
+        val matchedCover = bestSong.optJSONObject("al")?.optString("picUrl")?.takeIf { it.isNotBlank() }
 
         // 获取原版与翻译歌词
         val lyricUrl = "$LYRIC_API?id=$songId&lv=1&kv=1&tv=1"
@@ -130,7 +136,9 @@ object NetEaseLyricsService {
                 artist = matchedArtist,
                 originalLyrics = alignedPair.first,
                 translatedLyrics = alignedPair.second.ifBlank { null },
-                isBilingual = alignedPair.second.isNotBlank()
+                isBilingual = alignedPair.second.isNotBlank(),
+                coverUrl = matchedCover,
+                durationMs = matchedDuration
             )
         } catch (e: Exception) {
             null

@@ -134,9 +134,7 @@ class MediaPlaybackSyncService : NotificationListenerService(), MediaControlActi
                     val localCoverPath = saveBitmapToLocalFile(notifBitmap)
                     if (localCoverPath != null) {
                         val current = playbackStateManager.playbackState.value
-                        if (current.coverUrl.isNullOrBlank()) {
-                            playbackStateManager.updateState(current.copy(coverUrl = localCoverPath))
-                        }
+                        playbackStateManager.updateState(current.copy(coverUrl = localCoverPath))
                     }
                 }
             } catch (e: Exception) {
@@ -277,8 +275,9 @@ class MediaPlaybackSyncService : NotificationListenerService(), MediaControlActi
         if (title.isNotBlank()) {
             val current = playbackStateManager.playbackState.value
             val isSameTrack = (title == current.title && artist == current.artist)
-            // 切歌时绝不沿用上一首的旧封面！若新封面暂未获取，重置为 null 待 Genius 或通知栏回填
+            // 切歌时绝不沿用上一首的旧封面与旧播放进度！若新封面暂未获取，重置为 null 待歌词源、iTunes 或通知栏回填
             val resolvedCover = if (coverUri != null) coverUri else if (isSameTrack) current.coverUrl else null
+            val resolvedPosition = if (isSameTrack) current.currentPositionMs else 0L
 
             playbackStateManager.updateState(
                 current.copy(
@@ -286,6 +285,7 @@ class MediaPlaybackSyncService : NotificationListenerService(), MediaControlActi
                     artist = artist,
                     album = album,
                     durationMs = if (duration > 0) duration else current.durationMs,
+                    currentPositionMs = resolvedPosition,
                     coverUrl = resolvedCover,
                     packageName = pkg,
                     sourceApp = sourceApp,

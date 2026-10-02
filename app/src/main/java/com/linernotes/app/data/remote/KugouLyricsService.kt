@@ -21,13 +21,13 @@ object KugouLyricsService {
 
     suspend fun fetchLyrics(
         trackTitle: String,
-        artistName: String
+        artistName: String,
+        targetDurationMs: Long = 0L
     ): OnlineLyricsResult? = withContext(Dispatchers.IO) {
         val queries = LyricSearchCleaner.buildSearchQueries(trackTitle, artistName)
-        val cleanArtist = LyricSearchCleaner.cleanArtist(artistName).lowercase()
 
         for (query in queries) {
-            val result = searchAndFetch(query, cleanArtist, trackTitle, artistName)
+            val result = searchAndFetch(query, trackTitle, artistName, targetDurationMs)
             if (result != null && result.originalLyrics.isNotBlank()) {
                 return@withContext result
             }
@@ -37,9 +37,9 @@ object KugouLyricsService {
 
     private fun searchAndFetch(
         query: String,
-        cleanArtist: String,
-        fallbackTitle: String,
-        fallbackArtist: String
+        targetTitle: String,
+        targetArtist: String,
+        targetDurationMs: Long = 0L
     ): OnlineLyricsResult? {
         return try {
             val encodedQuery = URLEncoder.encode(query, "UTF-8")
@@ -52,31 +52,40 @@ object KugouLyricsService {
             if (list.length() == 0) return null
 
             var targetSong: JSONObject? = null
+            var bestScore = -100
 
-            if (cleanArtist.isNotBlank()) {
-                for (i in 0 until list.length()) {
-                    val s = list.optJSONObject(i) ?: continue
-                    val singer = s.optString("SingerName", "").lowercase()
-                    if (singer.isNotBlank() && (singer.contains(cleanArtist) || cleanArtist.contains(singer))) {
-                        targetSong = s
-                        break
-                    }
+            for (i in 0 until list.length()) {
+                val s = list.optJSONObject(i) ?: continue
+                val candTitle = s.optString("SongName", "")
+                val candArtist = s.optString("SingerName", "")
+                val candDuration = s.optLong("Duration", 0L) * 1000L
+
+                val score = LyricSearchCleaner.scoreCandidateMatch(
+                    candidateTitle = candTitle,
+                    candidateArtist = candArtist,
+                    targetTitle = targetTitle,
+                    targetArtist = targetArtist,
+                    candidateDurationMs = candDuration,
+                    targetDurationMs = targetDurationMs
+                )
+
+                if (score > bestScore && score >= 50) {
+                    bestScore = score
+                    targetSong = s
                 }
             }
 
-            if (targetSong == null) {
-                targetSong = list.optJSONObject(0) ?: return null
-            }
+            if (targetSong == null) return null
 
             val hash = targetSong.optString("FileHash", "")
             val duration = targetSong.optLong("Duration", 0L) * 1000L
-            val matchedTitle = targetSong.optString("SongName", fallbackTitle)
-            val matchedArtist = targetSong.optString("SingerName", fallbackArtist)
+            val matchedTitle = targetSong.optString("SongName", targetTitle)
+            val matchedArtist = targetSong.optString("SingerName", targetArtist)
 
             if (hash.isBlank()) return null
 
             // 检索歌词候选集
-            val encTitle = URLEncoder.encode(LyricSearchCleaner.cleanTrackTitle(fallbackTitle), "UTF-8")
+            val encTitle = URLEncoder.encode(LyricSearchCleaner.cleanTrackTitle(targetTitle), "UTF-8")
             val candUrl = "$CANDIDATE_API?ver=1&man=yes&client=mobi&keyword=$encTitle&duration=$duration&hash=$hash"
             val candJson = LinerNotesHttpClient.get(candUrl, HEADERS) ?: return null
             val candRoot = JSONObject(candJson)
@@ -111,7 +120,9 @@ object KugouLyricsService {
                 artist = matchedArtist,
                 originalLyrics = alignedPair.first,
                 translatedLyrics = null,
-                isBilingual = false
+                isBilingual = false,
+                coverUrl = null,
+                durationMs = duration
             )
         } catch (e: Exception) {
             null
