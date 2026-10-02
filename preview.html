@@ -3,92 +3,97 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
-    <title>LyricNotes 完整封面与信息界面重做预览</title>
+    <title>LyricNotes 悬浮透明玻璃风方案实测</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <style>
         * { -webkit-tap-highlight-color: transparent; }
         .lyric-motion {
             transition: transform 550ms cubic-bezier(0.22, 1, 0.36, 1), opacity 450ms ease, filter 450ms ease;
         }
-        @keyframes vinyl-spin {
-            from { transform: rotate(0deg); }
-            to { transform: rotate(360deg); }
-        }
-        .anim-spin-slow {
-            animation: vinyl-spin 12s linear infinite;
+        .glass-card {
+            background: rgba(255, 255, 255, 0.08);
+            backdrop-filter: blur(24px);
+            -webkit-backdrop-filter: blur(24px);
+            border: 1px solid rgba(255, 255, 255, 0.16);
+            box-shadow: 0 16px 36px rgba(0, 0, 0, 0.5);
         }
     </style>
 </head>
-<body class="bg-[#08080a] text-slate-100 min-h-screen flex flex-col font-sans antialiased overflow-x-hidden selection:bg-white selection:text-black">
+<body class="bg-[#090a0d] text-slate-100 min-h-screen flex flex-col font-sans antialiased overflow-x-hidden selection:bg-white selection:text-black">
 
-    <!-- 顶部固定导航 -->
-    <header class="sticky top-0 z-50 bg-[#08080a]/95 backdrop-blur-xl border-b border-white/5 px-4 py-3">
+    <!-- 顶部固定说明 -->
+    <header class="sticky top-0 z-50 bg-[#090a0d]/90 backdrop-blur-xl border-b border-white/5 px-4 py-2.5">
         <div class="flex items-center justify-between max-w-md mx-auto mb-2">
-            <span class="text-xs font-bold tracking-wider uppercase text-white/50">完整封面 + 曲目信息 + 歌词</span>
-            <span class="text-[10px] text-white/50 bg-white/10 px-2 py-0.5 rounded-full">3 种国外经典版式</span>
+            <span class="text-xs font-bold tracking-wider uppercase text-white/50">底栏悬浮透明玻璃风专属方案</span>
+            <span class="text-[10px] text-white/50 bg-white/10 px-2 py-0.5 rounded-full">复刻 LinerNotes 经典手感</span>
         </div>
 
-        <!-- 3 大版式切换 -->
+        <!-- 3 款悬浮形态切换 -->
         <div class="grid grid-cols-3 gap-1 bg-white/[0.05] p-1 rounded-xl max-w-md mx-auto border border-white/5">
-            <button onclick="setMode(1)" id="tab-1" class="py-2 rounded-lg text-xs font-bold bg-white text-black shadow-sm transition-all">
-                A. 顶部精致封面
+            <button onclick="setGlassStyle(1)" id="tab-1" class="py-1.5 rounded-lg text-xs font-bold bg-white text-black shadow-sm transition-all">
+                1. 经典全能胶囊
             </button>
-            <button onclick="setMode(2)" id="tab-2" class="py-2 rounded-lg text-xs font-medium text-white/50 hover:text-white transition-all">
-                B. 上大封面下歌词
+            <button onclick="setGlassStyle(2)" id="tab-2" class="py-1.5 rounded-lg text-xs font-medium text-white/50 hover:text-white transition-all">
+                2. 极简纤细胶囊
             </button>
-            <button onclick="setMode(3)" id="tab-3" class="py-2 rounded-lg text-xs font-medium text-white/50 hover:text-white transition-all">
-                C. 艺术黑胶唱片
+            <button onclick="setGlassStyle(3)" id="tab-3" class="py-1.5 rounded-lg text-xs font-medium text-white/50 hover:text-white transition-all">
+                3. 大封面扩展胶囊
             </button>
         </div>
     </header>
 
-    <!-- 手机模拟屏幕主展示区 -->
+    <!-- 主展示区 -->
     <main class="flex-1 flex flex-col items-center justify-start p-3 sm:p-5 w-full max-w-md mx-auto">
 
-        <!-- 当前版式说明 -->
-        <div class="w-full bg-white/[0.03] border border-white/5 rounded-2xl p-3.5 mb-3">
-            <h2 id="mode-title" class="text-xs font-bold text-white">版式 A · 顶部精致封面卡片 (Apple Music 经典态)</h2>
-            <p id="mode-desc" class="text-[11px] text-white/50 mt-1 leading-relaxed">
-                顶部保留一块 60×60dp 的高清圆角大封面，配有清晰大字曲名、歌手与专辑，下方大面积留给丝滑景深歌词，既清晰看封面又不抢歌词视线。
+        <!-- 方案特性小卡 -->
+        <div class="w-full bg-white/[0.03] border border-white/5 rounded-2xl p-3 mb-3">
+            <h2 id="glass-title" class="text-xs font-bold text-white">方案 1 · 经典悬浮毛玻璃胶囊 (你最喜欢的质感)</h2>
+            <p id="glass-desc" class="text-[11px] text-white/50 mt-1 leading-relaxed">
+                全屏 80% 留给纯净无衬线双语歌词流动；底部悬浮一张圆润半透毛玻璃卡片，将封面微图、曲名、进度滑块与播控全部融为一体，大拇指单手操作极佳！
             </p>
         </div>
 
         <!-- 手机模拟屏幕容器 -->
-        <div id="screen-container" class="w-full h-[640px] rounded-[36px] bg-[#0c0d11] border border-white/10 relative overflow-hidden shadow-2xl flex flex-col justify-between p-4 transition-colors duration-500">
+        <div class="w-full h-[650px] rounded-[38px] bg-[#0c0d12] border border-white/10 relative overflow-hidden shadow-2xl flex flex-col justify-between p-4">
             
-            <!-- 极淡氛围底色 (由当前封面主色虚化衍生) -->
-            <div id="ambient-bg" class="absolute inset-0 bg-gradient-to-b from-white/[0.05] via-transparent to-black pointer-events-none"></div>
+            <!-- 深邃极简背景 -->
+            <div class="absolute inset-0 bg-gradient-to-b from-white/[0.02] via-transparent to-black pointer-events-none"></div>
 
-            <!-- 1. 顶部/上半部：专辑封面与完整歌曲信息 (由 JS 切换呈现) -->
-            <div id="meta-section" class="relative z-20">
-                <!-- 动态注入封面与信息 -->
+            <!-- 顶部极简沉浸区 (纯粹无遮挡，仅保留一个右上角微型选项点) -->
+            <div class="relative z-20 flex items-center justify-between px-2 pt-1">
+                <span class="text-[11px] text-white/30 uppercase tracking-widest font-mono">LYRICNOTES</span>
+                <div class="w-6 h-6 rounded-full bg-white/5 border border-white/10 flex items-center justify-center text-[10px] text-white/50">···</div>
             </div>
 
-            <!-- 2. 中下部：丝滑双语滚动歌词视口 -->
-            <div id="lyrics-section" class="relative z-10 flex-1 my-2 overflow-hidden flex flex-col justify-center">
-                <div id="lyrics-wrapper" class="lyric-motion space-y-5">
-                    <!-- 歌词行动态注入 -->
+            <!-- 核心：大面积全屏沉浸歌词 (从上至下平滑流动) -->
+            <div class="relative z-10 flex-1 my-2 overflow-hidden flex flex-col justify-center">
+                <div id="lyrics-stream" class="lyric-motion space-y-5 px-2">
+                    <!-- 动态歌词注入 -->
                 </div>
             </div>
 
-            <!-- 3. 底部轻触测试栏 -->
-            <div class="relative z-20 pt-2.5 border-t border-white/5 flex items-center justify-between text-xs">
-                <span class="text-[11px] text-white/40">轻触换句测试中心锁定 ➔</span>
-                <button onclick="nextStep()" class="px-3.5 py-1.5 rounded-full bg-white/10 active:bg-white/20 active:scale-95 text-white font-medium text-xs transition-all border border-white/10">
-                    换下一句 ▶
-                </button>
+            <!-- 底部核心：悬浮透明玻璃风播放控制器与歌曲信息 (Glassmorphism Pill) -->
+            <div id="bottom-glass-container" class="relative z-30 pb-1">
+                <!-- 由 JS 渲染悬浮玻璃卡片 -->
             </div>
 
+        </div>
+
+        <!-- 换行测试按键 -->
+        <div class="w-full mt-3 flex items-center justify-between p-3 bg-white/[0.03] border border-white/5 rounded-2xl text-xs">
+            <span class="text-[11px] text-white/50">亲手实测换行动画 ➔</span>
+            <button onclick="nextVerse()" class="px-4 py-1.5 rounded-full bg-white/10 active:bg-white/20 active:scale-95 text-white font-medium text-xs transition-all border border-white/15">
+                切下一句歌词 ▶
+            </button>
         </div>
 
     </main>
 
     <script>
-        const songInfo = {
+        const songData = {
             title: "Family Matters",
             artist: "Drake",
-            album: "Certified Lover Boy (2024)",
-            // 真实高清专辑封面质感图
+            album: "Certified Lover Boy",
             coverUrl: "https://images.unsplash.com/photo-1514525253161-7a46d19cd819?w=300&auto=format&fit=crop&q=80",
             lyrics: [
                 {
@@ -114,171 +119,153 @@
             ]
         };
 
-        let currentMode = 1;
-        let activeIndex = 1;
+        let currentStyle = 1;
+        let activeIdx = 1;
 
-        function setMode(modeId) {
-            currentMode = modeId;
+        function setGlassStyle(styleId) {
+            currentStyle = styleId;
 
-            // 切换选项卡
             for (let i = 1; i <= 3; i++) {
                 const btn = document.getElementById(`tab-${i}`);
-                if (i === modeId) {
-                    btn.className = "py-2 rounded-lg text-xs font-bold bg-white text-black shadow-sm transition-all";
+                if (i === styleId) {
+                    btn.className = "py-1.5 rounded-lg text-xs font-bold bg-white text-black shadow-sm transition-all";
                 } else {
-                    btn.className = "py-2 rounded-lg text-xs font-medium text-white/50 hover:text-white transition-all";
+                    btn.className = "py-1.5 rounded-lg text-xs font-medium text-white/50 hover:text-white transition-all";
                 }
             }
 
-            const title = document.getElementById('mode-title');
-            const desc = document.getElementById('mode-desc');
+            const title = document.getElementById('glass-title');
+            const desc = document.getElementById('glass-desc');
 
-            if (modeId === 1) {
-                title.innerText = "版式 A · 顶部精致封面卡片 (Apple Music 经典态)";
-                desc.innerText = "顶部保留 56×56dp 高清圆角封面 + 纯白大字曲名、歌手与专辑，下方大面积留给丝滑景深歌词。封面不抢戏，歌词沉浸看。";
-            } else if (modeId === 2) {
-                title.innerText = "版式 B · 上半部大封面海报 + 下半部歌词 (Spotify / 经典播放器态)";
-                desc.innerText = "上部展示 100×100dp 居中大封面、居中大字曲名与进度条；下半部显示大字纯白滚动歌词，听歌、看封面、看歌词三不误！";
+            if (styleId === 1) {
+                title.innerText = "方案 1 · 经典悬浮毛玻璃全能胶囊 (复刻 LinerNotes)";
+                desc.innerText = "圆角 32dp 毛玻璃大胶囊：顶部是时间轴细滑块，底部是封面小微图 + 曲名 + 上一首/播放/下一首按钮。单手大拇指触控绝佳！";
+            } else if (styleId === 2) {
+                title.innerText = "方案 2 · 极简纤细悬浮条 (超小遮挡，更通透)";
+                desc.innerText = "压缩纵向高度：封面与曲名紧凑居左，右侧为播放键与微型圆圈进度环，遮挡极小，歌词区域更大。";
             } else {
-                title.innerText = "版式 C · 黑胶唱片出鞘画册风 (TIDAL / Roon 艺术态)";
-                desc.innerText = "左侧为精致黑胶封套，黑胶唱片优雅旋转探出半圈，配以极细瑞士无衬线排版，充满实体唱片收藏质感与仪式感。";
+                title.innerText = "方案 3 · 带微型黑胶唱片的大胶囊 (艺术质感)";
+                desc.innerText = "左侧设计为黑胶封套探出唱片的微动效，右侧是完整的歌曲名与播放控制，兼顾毛玻璃通透与实体唱片感。";
             }
 
-            renderMeta();
+            renderGlassCard();
             renderLyrics();
         }
 
-        // 渲染封面与歌曲信息
-        function renderMeta() {
-            const container = document.getElementById('meta-section');
-            if (currentMode === 1) {
-                // 版式 A: 顶部精致横向卡片
+        function renderGlassCard() {
+            const container = document.getElementById('bottom-glass-container');
+            if (currentStyle === 1) {
+                // 方案 1: 完美复刻 LinerNotes 经典全能悬浮玻璃卡片
                 container.innerHTML = `
-                    <div class="flex items-center justify-between bg-white/[0.04] border border-white/10 rounded-2xl p-2.5 backdrop-blur-md shadow-lg">
-                        <div class="flex items-center gap-3">
-                            <!-- 高清大封面 -->
-                            <img src="${songInfo.coverUrl}" class="w-14 h-14 rounded-xl object-cover shadow-md border border-white/15" alt="Cover">
-                            <div>
-                                <div class="text-[15px] font-extrabold text-white tracking-tight">${songInfo.title}</div>
-                                <div class="text-[12px] text-white/70 mt-0.5">${songInfo.artist}</div>
-                                <div class="text-[10px] text-white/40 mt-0.5">${songInfo.album}</div>
+                    <div class="glass-card rounded-[28px] p-3 transition-all">
+                        <!-- 上半部：时间与滑条 -->
+                        <div class="flex items-center gap-2 px-1 mb-2">
+                            <span class="text-[10px] text-white/60 font-mono">01:24</span>
+                            <div class="flex-1 h-1 bg-white/15 rounded-full relative overflow-hidden">
+                                <div class="w-1/3 h-full bg-white rounded-full"></div>
                             </div>
+                            <span class="text-[10px] text-white/40 font-mono">04:36</span>
                         </div>
-                        <div class="w-8 h-8 rounded-full bg-white/10 flex items-center justify-center text-xs text-white/70 cursor-pointer">
-                            ···
+
+                        <!-- 下半部：歌曲信息与控制键 -->
+                        <div class="flex items-center justify-between">
+                            <!-- 歌曲信息 -->
+                            <div class="flex items-center gap-2.5 flex-1 pr-2 overflow-hidden">
+                                <img src="${songData.coverUrl}" class="w-9 h-9 rounded-xl object-cover border border-white/20 shadow-md flex-shrink-0" alt="Cover">
+                                <div class="overflow-hidden">
+                                    <div class="text-[13px] font-bold text-white truncate tracking-tight">${songData.title}</div>
+                                    <div class="text-[11px] text-white/50 truncate">${songData.artist}</div>
+                                </div>
+                            </div>
+
+                            <!-- 播放按键 -->
+                            <div class="flex items-center gap-2 flex-shrink-0">
+                                <button class="w-7 h-7 rounded-full bg-white/5 flex items-center justify-center text-white/70 active:scale-90 text-[11px]">⏮</button>
+                                <button class="w-9 h-9 rounded-full bg-white text-black flex items-center justify-center shadow-lg active:scale-95 text-xs font-bold">⏸</button>
+                                <button class="w-7 h-7 rounded-full bg-white/5 flex items-center justify-center text-white/70 active:scale-90 text-[11px]">⏭</button>
+                            </div>
                         </div>
                     </div>
                 `;
-            } else if (currentMode === 2) {
-                // 版式 B: 上半部大封面海报 + 居中信息
+            } else if (currentStyle === 2) {
+                // 方案 2: 纤细悬浮条
                 container.innerHTML = `
-                    <div class="flex flex-col items-center pt-2 pb-3 border-b border-white/5">
-                        <!-- 100x100 大封面 -->
-                        <div class="relative shadow-2xl">
-                            <img src="${songInfo.coverUrl}" class="w-24 h-24 rounded-2xl object-cover shadow-2xl border border-white/20" alt="Cover">
+                    <div class="glass-card rounded-full px-3.5 py-2 flex items-center justify-between">
+                        <div class="flex items-center gap-2.5 flex-1 overflow-hidden pr-2">
+                            <img src="${songData.coverUrl}" class="w-8 h-8 rounded-full object-cover border border-white/20 flex-shrink-0" alt="Cover">
+                            <div class="overflow-hidden leading-tight">
+                                <div class="text-[12px] font-bold text-white truncate">${songData.title}</div>
+                                <div class="text-[10px] text-white/50 truncate">${songData.artist}</div>
+                            </div>
                         </div>
-                        <div class="text-center mt-2.5">
-                            <div class="text-[16px] font-black text-white tracking-tight">${songInfo.title}</div>
-                            <div class="text-[12px] text-white/60 mt-0.5 font-medium">${songInfo.artist} · ${songInfo.album}</div>
-                        </div>
-                        <!-- 极细播放进度条 -->
-                        <div class="w-48 h-1 bg-white/15 rounded-full mt-3 overflow-hidden">
-                            <div class="w-2/5 h-full bg-white rounded-full"></div>
+                        <div class="flex items-center gap-2 flex-shrink-0">
+                            <span class="text-[10px] font-mono text-white/40">01:24</span>
+                            <button class="w-8 h-8 rounded-full bg-white text-black flex items-center justify-center text-xs font-bold shadow-md">⏸</button>
                         </div>
                     </div>
                 `;
             } else {
-                // 版式 C: 艺术黑胶唱片出鞘
+                // 方案 3: 带黑胶封套探出的大胶囊
                 container.innerHTML = `
-                    <div class="flex items-center justify-between bg-white/[0.03] p-3 rounded-2xl border border-white/10">
-                        <div class="flex items-center gap-4">
-                            <!-- 唱片从封套探出 -->
-                            <div class="relative w-16 h-14 flex items-center">
-                                <!-- 封套 -->
-                                <img src="${songInfo.coverUrl}" class="w-13 h-13 rounded-lg object-cover absolute left-0 z-20 shadow-xl border border-white/20" style="width: 52px; height: 52px;" alt="Cover">
-                                <!-- 黑胶盘探出 -->
-                                <div class="w-12 h-12 rounded-full bg-[#111116] border border-white/30 absolute right-0 z-10 anim-spin-slow flex items-center justify-center shadow-lg">
-                                    <div class="w-4 h-4 rounded-full bg-white/20 flex items-center justify-center">
-                                        <div class="w-1.5 h-1.5 rounded-full bg-black"></div>
+                    <div class="glass-card rounded-[28px] p-3">
+                        <div class="flex items-center justify-between mb-2">
+                            <div class="flex items-center gap-3">
+                                <div class="relative w-12 h-10 flex items-center">
+                                    <img src="${songData.coverUrl}" class="w-9 h-9 rounded-lg object-cover absolute left-0 z-10 border border-white/20" alt="Cover">
+                                    <div class="w-8 h-8 rounded-full bg-[#16171d] border border-white/30 absolute right-0 flex items-center justify-center">
+                                        <div class="w-2.5 h-2.5 rounded-full bg-white/20"></div>
                                     </div>
                                 </div>
+                                <div>
+                                    <div class="text-[13px] font-extrabold text-white tracking-tight">${songData.title}</div>
+                                    <div class="text-[10px] text-white/50 font-mono">SPOTIFY HI-FI SYNC</div>
+                                </div>
                             </div>
-                            <div>
-                                <div class="text-[14px] font-black text-white tracking-wider uppercase">${songInfo.title}</div>
-                                <div class="text-[11px] text-white/60 tracking-normal">${songInfo.artist}</div>
-                                <div class="text-[9px] text-white/30 font-mono tracking-widest mt-0.5">HI-RES AUDIO 24-BIT</div>
-                            </div>
+                            <button class="w-9 h-9 rounded-full bg-white text-black flex items-center justify-center text-xs font-bold shadow-lg">⏸</button>
                         </div>
-                        <div class="text-white/40 text-xs px-2 py-1 rounded bg-white/5 border border-white/10">···</div>
+                        <div class="flex items-center gap-2 px-1">
+                            <div class="flex-1 h-1 bg-white/15 rounded-full overflow-hidden">
+                                <div class="w-1/3 h-full bg-white rounded-full"></div>
+                            </div>
+                            <span class="text-[9px] text-white/40 font-mono">01:24 / 04:36</span>
+                        </div>
                     </div>
                 `;
             }
         }
 
-        // 渲染歌词
         function renderLyrics() {
-            const wrapper = document.getElementById('lyrics-wrapper');
+            const stream = document.getElementById('lyrics-stream');
             let html = '';
 
-            songInfo.lyrics.forEach((item, idx) => {
-                const isActive = (idx === activeIndex);
-                const distance = Math.abs(idx - activeIndex);
+            songData.lyrics.forEach((item, idx) => {
+                const isActive = (idx === activeIdx);
+                const distance = Math.abs(idx - activeIdx);
 
-                if (currentMode === 1) {
-                    // 样式 A (Apple Music 景深流)
-                    html += `
-                        <div class="lyric-motion ${isActive ? 'scale-[1.03] pl-1' : 'scale-[0.96]'}">
-                            <div class="${isActive ? 'opacity-100 filter-none' : (distance === 1 ? 'opacity-35 blur-[1px]' : 'opacity-15 blur-[2px]')}">
-                                <div class="text-[17px] font-bold text-white leading-snug whitespace-pre-line">
-                                    ${item.orig}
-                                </div>
-                                <div class="text-[12px] font-normal text-white/70 mt-1">
-                                    ${item.trans}
-                                </div>
+                html += `
+                    <div class="lyric-motion ${isActive ? 'scale-[1.03] pl-1' : 'scale-[0.96]'}">
+                        <div class="${isActive ? 'opacity-100 filter-none' : (distance === 1 ? 'opacity-35 blur-[1px]' : 'opacity-15 blur-[2px]')}">
+                            <div class="text-[17px] font-bold text-white leading-snug whitespace-pre-line">
+                                ${item.orig}
+                            </div>
+                            <div class="text-[12px] font-normal text-white/70 mt-1">
+                                ${item.trans}
                             </div>
                         </div>
-                    `;
-                } else if (currentMode === 2) {
-                    // 样式 B (居中跟唱流)
-                    html += `
-                        <div class="lyric-motion text-center ${isActive ? 'scale-[1.05]' : 'scale-95'}">
-                            <div class="${isActive ? 'opacity-100' : 'opacity-30'}">
-                                <div class="text-[16px] font-extrabold ${isActive ? 'text-white' : 'text-white/50'} leading-tight whitespace-pre-line">
-                                    ${item.orig}
-                                </div>
-                                <div class="text-[12px] font-normal ${isActive ? 'text-white/75' : 'text-white/30'} mt-1">
-                                    ${item.trans}
-                                </div>
-                            </div>
-                        </div>
-                    `;
-                } else {
-                    // 样式 C (TIDAL 极简纯黑)
-                    html += `
-                        <div class="lyric-motion ${isActive ? 'translate-x-1.5' : ''}">
-                            <div class="${isActive ? 'opacity-100' : (distance === 1 ? 'opacity-35' : 'opacity-15')}">
-                                <div class="text-[16px] font-bold text-white tracking-wide leading-relaxed whitespace-pre-line">
-                                    ${item.orig}
-                                </div>
-                                <div class="text-[12px] font-light text-white/60 mt-1">
-                                    ${item.trans}
-                                </div>
-                            </div>
-                        </div>
-                    `;
-                }
+                    </div>
+                `;
             });
 
-            wrapper.innerHTML = html;
+            stream.innerHTML = html;
         }
 
-        function nextStep() {
-            activeIndex = (activeIndex + 1) % songInfo.lyrics.length;
+        function nextVerse() {
+            activeIdx = (activeIdx + 1) % songData.lyrics.length;
             renderLyrics();
         }
 
         // 初始化
-        setMode(1);
+        setGlassStyle(1);
     </script>
 </body>
 </html>
