@@ -23,10 +23,14 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.foundation.gestures.detectHorizontalDragGestures
+import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.basicMarquee
 import androidx.compose.ui.draw.drawWithContent
 import androidx.compose.ui.graphics.BlendMode
 import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.CompositingStrategy
 import androidx.compose.ui.graphics.TransformOrigin
@@ -284,22 +288,21 @@ private fun NowPlayingTopBar(
             .fillMaxWidth()
             .background(
                 Brush.verticalGradient(
-                    colors = listOf(
-                        Color.Black.copy(alpha = 0.45f),
-                        Color.Transparent
-                    )
+                    0.0f to Color(0xFF090A10).copy(alpha = 0.98f),
+                    0.65f to Color(0xFF090A10).copy(alpha = 0.90f),
+                    1.0f to Color.Transparent
                 )
             )
             .statusBarsPadding()
-            .padding(horizontal = 20.dp, vertical = 10.dp),
+            .padding(horizontal = 20.dp, vertical = 12.dp),
         horizontalArrangement = Arrangement.SpaceBetween,
         verticalAlignment = Alignment.CenterVertically
     ) {
-        // 左侧：优雅收起/设置图标按钮 (Apple Music 标准顶部收起图标)
+        // 左侧：优雅收起/设置图标按钮 (Apple Music 标准顶部收起图标，高对比磨砂底色)
         Surface(
-            color = Color.White.copy(alpha = 0.08f),
+            color = Color(0xFF1E2230).copy(alpha = 0.92f),
             shape = CircleShape,
-            border = BorderStroke(0.5.dp, Color.White.copy(alpha = 0.12f)),
+            border = BorderStroke(0.5.dp, Color.White.copy(alpha = 0.22f)),
             modifier = Modifier
                 .size(36.dp)
                 .bouncyClickable(
@@ -311,7 +314,7 @@ private fun NowPlayingTopBar(
                 Icon(
                     imageVector = Icons.Default.KeyboardArrowDown,
                     contentDescription = "收起/设置",
-                    tint = Color.White.copy(alpha = 0.90f),
+                    tint = Color.White,
                     modifier = Modifier.size(22.dp)
                 )
             }
@@ -324,7 +327,7 @@ private fun NowPlayingTopBar(
         ) {
             Text(
                 text = if (trackState.hasValidTrack) "正在播放" else "LyricNotes",
-                color = Color.White.copy(alpha = 0.50f),
+                color = Color.White.copy(alpha = 0.55f),
                 fontSize = 11.sp,
                 fontFamily = FontFamily.SansSerif,
                 fontWeight = FontWeight.Medium,
@@ -333,7 +336,7 @@ private fun NowPlayingTopBar(
             if (trackState.hasValidTrack && !trackState.album.isNullOrBlank()) {
                 Text(
                     text = trackState.album,
-                    color = Color.White.copy(alpha = 0.82f),
+                    color = Color.White.copy(alpha = 0.90f),
                     fontSize = 12.sp,
                     fontWeight = FontWeight.SemiBold,
                     fontFamily = FontFamily.SansSerif,
@@ -346,8 +349,8 @@ private fun NowPlayingTopBar(
         // 右侧操作群：歌曲背景故事直达入口 (✦ 故事) + 待播队列 (Queue) + 更多设置 (···)
         val storyInfiniteTransition = rememberInfiniteTransition(label = "storyGlow")
         val storyGlowAlpha by storyInfiniteTransition.animateFloat(
-            initialValue = 0.35f,
-            targetValue = 0.85f,
+            initialValue = 0.40f,
+            targetValue = 0.90f,
             animationSpec = infiniteRepeatable(
                 animation = tween(1600, easing = FastOutSlowInEasing),
                 repeatMode = RepeatMode.Reverse
@@ -362,7 +365,7 @@ private fun NowPlayingTopBar(
             // 歌曲背景故事外层高频入口（当有故事时呈现柔和微光，1 步直达）
             if (hasSongStory) {
                 Surface(
-                    color = Color(0xFFFFD54F).copy(alpha = 0.18f),
+                    color = Color(0xFF281E10).copy(alpha = 0.94f),
                     shape = RoundedCornerShape(16.dp),
                     border = BorderStroke(
                         0.5.dp,
@@ -398,9 +401,9 @@ private fun NowPlayingTopBar(
             }
 
             Surface(
-                color = Color.White.copy(alpha = 0.08f),
+                color = Color(0xFF1E2230).copy(alpha = 0.92f),
                 shape = CircleShape,
-                border = BorderStroke(0.5.dp, Color.White.copy(alpha = 0.12f)),
+                border = BorderStroke(0.5.dp, Color.White.copy(alpha = 0.20f)),
                 modifier = Modifier
                     .size(36.dp)
                     .bouncyClickable(
@@ -412,16 +415,16 @@ private fun NowPlayingTopBar(
                     Icon(
                         imageVector = Icons.Default.QueueMusic,
                         contentDescription = "待播队列",
-                        tint = Color.White.copy(alpha = 0.85f),
+                        tint = Color.White.copy(alpha = 0.90f),
                         modifier = Modifier.size(19.dp)
                     )
                 }
             }
 
             Surface(
-                color = Color.White.copy(alpha = 0.08f),
+                color = Color(0xFF1E2230).copy(alpha = 0.92f),
                 shape = CircleShape,
-                border = BorderStroke(0.5.dp, Color.White.copy(alpha = 0.12f)),
+                border = BorderStroke(0.5.dp, Color.White.copy(alpha = 0.20f)),
                 modifier = Modifier
                     .size(36.dp)
                     .bouncyClickable(
@@ -433,7 +436,7 @@ private fun NowPlayingTopBar(
                     Icon(
                         imageVector = Icons.Default.MoreHoriz,
                         contentDescription = "设置",
-                        tint = Color.White.copy(alpha = 0.85f),
+                        tint = Color.White.copy(alpha = 0.90f),
                         modifier = Modifier.size(19.dp)
                     )
                 }
@@ -539,19 +542,23 @@ private fun NowPlayingLyricsContent(
     Box(modifier = Modifier.fillMaxSize()) {
         LazyColumn(
             state = listState,
-            contentPadding = PaddingValues(top = 96.dp, bottom = 180.dp, start = 24.dp, end = 24.dp),
+            contentPadding = PaddingValues(top = 135.dp, bottom = 220.dp, start = 24.dp, end = 24.dp),
             verticalArrangement = Arrangement.spacedBy(26.dp),
             modifier = Modifier
                 .fillMaxSize()
                 .graphicsLayer(compositingStrategy = CompositingStrategy.Offscreen)
                 .drawWithContent {
                     drawContent()
-                    // 硬件级上下边缘羽化蒙版 (使首尾行歌词自然淡出溶解于流光之中)
+                    // 硬件级上下边缘羽化蒙版：
+                    // 顶部 14% 彻底透明，歌词在到达顶栏下方之前就彻底淡出，绝不与顶栏按钮重叠！
+                    // 底部 14% 彻底透明，歌词在靠近底栏之前完全隐形，绝不与底栏播放器冲突！
                     drawRect(
                         brush = Brush.verticalGradient(
                             0.0f to Color.Transparent,
-                            0.08f to Color.Black,
-                            0.82f to Color.Black,
+                            0.14f to Color.Transparent,
+                            0.22f to Color.Black,
+                            0.78f to Color.Black,
+                            0.86f to Color.Transparent,
                             1.0f to Color.Transparent
                         ),
                         blendMode = BlendMode.DstIn
@@ -748,8 +755,8 @@ private fun LyricAnnotationBadge(
 
 /**
  * 方案 1：底栏悬浮毛玻璃全能胶囊 (Apple Music / Lyricify 风格极简悬浮坞)
- * 上半部：当前进度时间 01:24 + 极细平滑滑块 + 总时长 04:36
- * 下半部：歌曲名(支持跑马灯) + 歌手名 + 随机 / 上一首 / 播放·暂停 / 下一首
+ * 上半部：当前进度时间 01:24 + 极细平滑声学进度条 (3dp 无白块) + 总时长 04:36
+ * 下半部：歌曲封面缩略图 (44dp) + 歌曲名(支持跑马灯) + 歌手名 + 随机 / 上一首 / 播放·暂停 / 下一首
  */
 @Composable
 private fun NowPlayingFloatingGlassPlayer(
@@ -789,110 +796,151 @@ private fun NowPlayingFloatingGlassPlayer(
             .padding(horizontal = 16.dp, vertical = 10.dp)
     ) {
         Surface(
-            color = Color(0xFF10121C).copy(alpha = 0.78f),
-            shape = RoundedCornerShape(28.dp),
-            border = BorderStroke(0.5.dp, Color.White.copy(alpha = 0.14f)),
-            shadowElevation = 12.dp,
+            color = Color(0xFF0F1118).copy(alpha = 0.94f),
+            shape = RoundedCornerShape(26.dp),
+            border = BorderStroke(0.5.dp, Color.White.copy(alpha = 0.16f)),
+            shadowElevation = 16.dp,
             modifier = Modifier.fillMaxWidth()
         ) {
             Column(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .padding(horizontal = 18.dp, vertical = 10.dp)
+                    .padding(horizontal = 16.dp, vertical = 12.dp)
             ) {
-                // 上半部：极细时间滑块 (Apple Music 风格微型时间指示)
+                // 上半部：极细时间指示与平滑时间轴 (纯净 3dp 进度线与 8dp 小圆点，杜绝粗大白块)
                 Row(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .padding(bottom = 2.dp),
+                        .padding(bottom = 6.dp),
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.SpaceBetween
                 ) {
                     Text(
                         text = formatMs(estimatedPosition),
-                        color = Color.White.copy(alpha = 0.65f),
-                        fontSize = 10.5.sp,
+                        color = Color.White.copy(alpha = 0.70f),
+                        fontSize = 11.sp,
                         fontFamily = FontFamily.Monospace,
-                        modifier = Modifier.width(36.dp),
+                        modifier = Modifier.width(38.dp),
                         textAlign = TextAlign.Start
                     )
 
-                    Slider(
-                        value = progress,
-                        onValueChange = { newProg ->
-                            val targetMs = (newProg * duration).toLong()
+                    SleekTrackScrubber(
+                        progress = progress,
+                        onSeekToFraction = { frac ->
+                            val targetMs = (frac * duration).toLong()
                             onSeekTo(targetMs)
                         },
-                        colors = SliderDefaults.colors(
-                            thumbColor = Color.White,
-                            activeTrackColor = Color.White,
-                            inactiveTrackColor = Color.White.copy(alpha = 0.16f)
-                        ),
                         modifier = Modifier
                             .weight(1f)
-                            .height(14.dp)
-                            .padding(horizontal = 6.dp)
+                            .padding(horizontal = 8.dp)
                     )
 
                     Text(
                         text = formatMs(duration),
-                        color = Color.White.copy(alpha = 0.45f),
-                        fontSize = 10.5.sp,
+                        color = Color.White.copy(alpha = 0.50f),
+                        fontSize = 11.sp,
                         fontFamily = FontFamily.Monospace,
-                        modifier = Modifier.width(36.dp),
+                        modifier = Modifier.width(38.dp),
                         textAlign = TextAlign.End
                     )
                 }
 
-                // 下半部：歌曲信息与播放控制 (去除了冗余封面缩略图，留出充裕排版空间)
+                // 下半部：歌曲封面缩略图 + 歌曲信息 + 播放控制群
                 Row(
                     modifier = Modifier.fillMaxWidth(),
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.SpaceBetween
                 ) {
-                    // 歌曲信息 (支持超长跑马灯滚动，点击直达待播队列或设置)
-                    Column(
+                    // 歌曲封面微缩图 + 歌名/歌手群
+                    Row(
                         modifier = Modifier
                             .weight(1f)
-                            .padding(end = 12.dp)
-                            .bouncyClickable(
-                                pressedScale = 0.96f,
-                                onClick = onOpenQueue
-                            )
+                            .padding(end = 8.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(10.dp)
                     ) {
-                        Text(
-                            text = if (trackState.hasValidTrack) trackState.title else "LyricNotes",
-                            color = Color.White,
-                            fontSize = 14.sp,
-                            fontWeight = FontWeight.SemiBold,
-                            fontFamily = FontFamily.SansSerif,
-                            letterSpacing = (-0.2).sp,
-                            maxLines = 1,
-                            overflow = TextOverflow.Ellipsis,
-                            modifier = Modifier.basicMarquee()
-                        )
-                        Spacer(modifier = Modifier.height(1.dp))
-                        Text(
-                            text = if (trackState.hasValidTrack) trackState.artist else "等待播放",
-                            color = Color.White.copy(alpha = 0.55f),
-                            fontSize = 11.5.sp,
-                            fontFamily = FontFamily.SansSerif,
-                            maxLines = 1,
-                            overflow = TextOverflow.Ellipsis
-                        )
+                        // 1. 歌曲封面缩略图 (44dp 黄金微胶囊，点击查看待播队列)
+                        Box(
+                            modifier = Modifier
+                                .size(44.dp)
+                                .clip(RoundedCornerShape(12.dp))
+                                .border(BorderStroke(0.5.dp, Color.White.copy(alpha = 0.20f)), RoundedCornerShape(12.dp))
+                                .bouncyClickable(
+                                    pressedScale = 0.90f,
+                                    onClick = onOpenQueue
+                                )
+                        ) {
+                            if (!trackState.coverUrl.isNullOrBlank()) {
+                                AsyncImage(
+                                    model = ImageRequest.Builder(LocalContext.current)
+                                        .data(trackState.coverUrl)
+                                        .crossfade(true)
+                                        .build(),
+                                    contentDescription = "Cover",
+                                    contentScale = ContentScale.Crop,
+                                    modifier = Modifier.fillMaxSize()
+                                )
+                            } else {
+                                Surface(
+                                    color = Color.White.copy(alpha = 0.10f),
+                                    shape = RoundedCornerShape(12.dp),
+                                    modifier = Modifier.fillMaxSize()
+                                ) {
+                                    Box(contentAlignment = Alignment.Center) {
+                                        Icon(
+                                            imageVector = Icons.Default.MusicNote,
+                                            contentDescription = null,
+                                            tint = Color.White.copy(alpha = 0.70f),
+                                            modifier = Modifier.size(20.dp)
+                                        )
+                                    }
+                                }
+                            }
+                        }
+
+                        // 2. 歌曲信息 (支持超长跑马灯滚动，点击打开设置)
+                        Column(
+                            modifier = Modifier
+                                .weight(1f)
+                                .bouncyClickable(
+                                    pressedScale = 0.96f,
+                                    onClick = onOpenSettings
+                                )
+                        ) {
+                            Text(
+                                text = if (trackState.hasValidTrack) trackState.title else "LyricNotes",
+                                color = Color.White,
+                                fontSize = 13.5.sp,
+                                fontWeight = FontWeight.SemiBold,
+                                fontFamily = FontFamily.SansSerif,
+                                letterSpacing = (-0.2).sp,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis,
+                                modifier = Modifier.basicMarquee()
+                            )
+                            Spacer(modifier = Modifier.height(1.dp))
+                            Text(
+                                text = if (trackState.hasValidTrack) trackState.artist else "等待播放",
+                                color = Color.White.copy(alpha = 0.60f),
+                                fontSize = 11.sp,
+                                fontFamily = FontFamily.SansSerif,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis
+                            )
+                        }
                     }
 
-                    // 播放控制群 (弹性物理按压)
+                    // 3. 播放控制按键群 (弹性物理按压)
                     Row(
                         verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(6.dp)
+                        horizontalArrangement = Arrangement.spacedBy(4.dp)
                     ) {
-                        // 随机播放切换按键
+                        // 随机播放按键
                         Surface(
                             color = if (trackState.isShuffleActive) Color(0xFF1ED760).copy(alpha = 0.18f) else Color.Transparent,
                             shape = CircleShape,
                             modifier = Modifier
-                                .size(34.dp)
+                                .size(32.dp)
                                 .bouncyClickable(
                                     pressedScale = 0.86f,
                                     onClick = onToggleShuffle
@@ -902,8 +950,8 @@ private fun NowPlayingFloatingGlassPlayer(
                                 Icon(
                                     imageVector = Icons.Default.Shuffle,
                                     contentDescription = if (trackState.isShuffleActive) "随机播放 (已开启)" else "顺序播放",
-                                    tint = if (trackState.isShuffleActive) Color(0xFF1ED760) else Color.White.copy(alpha = 0.55f),
-                                    modifier = Modifier.size(18.dp)
+                                    tint = if (trackState.isShuffleActive) Color(0xFF1ED760) else Color.White.copy(alpha = 0.60f),
+                                    modifier = Modifier.size(17.dp)
                                 )
                             }
                         }
@@ -921,18 +969,18 @@ private fun NowPlayingFloatingGlassPlayer(
                             Icon(
                                 imageVector = Icons.Default.SkipPrevious,
                                 contentDescription = "上一首",
-                                tint = Color.White.copy(alpha = 0.85f),
+                                tint = Color.White.copy(alpha = 0.90f),
                                 modifier = Modifier.size(21.dp)
                             )
                         }
 
-                        // 播放/暂停 (Hero 纯白圆钮)
+                        // 播放/暂停 Hero 圆钮
                         Surface(
                             color = Color.White,
                             shape = CircleShape,
                             shadowElevation = 8.dp,
                             modifier = Modifier
-                                .size(40.dp)
+                                .size(38.dp)
                                 .bouncyClickable(
                                     pressedScale = 0.88f,
                                     onClick = onPlayPause
@@ -943,7 +991,7 @@ private fun NowPlayingFloatingGlassPlayer(
                                     imageVector = if (trackState.isPlaying) Icons.Default.Pause else Icons.Default.PlayArrow,
                                     contentDescription = if (trackState.isPlaying) "暂停" else "播放",
                                     tint = Color(0xFF12131C),
-                                    modifier = Modifier.size(22.dp)
+                                    modifier = Modifier.size(21.dp)
                                 )
                             }
                         }
@@ -961,7 +1009,7 @@ private fun NowPlayingFloatingGlassPlayer(
                             Icon(
                                 imageVector = Icons.Default.SkipNext,
                                 contentDescription = "下一首",
-                                tint = Color.White.copy(alpha = 0.85f),
+                                tint = Color.White.copy(alpha = 0.90f),
                                 modifier = Modifier.size(21.dp)
                             )
                         }
@@ -969,6 +1017,86 @@ private fun NowPlayingFloatingGlassPlayer(
                 }
             }
         }
+    }
+}
+
+/**
+ * 极简平滑声学进度轨 (Apple Music / Spotify 3dp 极细流线，杜绝粗大白块)
+ */
+@Composable
+private fun SleekTrackScrubber(
+    progress: Float,
+    onSeekToFraction: (Float) -> Unit,
+    modifier: Modifier = Modifier
+) {
+    var isDragging by remember { mutableStateOf(false) }
+    var dragFraction by remember { mutableFloatStateOf(0f) }
+
+    val currentFraction = (if (isDragging) dragFraction else progress).coerceIn(0f, 1f)
+
+    BoxWithConstraints(
+        modifier = modifier
+            .fillMaxWidth()
+            .height(20.dp)
+            .pointerInput(Unit) {
+                detectTapGestures { offset ->
+                    val frac = (offset.x / size.width.toFloat()).coerceIn(0f, 1f)
+                    onSeekToFraction(frac)
+                }
+            }
+            .pointerInput(Unit) {
+                detectHorizontalDragGestures(
+                    onDragStart = { offset ->
+                        isDragging = true
+                        dragFraction = (offset.x / size.width.toFloat()).coerceIn(0f, 1f)
+                    },
+                    onDragEnd = {
+                        isDragging = false
+                        onSeekToFraction(dragFraction)
+                    },
+                    onDragCancel = {
+                        isDragging = false
+                    },
+                    onHorizontalDrag = { change, _ ->
+                        change.consume()
+                        val frac = (change.position.x / size.width.toFloat()).coerceIn(0f, 1f)
+                        dragFraction = frac
+                    }
+                )
+            },
+        contentAlignment = Alignment.CenterStart
+    ) {
+        val widthPx = constraints.maxWidth.toFloat()
+
+        // 槽轨底色 (20% 半透白)
+        Box(
+            modifier = Modifier
+                .fillMaxWidth()
+                .height(3.dp)
+                .clip(RoundedCornerShape(1.5.dp))
+                .background(Color.White.copy(alpha = 0.20f))
+        )
+
+        // 已播放高光槽轨 (100% 纯白)
+        Box(
+            modifier = Modifier
+                .fillMaxWidth(currentFraction)
+                .height(3.dp)
+                .clip(RoundedCornerShape(1.5.dp))
+                .background(Color.White)
+        )
+
+        // 极细圆形滑块指示点
+        val thumbOffsetDp = with(LocalDensity.current) {
+            ((widthPx * currentFraction) - 4.dp.toPx()).coerceAtLeast(0f).toDp()
+        }
+        Box(
+            modifier = Modifier
+                .offset(x = thumbOffsetDp)
+                .size(8.dp)
+                .clip(CircleShape)
+                .background(Color.White)
+        )
     }
 }
 
