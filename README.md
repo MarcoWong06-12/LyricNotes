@@ -1,90 +1,105 @@
-# LinerNotes（唱片内页）
+# LyricNotes
 
-LinerNotes 是一款专为实体 CD 与数字流媒体音乐爱好者打造的安卓端歌词与唱片资料伴侣应用。
+<p align="center">
+  <b>专为 Spotify 与流媒体打造的安卓端实时双语歌词与深度典故伴侣</b>
+</p>
 
-应用支持通过蓝牙连接便携式 CD 播放机实时读取播放状态，拉取双语滚动歌词，并深度整合了 Genius 乐评典故与 Discogs 实体唱片版本数据。
-
----
-
-## 核心特性
-
-### 1. 实体 CD 伴侣与双语歌词同步
-- 支持通过蓝牙连接便携式 CD 播放机（如山灵 SyncLink 协议）。
-- 实时获取播放机当前曲目号、时间戳与播放状态，实现歌词毫秒级平滑跟随滚动。
-- 支持双语歌词逐行对齐展示与歌词微调偏移行。
-
-### 2. 多源歌词检索与智能翻译补全
-- 多数据源并发检索：聚合网易云音乐、QQ 音乐、酷狗音乐以及国际开源歌词库 LRCLIB、Musixmatch。多源并发竞速拉取，优先匹配带有高精度时间轴的版本。
-- 缺失自动翻译补齐：对于无翻译的曲目，系统自动调用内置分块翻译引擎，在严格保护时间戳与排版的前提下极速补齐中文翻译。
-- 繁简体一键互转：支持全专歌词与背景资料在简体中文与繁体中文之间无损切换。
-
-### 3. Genius 典故注释与双语对照排版
-- 深度整合 Genius 歌曲创作背景、文化隐喻与俚语注释。
-- 采用紧凑双语排版，中文解析下方对应英文原文，兼顾阅读体验与原意参考。
-
-### 4. 歌词脱敏与脏字审查还原
-- 针对国内音乐源中常见的纯星号与词中掩码，内置确定性匹配与 Genius 引文对齐引擎。
-- 自动将屏蔽词还原为真实歌词与汉语翻译，并自动持久化写回本地 Room 数据库。
-
-### 6. 系统原生媒体通知栏与锁屏
-- 完整接入 Android MediaSession 架构。
-- 支持在系统通知栏与锁屏界面查看封面、曲目信息与进度，并提供原生切歌与暂停控制。
-
-### 7. Discogs 唱片版本元数据检索
-- 支持扫描或输入实体唱片条形码检索 Discogs 数据库。
-- 查看当前实体专辑的发行国家、厂牌、年份、压盘批次等资料。
+<p align="center">
+  <a href="https://github.com/MarcoWong06-12/LyricNotes/actions"><img src="https://img.shields.io/github/actions/workflow/status/MarcoWong06-12/LyricNotes/build-apk.yml?branch=main&label=Build%20APK&logo=github" alt="Build Status"></a>
+  <a href="https://github.com/MarcoWong06-12/LyricNotes/blob/main/LICENSE"><img src="https://img.shields.io/badge/License-MIT-blue.svg" alt="License"></a>
+  <a href="https://developer.android.com"><img src="https://img.shields.io/badge/Platform-Android%208.0%2B-green.svg?logo=android" alt="Platform"></a>
+  <a href="https://kotlinlang.org"><img src="https://img.shields.io/badge/Kotlin-Jetpack%20Compose-purple.svg?logo=kotlin" alt="Kotlin"></a>
+</p>
 
 ---
 
-## 更多 CD 播放机适配支持
+## 📖 项目简介
 
-目前应用已完整适配山灵（Shanling）支持 SyncLink 蓝牙协议的便携 CD 播放机。
+**LyricNotes** 是一款专为数字流媒体音乐爱好者打造的 Android 伴侣应用。当你在手机上使用 **Spotify** 或系统播放器听歌时，LyricNotes 能自动捕获播放曲目与实时时间轴，呈现如 Apple Music 般灵动沉浸的流体动态氛围光效与双语滚动歌词。
 
-如果你正在使用其他品牌或型号的便携 CD 播放机，且该播放机拥有官方的手机配套控制 App，如果你希望 LinerNotes 也适配你的播放机型号：
-
-欢迎在本项目提一个 Issue（https://github.com/MarcoWong06-12/LinerNotes/issues ），并把官方配套 App 的安装包（APK）分享给我。我会分析其中的蓝牙通信数据包与控制协议，尽力把协议逆向并集成进 LinerNotes:)
+不仅如此，LyricNotes 深度整合了 **Genius 乐评典故与歌曲创作故事（Behind The Lyrics）**、**多源歌词并发竞速**、**冷门歌曲翻译自动补齐**以及**歌词脏字屏蔽彻底还原**，带你探索音乐背后的深层文化与艺术原貌。
 
 ---
 
-## 下载与安装
+## ✨ 核心特性
 
-前往项目的 Releases 页面下载最新安装包：
-https://github.com/MarcoWong06-12/LinerNotes/releases
+### 1. 🎵 Spotify 实时同屏与双语滚动歌词
+- **即开即连**：通过系统通知监听（`NotificationListenerService`）与广播接收器，自动捕获 Spotify 及各大播放器的切歌与播放/暂停状态。
+- **毫秒级防漂移时间轴**：内置本地时间戳推算引擎，滑动与拖动进度条丝滑响应，告别歌词延迟与卡顿。
+- **双语对齐显示**：外文歌曲原文与中文翻译同屏平滑滚动，并支持全专繁简体中文无损切换。
 
-- 正式版安装包：app-release.apk
-- 调试版安装包：app-debug.apk
+### 2. 🎨 Apple Music 灵感流体动态氛围光效
+- **自适应动态光晕**：依据当前曲目专辑封面的主色调与色彩分布，实时渲染全屏流体渐变与环境弥散光。
+- **视线聚焦排版**：当前正在播放的歌词行自动放大并带有专属光晕辉光，未播放行优雅淡化。
 
-系统要求：Android 8.0（API 26）及以上。
+### 3. 💡 Genius 深度典故与歌词创作故事（Behind The Lyrics）
+- **重点歌词精解**：带有背景故事或文化隐喻的歌词行，右侧标有 `[💡 典故]` 标识，轻触即可唤起抽屉式精解面板。
+- **中英双语对照**：上方呈现地道中文深度赏析，下方紧跟 Genius 英文官方引文与小字原文，兼顾阅读体验与原意考证。
+- **全曲背景故事（Song Story）**：顶部一键展开该曲目的创作缘由、灵感来源与幕后制作花絮。
 
----
+### 4. ⚡ 多源歌词并发竞速与智能翻译补齐
+- **多源竞速检索**：聚合网易云音乐、QQ 音乐、酷狗音乐及全球开源歌词库 LRCLIB 等，多源并发拉取，优先匹配带有高精度时间轴的双语歌词。
+- **缺失翻译智能补齐**：遇到无官方翻译的冷门小众外文曲目时，自动调用内置分块翻译引擎，在保护时间戳结构的前提下极速补齐中文翻译。
+- **日语假名注音（Furigana）**：智能识别日语汉字并渲染振假名注音，方便跟唱学习。
 
-## 技术架构
+### 5. 🛡️ 歌词审查脱敏与脏字彻底还原
+- **还原艺术本貌**：针对国内音乐源中常见的英文脏字掩码打星（如 `f***`、`b****`）及机翻错误，内置语义校正与 Genius 引文对齐引擎。
+- 自动将屏蔽词还原为真实歌词与真实译文，并持久化写回本地数据库。
 
-- 核心语言：Kotlin
-- 界面框架：Jetpack Compose, Material 3
-- 架构设计：MVI / MVVM, Clean Architecture
-- 依赖注入：Hilt
-- 本地数据库：Room Database
-- 网络请求：Retrofit 2, OkHttp 3, Kotlinx Serialization
-- 图片加载：Coil
-- 硬件协议：Bluetooth RFCOMM (Shanling SyncLink 协议逆向与解析)
-
----
-
-## 本地编译
-
-项目采用标准 Gradle 构建系统：
-
-1. 克隆代码库：
-   git clone https://github.com/MarcoWong06-12/LinerNotes.git
-
-2. 使用 JDK 17 编译 APK：
-   ./gradlew assembleRelease
-
-编译生成的安装包位于：app/build/outputs/apk/release/app-release.apk
+### 6. 💿 实体 CD 唱架与经典小册子模式保留
+- 完整保留经典的虚拟 CD 唱架（CD Shelf）与唱片内页小册子（Booklet）浏览模式，兼顾实体唱片收藏与流媒体随行听歌。
 
 ---
 
-## 开源协议
+## 🛠️ 技术架构
 
-本项目采用 MIT 协议开源。
+项目基于现代 Android 开发规范构建，采用模块化与单向数据流设计：
+
+- **开发语言**：Kotlin 1.9+
+- **UI 框架**：Jetpack Compose, Material 3
+- **架构模式**：MVI / MVVM, Clean Architecture
+- **依赖注入**：Hilt / Dagger
+- **异步处理**：Kotlin Coroutines, StateFlow, SharedFlow
+- **本地存储**：Room Database（歌词、典故与翻译缓存持久化）
+- **网络通信**：Retrofit 2, OkHttp 3, Kotlinx Serialization
+- **图片加载**：Coil (Compose)
+- **CI / CD**：GitHub Actions 持续集成与自动化构建
+
+---
+
+## 📲 安装与构建
+
+### 方式一：通过 GitHub Actions 体验最新测试构建（推荐）
+
+本项目已接入 GitHub Actions 自动化 CI 流水线：
+1. 访问本仓库的 [Actions 页面](https://github.com/MarcoWong06-12/LyricNotes/actions)。
+2. 点击最新一次成功的流水线（`Build LyricNotes APK`）。
+3. 在页面底部的 **Artifacts** 区域下载 `LyricNotes-v1.0.0-APK` 压缩包，解压后即可获得安装包。
+
+> **提示**：LyricNotes 独立包名为 `com.lyricnotes.app`，安装后不会覆盖或影响原有的 LinerNotes 应用。
+
+### 方式二：本地编译
+
+需要环境：JDK 17、Android SDK (API 34)：
+
+```bash
+# 1. 克隆代码仓库
+git clone https://github.com/MarcoWong06-12/LyricNotes.git
+
+# 2. 进入项目目录
+cd LyricNotes
+
+# 3. 编译 Debug APK
+./gradlew assembleDebug
+
+# 4. 或编译 Release APK
+./gradlew assembleRelease
+```
+
+编译生成的安装包位于：`app/build/outputs/apk/debug/app-debug.apk`。
+
+---
+
+## 📄 开源许可
+
+本项目基于 [MIT License](LICENSE) 开源。
