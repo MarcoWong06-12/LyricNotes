@@ -3,36 +3,34 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
-    <title>LyricNotes 纯净极简 UI 提案（告别花哨）</title>
+    <title>国外顶级音乐播放器 UI 哲学与实测</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <style>
         * { -webkit-tap-highlight-color: transparent; }
-
-        /* 真实的 iOS 标准 550ms 三次贝塞尔缓动曲线 */
         .lyric-motion {
             transition: transform 550ms cubic-bezier(0.22, 1, 0.36, 1), opacity 450ms ease, filter 450ms ease;
         }
     </style>
 </head>
-<body class="bg-[#0b0b0e] text-slate-100 min-h-screen flex flex-col font-sans antialiased overflow-x-hidden">
+<body class="bg-[#0a0a0c] text-slate-100 min-h-screen flex flex-col font-sans antialiased overflow-x-hidden">
 
-    <!-- 顶部极简导航 -->
-    <header class="sticky top-0 z-50 bg-[#0b0b0e]/90 backdrop-blur-md border-b border-white/5 px-4 py-3">
+    <!-- 顶部固定导航 -->
+    <header class="sticky top-0 z-50 bg-[#0a0a0c]/90 backdrop-blur-md border-b border-white/5 px-4 py-3">
         <div class="flex items-center justify-between max-w-md mx-auto mb-2">
-            <span class="text-xs font-bold tracking-wider uppercase text-white/50">LyricNotes · 纯净美学重塑</span>
-            <span class="text-[11px] text-white/40 bg-white/5 px-2 py-0.5 rounded-full">零杂色 · 纯黑白灰阶</span>
+            <span class="text-xs font-bold tracking-wider uppercase text-white/50">海外主流播放器 UI 范式实测</span>
+            <span class="text-[10px] text-white/40 bg-white/5 px-2 py-0.5 rounded-full">三大设计流派</span>
         </div>
 
-        <!-- 3 款纯净方案切换 -->
-        <div class="grid grid-cols-3 gap-1 bg-white/[0.05] p-1 rounded-xl max-w-md mx-auto border border-white/5">
-            <button onclick="selectScheme(1)" id="tab-1" class="py-1.5 rounded-lg text-xs font-semibold bg-white text-black shadow-sm transition-all">
-                纯粹灰阶
+        <!-- 3 大海外流派切换 -->
+        <div class="grid grid-cols-3 gap-1 bg-white/[0.04] p-1 rounded-xl max-w-md mx-auto border border-white/5">
+            <button onclick="selectPlayer(1)" id="tab-1" class="py-1.5 rounded-lg text-xs font-semibold bg-white text-black shadow-sm transition-all">
+                Apple Music
             </button>
-            <button onclick="selectScheme(2)" id="tab-2" class="py-1.5 rounded-lg text-xs font-medium text-white/50 hover:text-white transition-all">
-                杂志留白
+            <button onclick="selectPlayer(2)" id="tab-2" class="py-1.5 rounded-lg text-xs font-medium text-white/50 hover:text-white transition-all">
+                Spotify 极简
             </button>
-            <button onclick="selectScheme(3)" id="tab-3" class="py-1.5 rounded-lg text-xs font-medium text-white/50 hover:text-white transition-all">
-                呼吸虚化
+            <button onclick="selectPlayer(3)" id="tab-3" class="py-1.5 rounded-lg text-xs font-medium text-white/50 hover:text-white transition-all">
+                TIDAL 纯黑
             </button>
         </div>
     </header>
@@ -40,31 +38,31 @@
     <!-- 主展示区 -->
     <main class="flex-1 flex flex-col items-center justify-start p-3 sm:p-5 w-full max-w-md mx-auto">
 
-        <!-- 方案简述 -->
-        <div class="w-full bg-white/[0.03] border border-white/5 rounded-2xl p-3 mb-3">
+        <!-- 流派设计精髓说明 -->
+        <div class="w-full bg-white/[0.03] border border-white/5 rounded-2xl p-3.5 mb-3">
             <div class="flex items-center justify-between">
-                <h2 id="scheme-title" class="text-xs font-bold text-white">方案 1 · 纯粹灰阶 (Pure Monochrome)</h2>
-                <span id="scheme-tag" class="text-[10px] text-white/40">100% 纯白与多阶通透灰</span>
+                <h2 id="player-title" class="text-xs font-bold text-white">Apple Music · 电影级景深流 (Cinematic Depth)</h2>
+                <span id="player-tag" class="text-[10px] text-white/40">业界公认视觉标杆</span>
             </div>
-            <p id="scheme-desc" class="text-[11px] text-white/50 mt-1 leading-relaxed">
-                彻底移除了所有绿色、紫色与花哨图标。当前句为 100% 纯白，译文为 75% 柔白，未播行为 20% 幽暗灰。克制、沉稳、永不审美疲劳。
+            <p id="player-desc" class="text-[11px] text-white/50 mt-1 leading-relaxed">
+                柔和极暗弥散底色 + 大字纯白 + 景深柔焦（当前句锐利，前后句高斯虚化），视线极其沉浸，绝无杂色。
             </p>
         </div>
 
         <!-- 手机模拟屏幕容器 -->
-        <div class="w-full h-[620px] rounded-[36px] bg-[#0d0d11] border border-white/10 relative overflow-hidden shadow-2xl flex flex-col justify-between p-5">
+        <div id="player-screen" class="w-full h-[620px] rounded-[36px] bg-[#0d0d12] border border-white/10 relative overflow-hidden shadow-2xl flex flex-col justify-between p-5 transition-colors duration-500">
             
-            <!-- 极淡深空氛围底色 (非高饱和杂色) -->
-            <div class="absolute inset-0 bg-gradient-to-b from-white/[0.03] via-transparent to-black pointer-events-none"></div>
+            <!-- 动态环境底色 (各流派不同) -->
+            <div id="ambient-layer" class="absolute inset-0 bg-gradient-to-b from-white/[0.04] via-transparent to-black pointer-events-none transition-all duration-700"></div>
 
-            <!-- 1. 顶部栏 (各方案独有) -->
-            <div id="view-header" class="relative z-20">
+            <!-- 1. 顶部栏 -->
+            <div id="player-header" class="relative z-20">
                 <!-- 由 JS 渲染 -->
             </div>
 
             <!-- 2. 歌词视口核心区 -->
             <div class="relative z-10 flex-1 my-2 overflow-hidden flex flex-col justify-center">
-                <div id="lyric-list" class="lyric-motion space-y-5">
+                <div id="player-lyrics" class="lyric-motion space-y-6">
                     <!-- 动态歌词行注入 -->
                 </div>
             </div>
@@ -79,18 +77,12 @@
 
         </div>
 
-        <!-- 丝滑换行说明 -->
-        <div class="w-full mt-3 p-3 bg-white/[0.02] border border-white/5 rounded-2xl text-[11px] text-white/50 leading-relaxed">
-            💡 <strong>点击右下角「换下一句」测试</strong>：每句歌词的视觉重心绝对不会上下乱窜，以稳定的几何中心平滑滑动，文字全为纯净白灰排版，告别一切刺眼杂色。
-        </div>
-
     </main>
 
     <script>
         const songData = {
             title: "Family Matters",
             artist: "Drake",
-            album: "Certified Lover Boy",
             lyrics: [
                 {
                     orig: "Drop a fifty bag for the mob in the spot",
@@ -115,11 +107,11 @@
             ]
         };
 
-        let currentScheme = 1;
+        let currentPlayer = 1;
         let activeIndex = 1;
 
-        function selectScheme(id) {
-            currentScheme = id;
+        function selectPlayer(id) {
+            currentPlayer = id;
 
             for (let i = 1; i <= 3; i++) {
                 const btn = document.getElementById(`tab-${i}`);
@@ -130,22 +122,29 @@
                 }
             }
 
-            const title = document.getElementById('scheme-title');
-            const tag = document.getElementById('scheme-tag');
-            const desc = document.getElementById('scheme-desc');
+            const title = document.getElementById('player-title');
+            const tag = document.getElementById('player-tag');
+            const desc = document.getElementById('player-desc');
+            const screen = document.getElementById('player-screen');
 
             if (id === 1) {
-                title.innerText = "方案 1 · 纯粹灰阶 (Pure Monochrome)";
-                tag.innerText = "100% 纯白与多阶通透灰";
-                desc.innerText = "彻底移除了所有绿色、紫色与花哨图标。当前句为 100% 纯白，译文为 75% 柔白，未播行为 20% 幽暗灰。克制、沉稳、永不审美疲劳。";
+                // Apple Music
+                title.innerText = "Apple Music · 电影级景深流 (Cinematic Depth)";
+                tag.innerText = "全球公认视觉标杆";
+                desc.innerText = "柔和极暗弥散底色 + 大字号纯白 + 景深高斯柔焦虚化（未播行模糊淡出），视线如电影大光圈对焦，纯粹宁静。";
+                screen.style.backgroundColor = "#0d0d12";
             } else if (id === 2) {
-                title.innerText = "方案 2 · 杂志留白 (Editorial Minimal)";
-                tag.innerText = "北欧极简杂志风 · 大留白";
-                desc.innerText = "顶部采用精巧细线分割，标题与作者采用超轻细体排版。歌词整齐靠左，当前句采用精致阶梯缩进，没有任何花哨装饰。";
+                // Spotify
+                title.innerText = "Spotify · 结构化高对比流 (Structured High-Contrast)";
+                tag.innerText = "紧凑跟唱 · 纯白与深墨灰";
+                desc.innerText = "深碳黑背景（#121212）+ 紧凑左对齐。当前句纯白高亮，未播行深墨灰，绝不用任何彩色文字，跟唱节奏感极强。";
+                screen.style.backgroundColor = "#121212";
             } else {
-                title.innerText = "方案 3 · 呼吸虚化 (Focus Blur)";
-                tag.innerText = "纯黑极简 · 景深柔焦虚化";
-                desc.innerText = "全黑纯黑背景，视线仅锁定在中央活跃行。上下歌词带有渐进式高斯景深柔焦（非活跃行模糊褪去），呼吸感极佳。";
+                // TIDAL
+                title.innerText = "TIDAL · 瑞士极简工作室流 (Swiss Studio)";
+                tag.innerText = "发烧级纯黑 OLED 奢华";
+                desc.innerText = "100% OLED 纯黑（#000000）底色 + 瑞士国际平面排版风格。小字微型元数据，大字清晰锐利，无任何花哨渲染，克制到了极致。";
+                screen.style.backgroundColor = "#000000";
             }
 
             renderHeader();
@@ -153,94 +152,95 @@
         }
 
         function renderHeader() {
-            const h = document.getElementById('view-header');
-            if (currentScheme === 1) {
-                // 方案 1: 极简灰阶 Header (黑白无杂色)
+            const h = document.getElementById('player-header');
+            if (currentPlayer === 1) {
+                // Apple Music 风格：极简小圆角封面 + 纯白曲名与浅灰歌手
                 h.innerHTML = `
                     <div class="flex items-center justify-between py-1">
-                        <div class="flex items-center gap-2.5">
-                            <div class="w-8 h-8 rounded-lg bg-white/10 flex items-center justify-center border border-white/10">
-                                <span class="w-2.5 h-2.5 rounded-full bg-white/70"></span>
+                        <div class="flex items-center gap-3">
+                            <div class="w-9 h-9 rounded-xl bg-white/10 flex items-center justify-center border border-white/10 shadow-lg">
+                                <span class="w-3 h-3 rounded-full bg-white/70"></span>
                             </div>
                             <div>
-                                <div class="text-[13px] font-bold text-white tracking-tight">${songData.title}</div>
-                                <div class="text-[11px] text-white/40">${songData.artist}</div>
+                                <div class="text-[14px] font-bold text-white tracking-tight">${songData.title}</div>
+                                <div class="text-[11px] text-white/50">${songData.artist}</div>
                             </div>
                         </div>
-                        <div class="w-7 h-7 rounded-full bg-white/5 border border-white/10 flex items-center justify-center text-[11px] text-white/60">
+                        <div class="w-7 h-7 rounded-full bg-white/5 flex items-center justify-center text-[12px] text-white/60">
                             ···
                         </div>
                     </div>
                 `;
-            } else if (currentScheme === 2) {
-                // 方案 2: 杂志小字 Header
+            } else if (currentPlayer === 2) {
+                // Spotify 风格：紧凑微型标题栏
                 h.innerHTML = `
-                    <div class="flex items-center justify-between pb-2 border-b border-white/5">
-                        <div class="flex items-baseline gap-2">
-                            <span class="text-[14px] font-bold text-white tracking-tight">${songData.title}</span>
-                            <span class="text-[11px] text-white/30 uppercase tracking-widest font-mono">${songData.artist}</span>
+                    <div class="flex items-center justify-between py-1">
+                        <div>
+                            <div class="text-[13px] font-bold text-white">${songData.title}</div>
+                            <div class="text-[11px] text-white/60">${songData.artist}</div>
                         </div>
-                        <span class="text-[10px] text-white/30 font-mono tracking-widest">LYRICNOTES</span>
+                        <span class="text-[10px] font-bold text-white/40 tracking-wider">LYRICS</span>
                     </div>
                 `;
             } else {
-                // 方案 3: 极致隐形 Header (几乎无侵扰)
+                // TIDAL 风格：瑞士极简微型排版
                 h.innerHTML = `
-                    <div class="flex items-center justify-between py-1">
-                        <div class="text-[12px] font-medium text-white/50 tracking-wider">
-                            ${songData.title} <span class="text-white/20">/</span> ${songData.artist}
+                    <div class="flex items-baseline justify-between pb-2 border-b border-white/10">
+                        <div class="flex items-baseline gap-2">
+                            <span class="text-[13px] font-bold tracking-wider text-white uppercase">${songData.title}</span>
+                            <span class="text-[10px] text-white/40 font-mono">${songData.artist}</span>
                         </div>
-                        <div class="w-2 h-2 rounded-full bg-white/30"></div>
+                        <span class="text-[9px] font-mono text-white/40 border border-white/20 px-1 rounded">MAX FLAC</span>
                     </div>
                 `;
             }
         }
 
         function renderLyrics() {
-            const list = document.getElementById('lyric-list');
+            const list = document.getElementById('player-lyrics');
             let html = '';
 
             songData.lyrics.forEach((item, idx) => {
                 const isActive = (idx === activeIndex);
                 const distance = Math.abs(idx - activeIndex);
 
-                if (currentScheme === 1) {
-                    // 方案 1: 纯粹灰阶 (纯白加粗 + 柔白译文 + 幽暗灰未播)
+                if (currentPlayer === 1) {
+                    // Apple Music: 大字纯白 + 景深柔焦 (未播句高斯模糊)
                     html += `
-                        <div class="lyric-motion ${isActive ? 'scale-[1.02] pl-1' : 'scale-95'}">
-                            <div class="${isActive ? 'opacity-100' : (distance === 1 ? 'opacity-35' : 'opacity-15')}">
-                                <div class="text-[17px] font-bold ${isActive ? 'text-white' : 'text-white/60'} leading-tight whitespace-pre-line tracking-tight">
+                        <div class="lyric-motion ${isActive ? 'scale-[1.03] pl-1' : 'scale-[0.96]'}">
+                            <div class="${isActive ? 'opacity-100 filter-none' : (distance === 1 ? 'opacity-40 blur-[1px]' : 'opacity-15 blur-[2.5px]')}">
+                                <div class="text-[18px] font-extrabold text-white leading-snug whitespace-pre-line tracking-tight">
                                     ${item.orig}
                                 </div>
-                                <div class="text-[13px] font-normal ${isActive ? 'text-white/70' : 'text-white/30'} mt-1">
+                                <div class="text-[13px] font-normal text-white/70 mt-1">
                                     ${item.trans}
                                 </div>
                             </div>
                         </div>
                     `;
-                } else if (currentScheme === 2) {
-                    // 方案 2: 杂志阶梯留白
+                } else if (currentPlayer === 2) {
+                    // Spotify: 高对比 (当前句纯白加粗，未播句深墨灰，无模糊)
                     html += `
-                        <div class="lyric-motion ${isActive ? 'translate-x-2' : ''}">
-                            <div class="${isActive ? 'opacity-100' : (distance === 1 ? 'opacity-30' : 'opacity-10')}">
-                                <div class="text-[16px] font-extrabold ${isActive ? 'text-white' : 'text-white/50'} leading-tight whitespace-pre-line">
+                        <div class="lyric-motion">
+                            <div class="${isActive ? 'opacity-100' : 'opacity-30'}">
+                                <div class="text-[16px] font-bold ${isActive ? 'text-white' : 'text-[#888888]'} leading-normal whitespace-pre-line">
                                     ${item.orig}
                                 </div>
-                                <div class="text-[12px] font-light ${isActive ? 'text-white/65' : 'text-white/25'} mt-1">
+                                <div class="text-[12px] font-normal ${isActive ? 'text-white/80' : 'text-[#666666]'} mt-0.5">
                                     ${item.trans}
                                 </div>
                             </div>
                         </div>
                     `;
                 } else {
-                    // 方案 3: 呼吸景深虚化
+                    // TIDAL: 纯黑瑞士极简 (超清晰无衬线，字距稍宽，优雅沉稳)
                     html += `
-                        <div class="lyric-motion">
-                            <div class="${isActive ? 'opacity-100 filter-none scale-100' : (distance === 1 ? 'opacity-35 blur-[1px] scale-95' : 'opacity-10 blur-[2px] scale-90')}">
-                                <div class="text-[18px] font-bold text-white leading-tight whitespace-pre-line">
+                        <div class="lyric-motion ${isActive ? 'translate-x-1.5' : ''}">
+                            <div class="${isActive ? 'opacity-100' : (distance === 1 ? 'opacity-35' : 'opacity-15')}">
+                                <div class="text-[17px] font-bold text-white tracking-wide leading-relaxed whitespace-pre-line">
                                     ${item.orig}
                                 </div>
-                                <div class="text-[13px] font-normal text-white/70 mt-1">
+                                <div class="text-[12px] font-light text-white/60 tracking-normal mt-1">
                                     ${item.trans}
                                 </div>
                             </div>
@@ -258,7 +258,7 @@
         }
 
         // 初始化
-        selectScheme(1);
+        selectPlayer(1);
     </script>
 </body>
 </html>
