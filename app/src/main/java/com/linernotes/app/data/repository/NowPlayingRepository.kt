@@ -4,6 +4,7 @@ import android.os.SystemClock
 import com.linernotes.app.core.lyric.LyricAligner
 import com.linernotes.app.core.lyric.LyricFragmentMatcher
 import com.linernotes.app.core.lyric.LyricSanitizer
+import com.linernotes.app.core.lyric.LyricSearchCleaner
 import com.linernotes.app.core.playback.PlaybackStateManager
 import com.linernotes.app.core.playback.TrackPlaybackState
 import com.linernotes.app.core.preference.AiPreferences
