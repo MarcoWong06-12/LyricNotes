@@ -133,9 +133,11 @@ fun NowPlayingScreen(
                 )
             }
 
-            // 3. 极简顶部状态微栏 (为歌词留出 80% 屏幕纵向空间)
+            // 3. 极简顶部状态微栏 (为歌词留出 80% 屏幕纵向空间，集成外层歌曲故事直达入口)
             NowPlayingTopBar(
                 trackState = trackState,
+                hasSongStory = nowData.songStory != null,
+                onOpenSongStory = { viewModel.openSongStory() },
                 onOpenQueue = { viewModel.openQueueSheet() },
                 onOpenSettings = { viewModel.openSettings() },
                 modifier = Modifier.align(Alignment.TopCenter)
@@ -256,6 +258,7 @@ fun NowPlayingScreen(
         if (state.isGeniusSheetOpen) {
             NowPlayingGeniusSheet(
                 annotation = state.selectedAnnotation,
+                isTraditional = state.isTraditionalChinese,
                 onDismiss = { viewModel.closeGeniusSheet() }
             )
         }
@@ -264,6 +267,7 @@ fun NowPlayingScreen(
         if (state.isSongStorySheetOpen) {
             NowPlayingSongStorySheet(
                 story = nowData.songStory,
+                isTraditional = state.isTraditionalChinese,
                 onDismiss = { viewModel.closeSongStory() }
             )
         }
@@ -278,6 +282,8 @@ fun NowPlayingScreen(
 @Composable
 private fun NowPlayingTopBar(
     trackState: TrackPlaybackState,
+    hasSongStory: Boolean,
+    onOpenSongStory: () -> Unit,
     onOpenQueue: () -> Unit,
     onOpenSettings: () -> Unit,
     modifier: Modifier = Modifier
@@ -332,11 +338,44 @@ private fun NowPlayingTopBar(
             }
         }
 
-        // 右侧操作群：待播队列 (Queue) + 更多设置 (···)
+        // 右侧操作群：歌曲背景故事直达入口 (📖 故事) + 待播队列 (Queue) + 更多设置 (···)
         Row(
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(8.dp)
         ) {
+            // 歌曲背景故事外层高频入口（当有故事时呈现柔和微光，1 步直达）
+            Surface(
+                color = if (hasSongStory) Color(0xFFFFD54F).copy(alpha = 0.16f) else Color.White.copy(alpha = 0.08f),
+                shape = RoundedCornerShape(18.dp),
+                border = BorderStroke(
+                    0.5.dp,
+                    if (hasSongStory) Color(0xFFFFD54F).copy(alpha = 0.45f) else Color.White.copy(alpha = 0.14f)
+                ),
+                modifier = Modifier
+                    .height(36.dp)
+                    .clickable(onClick = onOpenSongStory)
+            ) {
+                Row(
+                    modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(5.dp)
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.MenuBook,
+                        contentDescription = "歌曲故事",
+                        tint = if (hasSongStory) Color(0xFFFFD54F) else Color.White.copy(alpha = 0.85f),
+                        modifier = Modifier.size(17.dp)
+                    )
+                    Text(
+                        text = "故事",
+                        color = if (hasSongStory) Color(0xFFFFD54F) else Color.White.copy(alpha = 0.85f),
+                        fontSize = 12.sp,
+                        fontWeight = if (hasSongStory) FontWeight.Bold else FontWeight.Medium,
+                        fontFamily = FontFamily.SansSerif
+                    )
+                }
+            }
+
             Surface(
                 color = Color.White.copy(alpha = 0.08f),
                 shape = CircleShape,
@@ -429,29 +468,28 @@ private fun NowPlayingLyricsContent(
 
     val listState = rememberLazyListState()
 
-    // 智能中心质心对齐动力学 (仿 Apple Music / Lyricify)
-    // 依据当前聚焦项的实际高度与视口黄金聚焦点 (34%) 动态平滑插值移动
+    // 智能黄金聚焦点对齐动力学 (仿 Apple Music / Lyricify 柔和阻尼弹簧平滑滚动)
     LaunchedEffect(currentLineIndex) {
         if (currentLineIndex in lyrics.indices) {
-            val visibleItem = listState.layoutInfo.visibleItemsInfo.find { it.index == currentLineIndex }
             val viewportHeight = listState.layoutInfo.viewportSize.height.toFloat()
+            val targetFocalY = if (viewportHeight > 0f) viewportHeight * 0.35f else 320f
+            val visibleItem = listState.layoutInfo.visibleItemsInfo.find { it.index == currentLineIndex }
 
             if (visibleItem != null && viewportHeight > 0f) {
-                val focalY = viewportHeight * 0.34f
                 val currentCenter = visibleItem.offset.toFloat() + (visibleItem.size.toFloat() / 2f)
-                val scrollDelta = currentCenter - focalY
+                val scrollDelta = currentCenter - targetFocalY
 
-                if (kotlin.math.abs(scrollDelta) > 1.5f) {
+                if (kotlin.math.abs(scrollDelta) > 1.2f) {
                     listState.animateScrollBy(
                         value = scrollDelta,
-                        animationSpec = tween(
-                            durationMillis = 620,
-                            easing = CubicBezierEasing(0.22f, 1.0f, 0.36f, 1.0f)
+                        animationSpec = spring(
+                            dampingRatio = 0.88f,
+                            stiffness = Spring.StiffnessLow
                         )
                     )
                 }
             } else {
-                val focalOffset = if (viewportHeight > 0f) -(viewportHeight * 0.34f - 120f).toInt() else -150
+                val focalOffset = -(targetFocalY - 60f).toInt()
                 listState.animateScrollToItem(
                     index = currentLineIndex,
                     scrollOffset = focalOffset.coerceAtMost(0)
@@ -536,17 +574,17 @@ private fun LyricLineRow(
     onClick: () -> Unit,
     onAnnotationClick: () -> Unit
 ) {
-    // 硬件级平滑缩放动效 (左边缘锚定，幅度适中保真清晰)
+    // Lyricify 弹性物理缩放动力学：活跃行微弹放大，边缘平滑锚定
     val animatedScale by animateFloatAsState(
-        targetValue = if (isActive) 1.04f else 0.98f,
-        animationSpec = tween(
-            durationMillis = 520,
-            easing = CubicBezierEasing(0.22f, 1.0f, 0.36f, 1.0f)
+        targetValue = if (isActive) 1.05f else 0.96f,
+        animationSpec = spring(
+            dampingRatio = Spring.DampingRatioMediumBouncy,
+            stiffness = Spring.StiffnessMediumLow
         ),
         label = "lyricScale"
     )
 
-    // 大幅提升非活跃行对比度：相邻行 65%，次近行 50%，远行 35%（告别原来的 10% 昏暗看不清）
+    // 非活跃行透明度渐进 (高对比度舒适可读)
     val animatedAlpha by animateFloatAsState(
         targetValue = when {
             isActive -> 1.0f
@@ -555,9 +593,9 @@ private fun LyricLineRow(
             distance == 3 -> 0.40f
             else -> 0.32f
         },
-        animationSpec = tween(
-            durationMillis = 480,
-            easing = CubicBezierEasing(0.22f, 1.0f, 0.36f, 1.0f)
+        animationSpec = spring(
+            dampingRatio = Spring.DampingRatioNoBouncy,
+            stiffness = Spring.StiffnessMedium
         ),
         label = "lyricAlpha"
     )
@@ -571,9 +609,9 @@ private fun LyricLineRow(
             distance == 3 -> 0.36f
             else -> 0.28f
         },
-        animationSpec = tween(
-            durationMillis = 480,
-            easing = CubicBezierEasing(0.22f, 1.0f, 0.36f, 1.0f)
+        animationSpec = spring(
+            dampingRatio = Spring.DampingRatioNoBouncy,
+            stiffness = Spring.StiffnessMedium
         ),
         label = "transAlpha"
     )
@@ -627,31 +665,30 @@ private fun LyricLineRow(
                 }
             }
 
-            // 灵动 Gemini/TG 风格典故胶囊徽标
+            // 极简现代高颜值典故微光标 (替换原粗重黄色胶囊，极简香槟金磨砂微标)
             if (annotation != null) {
                 Surface(
-                    color = Color(0xFF262218),
-                    shape = RoundedCornerShape(14.dp),
+                    color = if (isActive) Color(0xFFFFD54F).copy(alpha = 0.18f) else Color.White.copy(alpha = 0.08f),
+                    shape = CircleShape,
                     border = BorderStroke(
-                        1.dp,
-                        Color(0xFFFFD54F).copy(alpha = if (isActive) 0.65f else 0.35f)
+                        0.5.dp,
+                        if (isActive) Color(0xFFFFD54F).copy(alpha = 0.55f) else Color.White.copy(alpha = 0.16f)
                     ),
                     modifier = Modifier
                         .padding(start = 12.dp)
-                        .clickable(onClick = onAnnotationClick)
+                        .size(28.dp)
+                        .clickable(
+                            interactionSource = remember { MutableInteractionSource() },
+                            indication = null,
+                            onClick = onAnnotationClick
+                        )
                 ) {
-                    Row(
-                        modifier = Modifier.padding(horizontal = 9.dp, vertical = 3.5.dp),
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(4.dp)
-                    ) {
-                        Text("💡", fontSize = 11.sp)
-                        Text(
-                            text = "典故",
-                            color = Color(0xFFFFD54F),
-                            fontSize = 11.sp,
-                            fontWeight = FontWeight.SemiBold,
-                            fontFamily = FontFamily.SansSerif
+                    Box(contentAlignment = Alignment.Center) {
+                        Icon(
+                            imageVector = Icons.Default.AutoAwesome,
+                            contentDescription = "典故注解",
+                            tint = if (isActive) Color(0xFFFFD54F) else Color.White.copy(alpha = 0.65f),
+                            modifier = Modifier.size(14.dp)
                         )
                     }
                 }

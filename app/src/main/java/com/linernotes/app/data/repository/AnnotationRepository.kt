@@ -4,6 +4,7 @@ import com.linernotes.app.core.i18n.TranslationTargetLanguage
 import com.linernotes.app.core.lyric.AiAnnotationCurator
 import com.linernotes.app.core.preference.AiPreferences
 import com.linernotes.app.core.util.ChineseConverter
+import com.linernotes.app.core.util.HtmlUtils
 import com.linernotes.app.data.local.dao.LyricAnnotationDao
 import com.linernotes.app.data.local.entity.LyricAnnotationEntity
 import com.linernotes.app.data.local.entity.SongStoryEntity
@@ -357,7 +358,7 @@ class AnnotationRepository @Inject constructor(
                         geniusSongId = songId,
                         title = detail.title,
                         artist = detail.artist,
-                        descriptionPlain = detail.descriptionPlain,
+                        descriptionPlain = HtmlUtils.cleanPlainText(detail.descriptionPlain),
                         releaseDate = detail.releaseDate,
                         headerImageUrl = detail.headerImageUrl ?: searchHit.coverUrl,
                         songArtImageUrl = detail.songArtImageUrl ?: searchHit.coverUrl,
@@ -378,8 +379,8 @@ class AnnotationRepository @Inject constructor(
                     annotationEntities.add(
                         LyricAnnotationEntity(
                             trackId = trackId,
-                            lyricFragment = ref.fragment,
-                            explanationText = primaryAnnot.bodyPlain,
+                            lyricFragment = HtmlUtils.cleanPlainText(ref.fragment),
+                            explanationText = HtmlUtils.cleanPlainText(primaryAnnot.bodyPlain),
                             authorName = primaryAnnot.authorName,
                             authorAvatarUrl = primaryAnnot.authorAvatarUrl,
                             isVerified = primaryAnnot.verified,
@@ -463,7 +464,8 @@ class AnnotationRepository @Inject constructor(
         if (!AiAnnotationCurator.isAlreadyChinese(updated.lyricFragment)) {
             val transLyric = translationService.translateText(updated.lyricFragment, "zh")
             if (!transLyric.isNullOrBlank()) {
-                val finalLyric = if (isTraditionalTarget) ChineseConverter.toTraditional(transLyric) else transLyric
+                val cleanedTrans = HtmlUtils.cleanTranslationOutput(transLyric)
+                val finalLyric = if (isTraditionalTarget) ChineseConverter.toTraditional(cleanedTrans) else cleanedTrans
                 updated = updated.copy(lyricTranslation = finalLyric)
             }
         }
@@ -472,7 +474,7 @@ class AnnotationRepository @Inject constructor(
         if (!AiAnnotationCurator.isAlreadyChinese(updated.explanationText)) {
             val targetIso = TranslationTargetLanguage.fromCode(aiPreferences.targetLanguage).fallbackIso
             val translated = translationService.translateText(updated.explanationText, targetIso)
-            val baseTrans = if (!translated.isNullOrBlank()) translated else updated.explanationText
+            val baseTrans = if (!translated.isNullOrBlank()) HtmlUtils.cleanTranslationOutput(translated) else updated.explanationText
             val finalTrans = if (isTraditionalTarget) ChineseConverter.toTraditional(baseTrans) else baseTrans
             updated = updated.copy(explanationTranslation = finalTrans)
         }
@@ -493,7 +495,7 @@ class AnnotationRepository @Inject constructor(
             TranslationTargetLanguage.fromCode(aiPreferences.targetLanguage) == TranslationTargetLanguage.ZH_TW
         val targetIso = TranslationTargetLanguage.fromCode(aiPreferences.targetLanguage).fallbackIso
         val translated = translationService.translateText(story.descriptionPlain, targetIso)
-        val baseTrans = if (!translated.isNullOrBlank()) translated else story.descriptionPlain
+        val baseTrans = if (!translated.isNullOrBlank()) HtmlUtils.cleanTranslationOutput(translated) else story.descriptionPlain
         val finalTrans = if (isTraditionalTarget) ChineseConverter.toTraditional(baseTrans) else baseTrans
 
         val updated = story.copy(descriptionTranslation = finalTrans)
@@ -527,7 +529,8 @@ class AnnotationRepository @Inject constructor(
                     try {
                         val transStory = translationService.translateText(storyEntity.descriptionPlain, "zh")
                         if (!transStory.isNullOrBlank()) {
-                            val finalStoryTrans = if (isTraditionalTarget) ChineseConverter.toTraditional(transStory) else transStory
+                            val cleaned = HtmlUtils.cleanTranslationOutput(transStory)
+                            val finalStoryTrans = if (isTraditionalTarget) ChineseConverter.toTraditional(cleaned) else cleaned
                             val updatedStory = storyEntity.copy(descriptionTranslation = finalStoryTrans)
                             lyricAnnotationDao.updateSongStory(updatedStory)
                         }
@@ -542,7 +545,8 @@ class AnnotationRepository @Inject constructor(
                         if (!AiAnnotationCurator.isAlreadyChinese(annot.explanationText) && needsExplanationTrans) {
                             val trans = translationService.translateText(annot.explanationText, "zh")
                             if (!trans.isNullOrBlank()) {
-                                val finalTrans = if (isTraditionalTarget) ChineseConverter.toTraditional(trans) else trans
+                                val cleaned = HtmlUtils.cleanTranslationOutput(trans)
+                                val finalTrans = if (isTraditionalTarget) ChineseConverter.toTraditional(cleaned) else cleaned
                                 updated = updated.copy(explanationTranslation = finalTrans)
                             }
                         }

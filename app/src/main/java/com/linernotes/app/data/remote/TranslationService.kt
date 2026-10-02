@@ -96,7 +96,7 @@ class TranslationService(
             TIMESTAMP_REGEX.find(line.trim())?.value
         }
         val cleanLines = rawLines.map { line ->
-            line.replace(TIMESTAMP_REGEX, "").trim()
+            HtmlUtils.cleanPlainText(line.replace(TIMESTAMP_REGEX, "").trim())
         }
 
         // 收集非空需要翻译的行及其行索引
@@ -118,13 +118,13 @@ class TranslationService(
                         val chunkText = chunk.joinToString("\n")
                         val youdaoResult = translateChunkViaYoudao(chunkText)
                         if (youdaoResult != null && youdaoResult.isNotEmpty()) {
-                            youdaoResult
+                            youdaoResult.map { HtmlUtils.cleanTranslationOutput(it) }
                         } else {
                             val googleFallback = translateViaGoogle(chunkText, targetIso, "https://translate.googleapis.com/translate_a/single")
                             if (!googleFallback.isNullOrBlank()) {
-                                googleFallback.lines()
+                                googleFallback.lines().map { HtmlUtils.cleanTranslationOutput(it) }
                             } else {
-                                translateViaMyMemory(chunkText, targetIso)?.lines() ?: chunk
+                                (translateViaMyMemory(chunkText, targetIso)?.lines() ?: chunk).map { HtmlUtils.cleanTranslationOutput(it) }
                             }
                         }
                     }
@@ -144,7 +144,7 @@ class TranslationService(
 
         for (k in nonBlankEntries.indices) {
             val origIndex = nonBlankEntries[k].first
-            val transText = if (k < translatedTexts.size) translatedTexts[k].trim() else ""
+            val transText = if (k < translatedTexts.size) HtmlUtils.cleanTranslationOutput(translatedTexts[k].trim()) else ""
             val tag = timestamps[origIndex]
             resultLines[origIndex] = if (tag != null) {
                 if (transText.isNotBlank()) "$tag $transText" else tag
@@ -167,7 +167,7 @@ class TranslationService(
 
         // 按段落 (\n\s*\n) 划分，保护段落上下文与双语对齐结构
         val paragraphs = text.split(Regex("""\n\s*\n"""))
-            .map { it.trim() }
+            .map { HtmlUtils.cleanPlainText(it) }
             .filter { it.isNotBlank() }
 
         if (paragraphs.isEmpty()) return@withContext text
@@ -191,24 +191,26 @@ class TranslationService(
      * 单段落高可靠完整翻译，绝不漏行、绝不截断
      */
     private suspend fun translateSingleParagraph(paragraph: String, targetIso: String): String {
-        if (paragraph.isBlank()) return ""
+        val cleanInput = HtmlUtils.cleanPlainText(paragraph)
+        if (cleanInput.isBlank()) return ""
 
         // 1. 优先使用有道移动端极速端点
-        val youdaoResult = translateChunkViaYoudao(paragraph)
+        val youdaoResult = translateChunkViaYoudao(cleanInput)
         if (!youdaoResult.isNullOrEmpty()) {
             val fullTranslated = youdaoResult.joinToString("\n").trim()
-            if (fullTranslated.isNotBlank()) return fullTranslated
+            val cleaned = HtmlUtils.cleanTranslationOutput(fullTranslated)
+            if (cleaned.isNotBlank()) return cleaned
         }
 
         // 2. 容灾回退至 Google Translate 公共端点
-        val google = translateViaGoogle(paragraph, targetIso, "https://translate.googleapis.com/translate_a/single")
-        if (!google.isNullOrBlank()) return google.trim()
+        val google = translateViaGoogle(cleanInput, targetIso, "https://translate.googleapis.com/translate_a/single")
+        if (!google.isNullOrBlank()) return HtmlUtils.cleanTranslationOutput(google)
 
         // 3. 容灾回退至 MyMemory
-        val myMemory = translateViaMyMemory(paragraph, targetIso)
-        if (!myMemory.isNullOrBlank()) return myMemory.trim()
+        val myMemory = translateViaMyMemory(cleanInput, targetIso)
+        if (!myMemory.isNullOrBlank()) return HtmlUtils.cleanTranslationOutput(myMemory)
 
-        return paragraph
+        return cleanInput
     }
 
     /**

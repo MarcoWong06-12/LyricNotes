@@ -381,7 +381,7 @@ object GeniusService {
 
             val title = song.optString("title")
             val primaryArtist = song.optJSONObject("primary_artist")?.optString("name") ?: ""
-            val rawDesc = unescapeHtml(
+            val rawDesc = HtmlUtils.cleanPlainText(
                 song.optJSONObject("description")?.optString("plain")?.trim()
                     ?: song.optJSONObject("description_annotation")?.optJSONArray("annotations")?.optJSONObject(0)?.optJSONObject("body")?.optString("plain")?.trim()
                     ?: song.optString("description").takeIf { it.isNotBlank() && !it.startsWith("{") }?.trim()
@@ -447,7 +447,7 @@ object GeniusService {
                 for (i in 0 until referentsArr.length()) {
                     val refObj = referentsArr.optJSONObject(i) ?: continue
                     val refId = refObj.optLong("id", 0L)
-                    val fragment = unescapeHtml(refObj.optString("fragment").trim())
+                    val fragment = HtmlUtils.cleanPlainText(refObj.optString("fragment").trim())
                     if (fragment.isBlank()) continue
 
                     val annotationsArr = refObj.optJSONArray("annotations") ?: continue
@@ -457,7 +457,7 @@ object GeniusService {
                         val annotObj = annotationsArr.optJSONObject(j) ?: continue
                         val annotId = annotObj.optLong("id", 0L)
                         val bodyObj = annotObj.optJSONObject("body")
-                        val bodyPlain = unescapeHtml(bodyObj?.optString("plain")?.trim() ?: "")
+                        val bodyPlain = HtmlUtils.cleanPlainText(bodyObj?.optString("plain")?.trim() ?: "")
                         val bodyHtml = bodyObj?.optString("html")
                         if (bodyPlain.isBlank() && bodyHtml.isNullOrBlank()) continue
 

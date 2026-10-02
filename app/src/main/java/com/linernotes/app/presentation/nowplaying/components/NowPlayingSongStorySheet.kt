@@ -19,11 +19,13 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import coil.compose.AsyncImage
 import com.linernotes.app.data.local.entity.SongStoryEntity
+import com.linernotes.app.presentation.booklet.components.BilingualContentView
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun NowPlayingSongStorySheet(
     story: SongStoryEntity?,
+    isTraditional: Boolean = false,
     onDismiss: () -> Unit
 ) {
     if (story == null) return
@@ -41,8 +43,9 @@ fun NowPlayingSongStorySheet(
         Column(
             modifier = Modifier
                 .fillMaxWidth()
+                .fillMaxHeight(0.88f)
                 .padding(horizontal = 20.dp)
-                .padding(bottom = 32.dp)
+                .padding(bottom = 28.dp)
                 .verticalScroll(rememberScrollState())
         ) {
             Row(
@@ -50,14 +53,15 @@ fun NowPlayingSongStorySheet(
                 horizontalArrangement = Arrangement.SpaceBetween,
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                Column {
+                Column(modifier = Modifier.weight(1f)) {
                     Text(
-                        text = "Behind The Song",
+                        text = "BEHIND THE SONG",
                         color = Color(0xFF1DB954),
-                        fontSize = 12.sp,
+                        fontSize = 11.5.sp,
                         fontWeight = FontWeight.Bold,
-                        letterSpacing = 1.sp
+                        letterSpacing = 1.2.sp
                     )
+                    Spacer(modifier = Modifier.height(2.dp))
                     Text(
                         text = story.title,
                         color = Color.White,
@@ -116,21 +120,20 @@ fun NowPlayingSongStorySheet(
 
             Spacer(modifier = Modifier.height(18.dp))
 
-            val storyText = story.descriptionTranslation?.takeIf { it.isNotBlank() }
-                ?: story.descriptionPlain
-
             Text(
-                text = "歌曲创作背景与乐评",
+                text = "全曲背景故事与创作考据",
                 color = Color.White,
                 fontSize = 15.sp,
                 fontWeight = FontWeight.Bold
             )
-            Spacer(modifier = Modifier.height(8.dp))
-            Text(
-                text = storyText,
-                color = Color(0xFFEDEDED),
-                fontSize = 14.sp,
-                lineHeight = 24.sp
+            Spacer(modifier = Modifier.height(12.dp))
+
+            // 精准句对句/段对段双语对照视图 (中文在上，较小字号英文在下，支持中英对照/纯中文/纯英文平滑切换)
+            BilingualContentView(
+                originalText = story.descriptionPlain,
+                translatedText = story.descriptionTranslation,
+                isTraditional = isTraditional,
+                modifier = Modifier.fillMaxWidth()
             )
         }
     }
