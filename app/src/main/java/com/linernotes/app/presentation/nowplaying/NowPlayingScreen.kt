@@ -2,6 +2,8 @@ package com.linernotes.app.presentation.nowplaying
 
 import android.content.Intent
 import android.net.Uri
+import android.provider.Settings
+import com.linernotes.app.core.floating.FloatingLyricsService
 import androidx.compose.animation.*
 import androidx.compose.animation.core.*
 import androidx.compose.foundation.BorderStroke
@@ -442,6 +444,42 @@ private fun NowPlayingTopBar(
                         contentDescription = "待播队列",
                         tint = Color.White.copy(alpha = 0.90f),
                         modifier = Modifier.size(19.dp)
+                    )
+                }
+            }
+
+            // 桌面悬浮歌词胶囊快捷切换按键 (灵动微胶囊)
+            val context = LocalContext.current
+            var isFloatingActive by remember { mutableStateOf(FloatingLyricsService.isServiceRunning) }
+
+            Surface(
+                color = if (isFloatingActive) Color(0xFF0288D1).copy(alpha = 0.85f) else Color(0xFF1E2230).copy(alpha = 0.92f),
+                shape = CircleShape,
+                border = BorderStroke(0.5.dp, if (isFloatingActive) Color(0xFF81D4FA) else Color.White.copy(alpha = 0.20f)),
+                modifier = Modifier
+                    .size(38.dp)
+                    .bouncyIconClickable(
+                        onClick = {
+                            if (FloatingLyricsService.isServiceRunning) {
+                                FloatingLyricsService.stop(context)
+                                isFloatingActive = false
+                            } else {
+                                if (Settings.canDrawOverlays(context)) {
+                                    FloatingLyricsService.start(context)
+                                    isFloatingActive = true
+                                } else {
+                                    FloatingLyricsService.requestOverlayPermission(context)
+                                }
+                            }
+                        }
+                    )
+            ) {
+                Box(contentAlignment = Alignment.Center) {
+                    Icon(
+                        imageVector = Icons.Default.PictureInPictureAlt,
+                        contentDescription = "桌面悬浮歌词",
+                        tint = if (isFloatingActive) Color.White else Color.White.copy(alpha = 0.90f),
+                        modifier = Modifier.size(18.dp)
                     )
                 }
             }

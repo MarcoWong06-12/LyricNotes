@@ -2,6 +2,7 @@ package com.linernotes.app.presentation.nowplaying.components
 
 import android.content.Intent
 import android.net.Uri
+import android.provider.Settings
 import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.*
 import androidx.compose.foundation.BorderStroke
@@ -15,14 +16,14 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
-import androidx.compose.runtime.Composable
-import androidx.compose.runtime.getValue
+import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
+import com.linernotes.app.core.floating.FloatingLyricsService
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
@@ -354,7 +355,75 @@ fun LyricNotesSettingsSheet(
                 }
             }
 
-            // 4. 显示与排版设置
+            // 4. 桌面悬浮歌词胶囊 (Floating Lyrics Capsule)
+            var isFloatingActive by remember { mutableStateOf(FloatingLyricsService.isServiceRunning) }
+            val isOverlayGranted = Settings.canDrawOverlays(context)
+
+            Surface(
+                color = if (isFloatingActive) Color(0xFF162538).copy(alpha = 0.70f) else Color.White.copy(alpha = 0.05f),
+                shape = RoundedCornerShape(18.dp),
+                border = BorderStroke(
+                    0.5.dp,
+                    if (isFloatingActive) Color(0xFF81D4FA).copy(alpha = 0.50f) else Color.White.copy(alpha = 0.10f)
+                ),
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Column(modifier = Modifier.padding(horizontal = 16.dp, vertical = 13.dp)) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(10.dp),
+                            modifier = Modifier.weight(1f)
+                        ) {
+                            Text("🫧", fontSize = 19.sp)
+                            Column {
+                                Text(
+                                    text = "桌面悬浮歌词胶囊",
+                                    color = Color.White,
+                                    fontSize = 15.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    fontFamily = FontFamily.SansSerif
+                                )
+                                Text(
+                                    text = if (!isOverlayGranted) "需授予【显示在其他应用上层】权限" else "轻触灵动胶囊展开播控，支持触摸穿透锁定",
+                                    color = if (!isOverlayGranted) Color(0xFFFFB74D) else Color.White.copy(alpha = 0.6f),
+                                    fontSize = 12.sp,
+                                    fontFamily = FontFamily.SansSerif
+                                )
+                            }
+                        }
+
+                        Switch(
+                            checked = isFloatingActive,
+                            onCheckedChange = { checked ->
+                                if (checked) {
+                                    if (Settings.canDrawOverlays(context)) {
+                                        FloatingLyricsService.start(context)
+                                        isFloatingActive = true
+                                    } else {
+                                        FloatingLyricsService.requestOverlayPermission(context)
+                                    }
+                                } else {
+                                    FloatingLyricsService.stop(context)
+                                    isFloatingActive = false
+                                }
+                            },
+                            colors = SwitchDefaults.colors(
+                                checkedThumbColor = Color.White,
+                                checkedTrackColor = Color(0xFF03A9F4),
+                                uncheckedThumbColor = Color.White.copy(alpha = 0.6f),
+                                uncheckedTrackColor = Color.White.copy(alpha = 0.15f)
+                            )
+                        )
+                    }
+                }
+            }
+
+            // 5. 显示与排版设置
             Surface(
                 color = Color.White.copy(alpha = 0.05f),
                 shape = RoundedCornerShape(18.dp),
