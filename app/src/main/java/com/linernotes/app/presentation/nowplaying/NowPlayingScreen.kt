@@ -450,7 +450,7 @@ private fun NowPlayingTopBar(
 
             // 桌面悬浮歌词胶囊快捷切换按键 (灵动微胶囊)
             val context = LocalContext.current
-            var isFloatingActive by remember { mutableStateOf(FloatingLyricsService.isServiceRunning) }
+            val isFloatingActive by FloatingLyricsService.isRunningFlow.collectAsState()
 
             Surface(
                 color = if (isFloatingActive) Color(0xFF0288D1).copy(alpha = 0.85f) else Color(0xFF1E2230).copy(alpha = 0.92f),
@@ -460,13 +460,11 @@ private fun NowPlayingTopBar(
                     .size(38.dp)
                     .bouncyIconClickable(
                         onClick = {
-                            if (FloatingLyricsService.isServiceRunning) {
+                            if (isFloatingActive) {
                                 FloatingLyricsService.stop(context)
-                                isFloatingActive = false
                             } else {
                                 if (Settings.canDrawOverlays(context)) {
                                     FloatingLyricsService.start(context)
-                                    isFloatingActive = true
                                 } else {
                                     FloatingLyricsService.requestOverlayPermission(context)
                                 }

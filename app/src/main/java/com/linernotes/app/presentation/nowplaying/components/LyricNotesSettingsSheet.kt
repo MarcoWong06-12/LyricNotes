@@ -356,7 +356,7 @@ fun LyricNotesSettingsSheet(
             }
 
             // 4. 桌面悬浮歌词胶囊 (Floating Lyrics Capsule)
-            var isFloatingActive by remember { mutableStateOf(FloatingLyricsService.isServiceRunning) }
+            val isFloatingActive by FloatingLyricsService.isRunningFlow.collectAsState()
             val isOverlayGranted = Settings.canDrawOverlays(context)
 
             Surface(
@@ -403,13 +403,11 @@ fun LyricNotesSettingsSheet(
                                 if (checked) {
                                     if (Settings.canDrawOverlays(context)) {
                                         FloatingLyricsService.start(context)
-                                        isFloatingActive = true
                                     } else {
                                         FloatingLyricsService.requestOverlayPermission(context)
                                     }
                                 } else {
                                     FloatingLyricsService.stop(context)
-                                    isFloatingActive = false
                                 }
                             },
                             colors = SwitchDefaults.colors(

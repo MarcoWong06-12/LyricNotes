@@ -27,6 +27,9 @@ import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.hapticfeedback.HapticFeedbackType
+import androidx.compose.ui.platform.LocalHapticFeedback
+import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import coil.compose.AsyncImage
 import com.linernotes.app.data.repository.NowPlayingData
@@ -44,8 +47,10 @@ fun FloatingLyricsCapsule(
     isBilingual: Boolean,
     backgroundAlpha: Float,
     fontScale: Float,
+    onDragStart: () -> Unit = {},
     onDrag: (deltaX: Float, deltaY: Float) -> Unit,
     onDragEnd: () -> Unit,
+    onExpandChanged: (isExpanded: Boolean) -> Unit = {},
     onToggleLock: () -> Unit,
     onToggleBilingual: () -> Unit,
     onPrevious: () -> Unit,
@@ -53,13 +58,16 @@ fun FloatingLyricsCapsule(
     onNext: () -> Unit,
     onClose: () -> Unit
 ) {
+    val haptic = LocalHapticFeedback.current
     var isExpanded by remember { mutableStateOf(false) }
+    var userInteractionToken by remember { mutableStateOf(0L) }
 
-    // 展开态闲置 5 秒后自动收缩回极简胶囊
-    LaunchedEffect(isExpanded) {
+    // 展开态闲置 5 秒后自动收缩回极简胶囊（用户每次交互均会自动重置 5 秒倒计时）
+    LaunchedEffect(isExpanded, userInteractionToken) {
         if (isExpanded) {
             delay(5000L)
             isExpanded = false
+            onExpandChanged(false)
         }
     }
 
@@ -68,9 +76,30 @@ fun FloatingLyricsCapsule(
     val activeIndex = nowPlayingData.currentLineIndex
     val currentLine = if (activeIndex in lyrics.indices) lyrics[activeIndex] else null
 
-    val originalText = currentLine?.original?.ifBlank { null }
-        ?: if (state.hasValidTrack) state.title else "LyricNotes 桌面歌词"
-    val translationText = currentLine?.translation?.ifBlank { null }
+    // 稳定视觉骨架：即使无歌词或加载中，副行优雅回退至艺人/状态信息，彻底杜绝高度跳变 (Layout Shift)
+    val (originalText, secondaryText) = remember(currentLine, state.title, state.artist, state.isInstrumental, state.hasValidTrack, isBilingual) {
+        if (currentLine != null) {
+            val orig = currentLine.original.ifBlank { state.title.ifBlank { "LyricNotes 桌面歌词" } }
+            val trans = if (isBilingual && !currentLine.translation.isNullOrBlank()) {
+                currentLine.translation
+            } else if (state.artist.isNotBlank()) {
+                state.artist
+            } else null
+            orig to trans
+        } else {
+            if (state.hasValidTrack) {
+                val orig = state.title.ifBlank { "正在播放" }
+                val trans = when {
+                    state.isInstrumental -> "纯音乐，请欣赏"
+                    state.artist.isNotBlank() -> state.artist
+                    else -> "歌词同步中..."
+                }
+                orig to trans
+            } else {
+                "LyricNotes 桌面歌词" to "未在播放音乐"
+            }
+        }
+    }
 
     val hasCover = !state.coverUrl.isNullOrBlank()
 
@@ -101,11 +130,16 @@ fun FloatingLyricsCapsule(
                 if (!isLocked) {
                     Modifier.pointerInput(Unit) {
                         detectDragGestures(
+                            onDragStart = {
+                                userInteractionToken++
+                                onDragStart()
+                            },
                             onDrag = { change, dragAmount ->
                                 change.consume()
                                 onDrag(dragAmount.x, dragAmount.y)
                             },
-                            onDragEnd = onDragEnd
+                            onDragEnd = onDragEnd,
+                            onDragCancel = onDragEnd
                         )
                     }
                 } else Modifier
@@ -119,7 +153,11 @@ fun FloatingLyricsCapsule(
                     .padding(horizontal = 9.dp, vertical = 7.dp)
                     .then(
                         if (!isLocked) {
-                            Modifier.clickable { isExpanded = true }
+                            Modifier.clickable {
+                                isExpanded = true
+                                onExpandChanged(true)
+                                userInteractionToken++
+                            }
                         } else Modifier
                     )
             ) {
@@ -173,16 +211,16 @@ fun FloatingLyricsCapsule(
                         )
                     }
 
-                    // 翻译行（若启用双语且存在翻译）
-                    if (isBilingual && !translationText.isNullOrBlank()) {
+                    // 稳定展示第二行（双语译文 / 艺人信息 / 纯音乐提示）
+                    if (!secondaryText.isNullOrBlank()) {
                         Spacer(modifier = Modifier.height(2.dp))
                         AnimatedContent(
-                            targetState = translationText,
+                            targetState = secondaryText,
                             transitionSpec = { fadeIn(spring(stiffness = 500f)) togetherWith fadeOut(spring(stiffness = 500f)) },
-                            label = "floatingTranslation"
-                        ) { targetTrans ->
+                            label = "floatingSecondary"
+                        ) { targetSec ->
                             Text(
-                                text = targetTrans,
+                                text = targetSec,
                                 color = Color.White.copy(alpha = 0.82f),
                                 fontSize = (11.5f * fontScale).sp,
                                 fontWeight = FontWeight.Normal,
@@ -241,7 +279,10 @@ fun FloatingLyricsCapsule(
                         shape = CircleShape,
                         modifier = Modifier
                             .size(28.dp)
-                            .bouncyIconClickable(onClick = onToggleBilingual)
+                            .bouncyIconClickable(onClick = {
+                                userInteractionToken++
+                                onToggleBilingual()
+                            })
                     ) {
                         Box(contentAlignment = Alignment.Center) {
                             Icon(
@@ -262,8 +303,11 @@ fun FloatingLyricsCapsule(
                         modifier = Modifier
                             .size(28.dp)
                             .bouncyIconClickable(onClick = {
+                                userInteractionToken++
+                                haptic.performHapticFeedback(HapticFeedbackType.LongPress)
                                 onToggleLock()
                                 isExpanded = false
+                                onExpandChanged(false)
                             })
                     ) {
                         Box(contentAlignment = Alignment.Center) {
@@ -284,7 +328,10 @@ fun FloatingLyricsCapsule(
                         shape = CircleShape,
                         modifier = Modifier
                             .size(28.dp)
-                            .bouncyIconClickable(onClick = { isExpanded = false })
+                            .bouncyIconClickable(onClick = {
+                                isExpanded = false
+                                onExpandChanged(false)
+                            })
                     ) {
                         Box(contentAlignment = Alignment.Center) {
                             Icon(
@@ -331,10 +378,10 @@ fun FloatingLyricsCapsule(
                         overflow = TextOverflow.Ellipsis,
                         style = TextStyle(shadow = textShadow)
                     )
-                    if (isBilingual && !translationText.isNullOrBlank()) {
+                    if (!secondaryText.isNullOrBlank()) {
                         Spacer(modifier = Modifier.height(3.dp))
                         Text(
-                            text = translationText,
+                            text = secondaryText,
                             color = Color.White.copy(alpha = 0.85f),
                             fontSize = (12f * fontScale).sp,
                             fontWeight = FontWeight.Medium,
@@ -359,7 +406,10 @@ fun FloatingLyricsCapsule(
                         shape = CircleShape,
                         modifier = Modifier
                             .size(36.dp)
-                            .bouncyIconClickable(onClick = onPrevious)
+                            .bouncyIconClickable(onClick = {
+                                userInteractionToken++
+                                onPrevious()
+                            })
                     ) {
                         Box(contentAlignment = Alignment.Center) {
                             Icon(
@@ -378,7 +428,10 @@ fun FloatingLyricsCapsule(
                         shape = CircleShape,
                         modifier = Modifier
                             .size(40.dp)
-                            .bouncyIconClickable(onClick = onPlayPause)
+                            .bouncyIconClickable(onClick = {
+                                userInteractionToken++
+                                onPlayPause()
+                            })
                     ) {
                         Box(contentAlignment = Alignment.Center) {
                             Icon(
@@ -397,7 +450,10 @@ fun FloatingLyricsCapsule(
                         shape = CircleShape,
                         modifier = Modifier
                             .size(36.dp)
-                            .bouncyIconClickable(onClick = onNext)
+                            .bouncyIconClickable(onClick = {
+                                userInteractionToken++
+                                onNext()
+                            })
                     ) {
                         Box(contentAlignment = Alignment.Center) {
                             Icon(

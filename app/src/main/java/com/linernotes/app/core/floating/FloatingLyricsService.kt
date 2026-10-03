@@ -8,6 +8,7 @@ import android.app.PendingIntent
 import android.app.Service
 import android.content.Context
 import android.content.Intent
+import android.content.res.Configuration
 import android.graphics.PixelFormat
 import android.net.Uri
 import android.os.Build
@@ -39,6 +40,9 @@ import com.linernotes.app.data.repository.NowPlayingRepository
 import com.linernotes.app.presentation.floating.FloatingLyricsCapsule
 import dagger.hilt.android.AndroidEntryPoint
 import kotlinx.coroutines.*
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asStateFlow
 import javax.inject.Inject
 
 /**
@@ -60,6 +64,7 @@ class FloatingLyricsService : Service() {
     private var windowManager: WindowManager? = null
     private var composeView: ComposeView? = null
     private var windowLayoutParams: WindowManager.LayoutParams? = null
+    private var snapAnimator: ValueAnimator? = null
 
     private val serviceScope = CoroutineScope(SupervisorJob() + Dispatchers.Main)
     private val overlayLifecycleOwner = OverlayLifecycleOwner()
@@ -68,7 +73,8 @@ class FloatingLyricsService : Service() {
 
     override fun onCreate() {
         super.onCreate()
-        isServiceRunning = true
+        _isRunningFlow.value = true
+        floatingPreferences.isEnabled = true
         createNotificationChannel()
         startForeground(NOTIFICATION_ID, buildNotification(floatingPreferences.isLocked))
 
@@ -159,10 +165,20 @@ class FloatingLyricsService : Service() {
                     isBilingual = isBilingual,
                     backgroundAlpha = bgAlpha,
                     fontScale = fontScale,
+                    onDragStart = {
+                        cancelSnapAnimation()
+                    },
                     onDrag = { dx, dy ->
+                        cancelSnapAnimation()
                         windowLayoutParams?.let { params ->
+                            val metrics = resources.displayMetrics
+                            val density = metrics.density
+                            val minY = (36 * density).toInt()
+                            val viewHeight = composeView?.height ?: (48 * density).toInt()
+                            val maxY = (metrics.heightPixels - viewHeight - (48 * density).toInt()).coerceAtLeast(minY)
+
                             params.x += dx.toInt()
-                            params.y += dy.toInt()
+                            params.y = (params.y + dy.toInt()).coerceIn(minY, maxY)
                             windowManager?.updateViewLayout(this@apply, params)
                         }
                     },
@@ -170,6 +186,9 @@ class FloatingLyricsService : Service() {
                         windowLayoutParams?.let { params ->
                             snapToNearestEdge(params)
                         }
+                    },
+                    onExpandChanged = { isExpanded ->
+                        handleExpandChanged(isExpanded)
                     },
                     onToggleLock = {
                         floatingPreferences.isLocked = !floatingPreferences.isLocked
@@ -193,27 +212,60 @@ class FloatingLyricsService : Service() {
         }
     }
 
+    private fun cancelSnapAnimation() {
+        snapAnimator?.cancel()
+        snapAnimator = null
+    }
+
+    private fun handleExpandChanged(isExpanded: Boolean) {
+        windowLayoutParams?.let { params ->
+            val metrics = resources.displayMetrics
+            val density = metrics.density
+            val marginPx = (16 * density).toInt()
+            val expandedWidthPx = (340 * density).toInt()
+
+            // 判断胶囊当前是否位于屏幕右侧半区
+            val isAnchoredRight = params.x + (composeView?.width ?: 0) / 2 > metrics.widthPixels / 2
+            if (isAnchoredRight) {
+                cancelSnapAnimation()
+                if (isExpanded) {
+                    // 向左平移避免卡片右边缘按钮被裁切
+                    params.x = (metrics.widthPixels - expandedWidthPx - marginPx).coerceAtLeast(marginPx)
+                    try {
+                        windowManager?.updateViewLayout(composeView, params)
+                    } catch (e: Exception) {}
+                } else {
+                    snapToNearestEdge(params)
+                }
+            }
+        }
+    }
+
     private fun snapToNearestEdge(params: WindowManager.LayoutParams) {
-        val screenWidth = resources.displayMetrics.widthPixels
-        val viewWidth = composeView?.width ?: 300
+        cancelSnapAnimation()
+        val metrics = resources.displayMetrics
+        val density = metrics.density
+        val marginPx = (16 * density).toInt()
+        val viewWidth = composeView?.width ?: (260 * density).toInt()
         val currentX = params.x
-        val targetX = if (currentX + (viewWidth / 2) < screenWidth / 2) {
-            16 // 吸附至左侧
+        val targetX = if (currentX + (viewWidth / 2) < metrics.widthPixels / 2) {
+            marginPx // 吸附至左侧安全边距
         } else {
-            (screenWidth - viewWidth - 16).coerceAtLeast(16) // 吸附至右侧
+            (metrics.widthPixels - viewWidth - marginPx).coerceAtLeast(marginPx) // 吸附至右侧安全边距
         }
 
         val startX = currentX
-        val animator = ValueAnimator.ofInt(startX, targetX)
-        animator.duration = 260L
-        animator.interpolator = DecelerateInterpolator()
-        animator.addUpdateListener { va ->
-            params.x = va.animatedValue as Int
-            try {
-                windowManager?.updateViewLayout(composeView, params)
-            } catch (e: Exception) {}
+        snapAnimator = ValueAnimator.ofInt(startX, targetX).apply {
+            duration = 260L
+            interpolator = DecelerateInterpolator()
+            addUpdateListener { va ->
+                params.x = va.animatedValue as Int
+                try {
+                    windowManager?.updateViewLayout(composeView, params)
+                } catch (e: Exception) {}
+            }
+            start()
         }
-        animator.start()
 
         floatingPreferences.lastPositionX = targetX
         floatingPreferences.lastPositionY = params.y
@@ -286,10 +338,33 @@ class FloatingLyricsService : Service() {
             .build()
     }
 
+    override fun onConfigurationChanged(newConfig: Configuration) {
+        super.onConfigurationChanged(newConfig)
+        windowLayoutParams?.let { params ->
+            val metrics = resources.displayMetrics
+            val density = metrics.density
+            val marginPx = (16 * density).toInt()
+            val currentViewWidth = composeView?.width ?: (260 * density).toInt()
+            val currentViewHeight = composeView?.height ?: (48 * density).toInt()
+
+            params.x = params.x.coerceIn(marginPx, (metrics.widthPixels - currentViewWidth - marginPx).coerceAtLeast(marginPx))
+            val minY = (36 * density).toInt()
+            val maxY = (metrics.heightPixels - currentViewHeight - (48 * density).toInt()).coerceAtLeast(minY)
+            params.y = params.y.coerceIn(minY, maxY)
+
+            try {
+                windowManager?.updateViewLayout(composeView, params)
+            } catch (e: Exception) {
+                e.printStackTrace()
+            }
+        }
+    }
+
     override fun onDestroy() {
         super.onDestroy()
-        isServiceRunning = false
+        _isRunningFlow.value = false
         floatingPreferences.isEnabled = false
+        cancelSnapAnimation()
         serviceScope.cancel()
         overlayLifecycleOwner.onDestroy()
 
@@ -339,9 +414,11 @@ class FloatingLyricsService : Service() {
         const val ACTION_TOGGLE_LOCK = "com.linernotes.app.action.TOGGLE_LOCK"
         const val ACTION_STOP_SERVICE = "com.linernotes.app.action.STOP_FLOATING_SERVICE"
 
-        @Volatile
-        var isServiceRunning: Boolean = false
-            private set
+        private val _isRunningFlow = MutableStateFlow(false)
+        val isRunningFlow: StateFlow<Boolean> = _isRunningFlow.asStateFlow()
+
+        val isServiceRunning: Boolean
+            get() = _isRunningFlow.value
 
         fun start(context: Context) {
             val intent = Intent(context, FloatingLyricsService::class.java)
