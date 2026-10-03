@@ -529,7 +529,7 @@ private fun NowPlayingLyricsContent(
                         value = scrollDelta,
                         animationSpec = spring(
                             dampingRatio = Spring.DampingRatioNoBouncy, // 1.0f 临界阻尼：消除机械回弹与颠簸，精准平稳滑停！
-                            stiffness = 320f                            // 柔和刚度：丝滑滑行动效耗时约 420ms，优雅如水
+                            stiffness = 220f                            // 流体刚度：丝滑滑行动效耗时约 460ms，对标 Apple Music 优雅如水
                         )
                     )
                 }
@@ -603,14 +603,10 @@ private fun LyricLineRow(
     onClick: () -> Unit,
     onAnnotationClick: () -> Unit
 ) {
-    // 原文透明度动力学：活跃行 100% 纯白高对比锁定，相邻行 45% 柔和暗白，远行 25%
+    // 严格遵循 Apple Music / Lyricify 原生规范：仅当前活跃行高亮聚焦，非活跃行保持静止统一暗白，
+    // 彻底消除上下各行层级联动淡入淡出的晃眼杂乱动效（杜绝“上下都动画”）
     val animatedOriginalAlpha by animateFloatAsState(
-        targetValue = when {
-            isActive -> 1.0f
-            distance == 1 -> 0.45f
-            distance == 2 -> 0.32f
-            else -> 0.25f
-        },
+        targetValue = if (isActive) 1.0f else 0.38f,
         animationSpec = tween(
             durationMillis = 350,
             easing = FastOutSlowInEasing
@@ -618,14 +614,9 @@ private fun LyricLineRow(
         label = "origAlpha"
     )
 
-    // 中文翻译透明度动力学：活跃行 88%，相邻行 40%，远行 20%
+    // 中文翻译透明度动力学：活跃行 88% 清晰对照，非活跃行 28% 雅致弱化
     val animatedTransAlpha by animateFloatAsState(
-        targetValue = when {
-            isActive -> 0.88f
-            distance == 1 -> 0.40f
-            distance == 2 -> 0.28f
-            else -> 0.20f
-        },
+        targetValue = if (isActive) 0.88f else 0.28f,
         animationSpec = tween(
             durationMillis = 350,
             easing = FastOutSlowInEasing

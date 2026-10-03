@@ -1,6 +1,7 @@
 package com.linernotes.app.data.repository
 
 import android.os.SystemClock
+import com.linernotes.app.core.i18n.TranslationTargetLanguage
 import com.linernotes.app.core.lyric.AiAnnotationCurator
 import com.linernotes.app.core.lyric.LyricAligner
 import com.linernotes.app.core.lyric.LyricFragmentMatcher
@@ -8,6 +9,7 @@ import com.linernotes.app.core.lyric.LyricSanitizer
 import com.linernotes.app.core.lyric.LyricSearchCleaner
 import com.linernotes.app.core.playback.PlaybackStateManager
 import com.linernotes.app.core.playback.TrackPlaybackState
+import com.linernotes.app.core.preference.AiPreferences
 import com.linernotes.app.core.util.ChineseConverter
 import com.linernotes.app.core.util.HtmlUtils
 import com.linernotes.app.data.local.entity.LyricAnnotationEntity

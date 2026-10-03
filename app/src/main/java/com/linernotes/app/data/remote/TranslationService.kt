@@ -176,17 +176,32 @@ class TranslationService(
         if (paragraphs.isEmpty()) return@withContext text
 
         try {
-            val translatedParagraphs = supervisorScope {
-                paragraphs.map { para ->
-                    async {
-                        translateSingleParagraph(para, targetIso)
-                    }
-                }.awaitAll()
+            val translatedParagraphs = mutableListOf<String>()
+            for ((idx, para) in paragraphs.withIndex()) {
+                val trans = translateSingleParagraph(para, targetIso)
+                translatedParagraphs.add(trans)
+                if (idx < paragraphs.lastIndex) {
+                    kotlinx.coroutines.delay(60)
+                }
             }
-            // 确保每个段落都有对应的译文，即使单段翻译失败也保留原段作为占位，绝不破坏段落对齐结构
-            translatedParagraphs.mapIndexed { idx, trans ->
-                if (trans.isNotBlank()) trans else paragraphs[idx]
-            }.joinToString("\n\n")
+
+            // 如果全部段落翻译成功，直接拼合返回
+            val allSucceeded = translatedParagraphs.all { it.isNotBlank() && Regex("""[\u4e00-\u9fa5]""").containsMatchIn(it) }
+            if (allSucceeded) {
+                return@withContext translatedParagraphs.joinToString("\n\n")
+            }
+
+            // 如果有部分段落失败，尝试对整体进行一次统一容灾翻译
+            val fullFallback = translateSingleParagraph(cleaned, targetIso)
+            if (fullFallback.isNotBlank() && Regex("""[\u4e00-\u9fa5]""").containsMatchIn(fullFallback)) {
+                val fallbackParas = fullFallback.split(Regex("""(?:\r?\n\s*){2,}""")).map { it.trim() }.filter { it.isNotBlank() }
+                if (fallbackParas.size == paragraphs.size) {
+                    return@withContext fullFallback
+                }
+            }
+
+            // 严禁将未翻译的英文原段落作为译文混入（杜绝中英夹杂与假成功）
+            translatedParagraphs.joinToString("\n\n")
         } catch (e: Exception) {
             // 全量容灾兜底
             translateSingleParagraph(cleaned, targetIso)

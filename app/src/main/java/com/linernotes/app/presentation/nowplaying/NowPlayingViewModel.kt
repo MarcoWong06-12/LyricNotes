@@ -5,6 +5,7 @@ import androidx.lifecycle.viewModelScope
 import com.linernotes.app.core.lyric.AiAnnotationCurator
 import com.linernotes.app.core.preference.AiPreferences
 import com.linernotes.app.data.local.entity.LyricAnnotationEntity
+import com.linernotes.app.data.local.entity.SongStoryEntity
 import com.linernotes.app.data.repository.NowPlayingData
 import com.linernotes.app.data.repository.NowPlayingRepository
 import dagger.hilt.android.lifecycle.HiltViewModel
@@ -151,10 +152,21 @@ class NowPlayingViewModel @Inject constructor(
         }
     }
 
+    private fun isTranslationNeeded(original: String, translation: String?): Boolean {
+        if (original.isBlank() || AiAnnotationCurator.isAlreadyChinese(original)) return false
+        if (translation.isNullOrBlank()) return true
+        val cleanOrig = original.trim()
+        val cleanTrans = translation.trim()
+        if (cleanOrig.equals(cleanTrans, ignoreCase = true)) return true
+        if (!Regex("""[\u4e00-\u9fa5]""").containsMatchIn(cleanTrans)) return true
+        val origParas = cleanOrig.split(Regex("""(?:\r?\n\s*){2,}""")).filter { it.isNotBlank() }
+        val transParas = cleanTrans.split(Regex("""(?:\r?\n\s*){2,}""")).filter { it.isNotBlank() }
+        if (origParas.size > 1 && transParas.size < origParas.size) return true
+        return false
+    }
+
     fun openGeniusAnnotation(annotation: LyricAnnotationEntity) {
-        val needsTrans = annotation.explanationTranslation.isNullOrBlank() &&
-            annotation.explanationText.isNotBlank() &&
-            !AiAnnotationCurator.isAlreadyChinese(annotation.explanationText)
+        val needsTrans = isTranslationNeeded(annotation.explanationText, annotation.explanationTranslation)
 
         _uiState.update {
             it.copy(
@@ -219,9 +231,7 @@ class NowPlayingViewModel @Inject constructor(
 
     fun openSongStory() {
         val story = _uiState.value.nowPlayingData.songStory
-        val needsTrans = story != null && story.descriptionTranslation.isNullOrBlank() &&
-            story.descriptionPlain.isNotBlank() &&
-            !AiAnnotationCurator.isAlreadyChinese(story.descriptionPlain)
+        val needsTrans = story != null && isTranslationNeeded(story.descriptionPlain, story.descriptionTranslation)
 
         _uiState.update {
             it.copy(
