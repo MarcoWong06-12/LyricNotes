@@ -27,17 +27,18 @@ import androidx.compose.ui.graphics.Shape
 import androidx.compose.ui.graphics.graphicsLayer
 
 /**
- * 具有物理弹性触感的按压动效 Modifier
- * 监听 InteractionSource 按压状态，在手指按下与抬起时通过弹簧物理动力学平滑过渡形变与透明度，
- * 带来如 Gemini 与 iOS 般的丝滑回弹质感。
+ * 具有物理弹性触感的按压动效 Modifier (遵循 Apple WWDC & Emil Kowalski 交互物理学)
+ * 1. 瞬时响应：手指触下瞬刻即刻发生微妙形变 (<100ms 响应，零迟滞)
+ * 2. 严苛克制：形变控制在 0.94f~0.975f，杜绝夸张变形与闪烁透明度
+ * 3. 次临界阻尼：dampingRatio 0.85f 保证回弹干净利落，无多余晃动
  */
 fun Modifier.bouncyPress(
     interactionSource: MutableInteractionSource,
     enabled: Boolean = true,
-    pressedScale: Float = 0.90f,
-    pressedAlpha: Float = 0.85f,
-    dampingRatio: Float = Spring.DampingRatioMediumBouncy,
-    stiffness: Float = Spring.StiffnessMediumLow
+    pressedScale: Float = 0.95f,
+    pressedAlpha: Float = 0.94f,
+    dampingRatio: Float = 0.85f,
+    stiffness: Float = 900f
 ): Modifier = composed {
     val isPressed by interactionSource.collectIsPressedAsState()
     val scale by animateFloatAsState(
@@ -52,7 +53,7 @@ fun Modifier.bouncyPress(
         targetValue = if (isPressed && enabled) pressedAlpha else 1.0f,
         animationSpec = spring(
             dampingRatio = Spring.DampingRatioNoBouncy,
-            stiffness = Spring.StiffnessMediumLow
+            stiffness = stiffness
         ),
         label = "bouncyPressAlpha"
     )
@@ -65,14 +66,14 @@ fun Modifier.bouncyPress(
 }
 
 /**
- * 直接带有弹性按压反馈的 clickable Modifier
+ * 通用交互弹性点击 Modifier (适用于按钮、胶囊、药丸控件)
  */
 fun Modifier.bouncyClickable(
     enabled: Boolean = true,
-    pressedScale: Float = 0.92f,
-    pressedAlpha: Float = 0.88f,
-    dampingRatio: Float = Spring.DampingRatioMediumBouncy,
-    stiffness: Float = Spring.StiffnessMediumLow,
+    pressedScale: Float = 0.95f,
+    pressedAlpha: Float = 0.94f,
+    dampingRatio: Float = 0.85f,
+    stiffness: Float = 900f,
     onClick: () -> Unit
 ): Modifier = composed {
     val interactionSource = remember { MutableInteractionSource() }
@@ -87,15 +88,46 @@ fun Modifier.bouncyClickable(
         )
         .clickable(
             interactionSource = interactionSource,
-            indication = null, // 由物理弹簧形变呈现丝滑反馈
+            indication = null, // 由物理弹簧形变呈现高纯净度反馈
             enabled = enabled,
             onClick = onClick
         )
 }
 
 /**
+ * 紧凑图标专用弹性点击 Modifier (适用于 32~44dp 圆形图标按键，形变稍深以提供清晰指尖触感)
+ */
+fun Modifier.bouncyIconClickable(
+    enabled: Boolean = true,
+    pressedScale: Float = 0.91f,
+    onClick: () -> Unit
+): Modifier = bouncyClickable(
+    enabled = enabled,
+    pressedScale = pressedScale,
+    pressedAlpha = 0.92f,
+    dampingRatio = 0.84f,
+    stiffness = 950f,
+    onClick = onClick
+)
+
+/**
+ * 列表大卡片专用弹性点击 Modifier (适用于列表项、设置行、整卡展开，微缩放保持优雅)
+ */
+fun Modifier.bouncyItemClickable(
+    enabled: Boolean = true,
+    pressedScale: Float = 0.975f,
+    onClick: () -> Unit
+): Modifier = bouncyClickable(
+    enabled = enabled,
+    pressedScale = pressedScale,
+    pressedAlpha = 0.96f,
+    dampingRatio = 0.88f,
+    stiffness = 1100f,
+    onClick = onClick
+)
+
+/**
  * 全局统一的丝滑弹性圆形图标按钮 (BouncyIconButton)
- * 自带弹簧物理按压动画，替代原版生硬的静态 FilledIconButton
  */
 @Composable
 fun BouncyIconButton(
@@ -104,7 +136,7 @@ fun BouncyIconButton(
     enabled: Boolean = true,
     shape: Shape = CircleShape,
     colors: IconButtonColors = IconButtonDefaults.filledIconButtonColors(),
-    pressedScale: Float = 0.88f,
+    pressedScale: Float = 0.91f,
     content: @Composable () -> Unit
 ) {
     val interactionSource = remember { MutableInteractionSource() }
@@ -113,7 +145,9 @@ fun BouncyIconButton(
         modifier = modifier.bouncyPress(
             interactionSource = interactionSource,
             enabled = enabled,
-            pressedScale = pressedScale
+            pressedScale = pressedScale,
+            dampingRatio = 0.84f,
+            stiffness = 950f
         ),
         enabled = enabled,
         shape = shape,
@@ -136,7 +170,7 @@ fun BouncyButton(
     elevation: ButtonElevation? = ButtonDefaults.buttonElevation(),
     border: BorderStroke? = null,
     contentPadding: PaddingValues = ButtonDefaults.ContentPadding,
-    pressedScale: Float = 0.94f,
+    pressedScale: Float = 0.95f,
     content: @Composable RowScope.() -> Unit
 ) {
     val interactionSource = remember { MutableInteractionSource() }
@@ -145,7 +179,9 @@ fun BouncyButton(
         modifier = modifier.bouncyPress(
             interactionSource = interactionSource,
             enabled = enabled,
-            pressedScale = pressedScale
+            pressedScale = pressedScale,
+            dampingRatio = 0.85f,
+            stiffness = 900f
         ),
         enabled = enabled,
         shape = shape,
@@ -171,7 +207,7 @@ fun BouncyTonalButton(
     elevation: ButtonElevation? = ButtonDefaults.filledTonalButtonElevation(),
     border: BorderStroke? = null,
     contentPadding: PaddingValues = ButtonDefaults.ContentPadding,
-    pressedScale: Float = 0.94f,
+    pressedScale: Float = 0.95f,
     content: @Composable RowScope.() -> Unit
 ) {
     val interactionSource = remember { MutableInteractionSource() }
@@ -180,7 +216,9 @@ fun BouncyTonalButton(
         modifier = modifier.bouncyPress(
             interactionSource = interactionSource,
             enabled = enabled,
-            pressedScale = pressedScale
+            pressedScale = pressedScale,
+            dampingRatio = 0.85f,
+            stiffness = 900f
         ),
         enabled = enabled,
         shape = shape,

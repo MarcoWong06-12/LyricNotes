@@ -2,6 +2,7 @@ package com.linernotes.app.presentation.nowplaying.components
 
 import android.content.Intent
 import android.net.Uri
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
@@ -26,6 +27,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import coil.compose.AsyncImage
 import com.linernotes.app.core.playback.TrackPlaybackState
+import com.linernotes.app.presentation.common.*
 import com.linernotes.app.presentation.nowplaying.FuriganaDisplayMode
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -56,17 +58,17 @@ fun LyricNotesSettingsSheet(
     ModalBottomSheet(
         onDismissRequest = onDismiss,
         sheetState = sheetState,
-        containerColor = Color(0xFF1E1E24),
+        containerColor = Color(0xFF13141B),
         contentColor = Color.White,
         tonalElevation = 8.dp,
-        shape = RoundedCornerShape(topStart = 24.dp, topEnd = 24.dp),
+        shape = RoundedCornerShape(topStart = 28.dp, topEnd = 28.dp),
         dragHandle = {
             Surface(
                 modifier = Modifier.padding(top = 12.dp, bottom = 8.dp),
-                color = Color.White.copy(alpha = 0.25f),
+                color = Color.White.copy(alpha = 0.20f),
                 shape = CircleShape
             ) {
-                Box(modifier = Modifier.size(width = 36.dp, height = 4.dp))
+                Box(modifier = Modifier.size(width = 38.dp, height = 4.5.dp))
             }
         }
     ) {
@@ -80,8 +82,9 @@ fun LyricNotesSettingsSheet(
         ) {
             // 1. 顶部曲目与播放状态卡片
             Surface(
-                color = Color.White.copy(alpha = 0.06f),
-                shape = RoundedCornerShape(16.dp),
+                color = Color.White.copy(alpha = 0.05f),
+                shape = RoundedCornerShape(18.dp),
+                border = BorderStroke(0.5.dp, Color.White.copy(alpha = 0.10f)),
                 modifier = Modifier.fillMaxWidth()
             ) {
                 Row(
@@ -154,11 +157,11 @@ fun LyricNotesSettingsSheet(
             if (hasSongStory) {
                 Surface(
                     color = Color(0xFFFFD54F).copy(alpha = 0.12f),
-                    shape = RoundedCornerShape(16.dp),
-                    border = androidx.compose.foundation.BorderStroke(1.dp, Color(0xFFFFD54F).copy(alpha = 0.35f)),
+                    shape = RoundedCornerShape(18.dp),
+                    border = BorderStroke(1.dp, Color(0xFFFFD54F).copy(alpha = 0.35f)),
                     modifier = Modifier
                         .fillMaxWidth()
-                        .clickable {
+                        .bouncyItemClickable {
                             onDismiss()
                             onOpenSongStory()
                         }
@@ -199,8 +202,8 @@ fun LyricNotesSettingsSheet(
             } else {
                 Surface(
                     color = Color.White.copy(alpha = 0.05f),
-                    shape = RoundedCornerShape(16.dp),
-                    border = androidx.compose.foundation.BorderStroke(0.5.dp, Color.White.copy(alpha = 0.12f)),
+                    shape = RoundedCornerShape(18.dp),
+                    border = BorderStroke(0.5.dp, Color.White.copy(alpha = 0.12f)),
                     modifier = Modifier.fillMaxWidth()
                 ) {
                     Row(
@@ -228,11 +231,18 @@ fun LyricNotesSettingsSheet(
                                 )
                             }
                         }
-                        TextButton(
-                            onClick = onReloadGenius,
-                            colors = ButtonDefaults.textButtonColors(contentColor = Color(0xFF1ED760))
+                        Surface(
+                            color = Color.Transparent,
+                            shape = RoundedCornerShape(8.dp),
+                            modifier = Modifier.bouncyClickable(pressedScale = 0.90f, onClick = onReloadGenius)
                         ) {
-                            Text("重试", fontSize = 13.sp, fontWeight = FontWeight.Bold)
+                            Text(
+                                text = "重试",
+                                color = Color(0xFF1ED760),
+                                fontSize = 13.sp,
+                                fontWeight = FontWeight.Bold,
+                                modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
+                            )
                         }
                     }
                 }
@@ -240,8 +250,9 @@ fun LyricNotesSettingsSheet(
 
             // 3. 歌词时间轴微调 (Lyrics Offset)
             Surface(
-                color = Color.White.copy(alpha = 0.06f),
-                shape = RoundedCornerShape(16.dp),
+                color = Color.White.copy(alpha = 0.05f),
+                shape = RoundedCornerShape(18.dp),
+                border = BorderStroke(0.5.dp, Color.White.copy(alpha = 0.10f)),
                 modifier = Modifier.fillMaxWidth()
             ) {
                 Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
@@ -281,8 +292,9 @@ fun LyricNotesSettingsSheet(
 
             // 4. 显示与排版设置
             Surface(
-                color = Color.White.copy(alpha = 0.06f),
-                shape = RoundedCornerShape(16.dp),
+                color = Color.White.copy(alpha = 0.05f),
+                shape = RoundedCornerShape(18.dp),
+                border = BorderStroke(0.5.dp, Color.White.copy(alpha = 0.10f)),
                 modifier = Modifier.fillMaxWidth()
             ) {
                 Column(modifier = Modifier.padding(horizontal = 16.dp, vertical = 6.dp)) {
@@ -318,8 +330,9 @@ fun LyricNotesSettingsSheet(
 
             // 5. 日语假名注音 (Furigana) 模式选择
             Surface(
-                color = Color.White.copy(alpha = 0.06f),
-                shape = RoundedCornerShape(16.dp),
+                color = Color.White.copy(alpha = 0.05f),
+                shape = RoundedCornerShape(18.dp),
+                border = BorderStroke(0.5.dp, Color.White.copy(alpha = 0.10f)),
                 modifier = Modifier.fillMaxWidth()
             ) {
                 Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
@@ -362,35 +375,53 @@ fun LyricNotesSettingsSheet(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.spacedBy(12.dp)
             ) {
-                Button(
-                    onClick = {
-                        onDismiss()
-                        onReloadLyrics()
-                    },
-                    colors = ButtonDefaults.buttonColors(containerColor = Color.White.copy(alpha = 0.12f)),
-                    shape = RoundedCornerShape(12.dp),
-                    modifier = Modifier.weight(1f)
+                Surface(
+                    color = Color.White.copy(alpha = 0.10f),
+                    shape = RoundedCornerShape(14.dp),
+                    modifier = Modifier
+                        .weight(1f)
+                        .height(46.dp)
+                        .bouncyClickable(
+                            pressedScale = 0.95f,
+                            onClick = {
+                                onDismiss()
+                                onReloadLyrics()
+                            }
+                        )
                 ) {
-                    Icon(imageVector = Icons.Default.Refresh, contentDescription = null, modifier = Modifier.size(16.dp))
-                    Spacer(modifier = Modifier.width(6.dp))
-                    Text("重载歌词", fontSize = 13.sp, color = Color.White)
+                    Row(
+                        modifier = Modifier.fillMaxSize(),
+                        horizontalArrangement = Arrangement.Center,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Icon(imageVector = Icons.Default.Refresh, contentDescription = null, tint = Color.White, modifier = Modifier.size(16.dp))
+                        Spacer(modifier = Modifier.width(6.dp))
+                        Text("重载歌词", fontSize = 13.5.sp, color = Color.White, fontWeight = FontWeight.Medium)
+                    }
                 }
 
-                Button(
-                    onClick = {
-                        val launchIntent = context.packageManager.getLaunchIntentForPackage("com.spotify.music")
-                        if (launchIntent != null) {
-                            context.startActivity(launchIntent)
-                        } else {
-                            val webIntent = Intent(Intent.ACTION_VIEW, Uri.parse("https://open.spotify.com"))
-                            context.startActivity(webIntent)
-                        }
-                    },
-                    colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF1DB954)),
-                    shape = RoundedCornerShape(12.dp),
-                    modifier = Modifier.weight(1f)
+                Surface(
+                    color = Color(0xFF1DB954),
+                    shape = RoundedCornerShape(14.dp),
+                    modifier = Modifier
+                        .weight(1f)
+                        .height(46.dp)
+                        .bouncyClickable(
+                            pressedScale = 0.95f,
+                            onClick = {
+                                val launchIntent = context.packageManager.getLaunchIntentForPackage("com.spotify.music")
+                                if (launchIntent != null) {
+                                    context.startActivity(launchIntent)
+                                } else {
+                                    val webIntent = Intent(Intent.ACTION_VIEW, Uri.parse("https://open.spotify.com"))
+                                    context.startActivity(webIntent)
+                                }
+                            }
+                        )
                 ) {
-                    Text("打开 Spotify", fontSize = 13.sp, color = Color.White, fontWeight = FontWeight.Bold)
+                    Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                        Text("打开 Spotify", fontSize = 13.5.sp, color = Color.Black, fontWeight = FontWeight.Bold)
+                    }
                 }
             }
         }
@@ -405,11 +436,15 @@ private fun OffsetButton(
     isReset: Boolean = false
 ) {
     Surface(
-        color = if (isReset) Color.White.copy(alpha = 0.15f) else Color.White.copy(alpha = 0.08f),
+        color = if (isReset) Color.White.copy(alpha = 0.16f) else Color.White.copy(alpha = 0.08f),
         shape = RoundedCornerShape(10.dp),
+        border = BorderStroke(0.5.dp, if (isReset) Color.White.copy(alpha = 0.25f) else Color.White.copy(alpha = 0.10f)),
         modifier = modifier
             .height(36.dp)
-            .clickable(onClick = onClick)
+            .bouncyClickable(
+                pressedScale = 0.92f,
+                onClick = onClick
+            )
     ) {
         Box(contentAlignment = Alignment.Center) {
             Text(
@@ -476,16 +511,20 @@ private fun FuriganaPill(
     Surface(
         color = if (isSelected) Color(0xFF1DB954) else Color.White.copy(alpha = 0.08f),
         shape = RoundedCornerShape(10.dp),
+        border = BorderStroke(0.5.dp, if (isSelected) Color(0xFF1DB954) else Color.White.copy(alpha = 0.12f)),
         modifier = modifier
             .height(36.dp)
-            .clickable(onClick = onClick)
+            .bouncyClickable(
+                pressedScale = 0.92f,
+                onClick = onClick
+            )
     ) {
         Box(contentAlignment = Alignment.Center) {
             Text(
                 text = title,
-                color = if (isSelected) Color.Black else Color.White.copy(alpha = 0.8f),
+                color = if (isSelected) Color.Black else Color.White.copy(alpha = 0.85f),
                 fontSize = 12.sp,
-                fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal,
+                fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium,
                 fontFamily = FontFamily.SansSerif
             )
         }

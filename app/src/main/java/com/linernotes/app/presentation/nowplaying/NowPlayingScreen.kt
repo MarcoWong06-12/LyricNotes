@@ -52,7 +52,7 @@ import com.linernotes.app.core.util.ChineseConverter
 import com.linernotes.app.data.local.entity.LyricAnnotationEntity
 import com.linernotes.app.domain.model.BilingualLyricLine
 import com.linernotes.app.presentation.booklet.components.AmbientGlowBackground
-import com.linernotes.app.presentation.common.bouncyClickable
+import com.linernotes.app.presentation.common.*
 import com.linernotes.app.presentation.nowplaying.components.LyricNotesSettingsSheet
 import com.linernotes.app.presentation.nowplaying.components.NowPlayingGeniusSheet
 import com.linernotes.app.presentation.nowplaying.components.NowPlayingQueueSheet
@@ -137,11 +137,11 @@ fun NowPlayingScreen(
                 modifier = Modifier.align(Alignment.TopCenter)
             )
 
-            // 4. Genius 获取失败/状态提醒微浮标 (Gemini / TG 悬浮微胶囊风格)
+            // 4. Genius 获取失败/状态提醒微浮标 (iOS Dynamic Island 悬浮微胶囊风格)
             AnimatedVisibility(
                 visible = nowData.geniusNoticeMessage != null && hasTrack,
-                enter = fadeIn(tween(260)) + slideInVertically(tween(300)) { -it },
-                exit = fadeOut(tween(200)) + slideOutVertically(tween(260)) { -it },
+                enter = fadeIn(tween(180)) + slideInVertically(spring(dampingRatio = 0.85f, stiffness = 420f)) { -it / 2 } + scaleIn(initialScale = 0.94f),
+                exit = fadeOut(tween(160)) + slideOutVertically(tween(220)) { -it / 2 } + scaleOut(targetScale = 0.94f),
                 modifier = Modifier
                     .align(Alignment.TopCenter)
                     .statusBarsPadding()
@@ -177,7 +177,7 @@ fun NowPlayingScreen(
                             fontFamily = FontFamily.SansSerif,
                             modifier = Modifier
                                 .clip(RoundedCornerShape(6.dp))
-                                .clickable { viewModel.retryGenius() }
+                                .bouncyClickable(pressedScale = 0.92f) { viewModel.retryGenius() }
                                 .padding(horizontal = 6.dp, vertical = 2.dp)
                         )
                         Icon(
@@ -187,17 +187,17 @@ fun NowPlayingScreen(
                             modifier = Modifier
                                 .size(16.dp)
                                 .clip(CircleShape)
-                                .clickable { viewModel.dismissGeniusNotice() }
+                                .bouncyIconClickable { viewModel.dismissGeniusNotice() }
                         )
                     }
                 }
             }
 
-            // 5. 方案 1：底栏悬浮毛玻璃全能胶囊 (复刻 LinerNotes 经典底栏，集合歌曲信息、滑条与播控)
+            // 5. 方案 1：底栏悬浮毛玻璃全能胶囊 (物理弹簧与呼吸式扩展，集合歌曲信息、滑条与播控)
             AnimatedVisibility(
                 visible = hasTrack && state.showPlaybackControls,
-                enter = fadeIn(tween(260)) + slideInVertically(tween(320)) { it / 2 },
-                exit = fadeOut(tween(200)) + slideOutVertically(tween(260)) { it / 2 },
+                enter = fadeIn(tween(180)) + slideInVertically(spring(dampingRatio = 0.88f, stiffness = 320f)) { it / 3 } + scaleIn(initialScale = 0.95f),
+                exit = fadeOut(tween(160)) + slideOutVertically(tween(220)) { it / 3 } + scaleOut(targetScale = 0.95f),
                 modifier = Modifier.align(Alignment.BottomCenter)
             ) {
                 NowPlayingFloatingGlassPlayer(
@@ -304,9 +304,8 @@ private fun NowPlayingTopBar(
             shape = CircleShape,
             border = BorderStroke(0.5.dp, Color.White.copy(alpha = 0.22f)),
             modifier = Modifier
-                .size(36.dp)
-                .bouncyClickable(
-                    pressedScale = 0.88f,
+                .size(38.dp)
+                .bouncyIconClickable(
                     onClick = onOpenSettings
                 )
         ) {
@@ -366,22 +365,22 @@ private fun NowPlayingTopBar(
             if (hasSongStory) {
                 Surface(
                     color = Color(0xFF281E10).copy(alpha = 0.94f),
-                    shape = RoundedCornerShape(16.dp),
+                    shape = RoundedCornerShape(18.dp),
                     border = BorderStroke(
                         0.5.dp,
                         Color(0xFFFFD54F).copy(alpha = storyGlowAlpha)
                     ),
                     modifier = Modifier
-                        .height(34.dp)
+                        .height(36.dp)
                         .bouncyClickable(
-                            pressedScale = 0.90f,
+                            pressedScale = 0.93f,
                             onClick = onOpenSongStory
                         )
                 ) {
                     Row(
-                        modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp),
+                        modifier = Modifier.padding(horizontal = 11.dp, vertical = 7.dp),
                         verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(4.dp)
+                        horizontalArrangement = Arrangement.spacedBy(5.dp)
                     ) {
                         Icon(
                             imageVector = Icons.Default.AutoAwesome,
@@ -405,9 +404,8 @@ private fun NowPlayingTopBar(
                 shape = CircleShape,
                 border = BorderStroke(0.5.dp, Color.White.copy(alpha = 0.20f)),
                 modifier = Modifier
-                    .size(36.dp)
-                    .bouncyClickable(
-                        pressedScale = 0.88f,
+                    .size(38.dp)
+                    .bouncyIconClickable(
                         onClick = onOpenQueue
                     )
             ) {
@@ -426,9 +424,8 @@ private fun NowPlayingTopBar(
                 shape = CircleShape,
                 border = BorderStroke(0.5.dp, Color.White.copy(alpha = 0.20f)),
                 modifier = Modifier
-                    .size(36.dp)
-                    .bouncyClickable(
-                        pressedScale = 0.88f,
+                    .size(38.dp)
+                    .bouncyIconClickable(
                         onClick = onOpenSettings
                     )
             ) {
@@ -656,11 +653,7 @@ private fun LyricLineRow(
                 scaleY = animatedScale
                 transformOrigin = TransformOrigin(0f, 0.5f)
             }
-            .clickable(
-                interactionSource = remember { MutableInteractionSource() },
-                indication = null,
-                onClick = onClick
-            )
+            .bouncyItemClickable(onClick = onClick)
     ) {
         // 原文歌词 (纯白高对比，饱满视觉重心)
         Text(
@@ -930,7 +923,7 @@ private fun NowPlayingFloatingGlassPlayer(
                         }
                     }
 
-                    // 3. 播放控制按键群 (弹性物理按压)
+                    // 3. 播放控制按键群 (纯正流体弹簧触感按压)
                     Row(
                         verticalAlignment = Alignment.CenterVertically,
                         horizontalArrangement = Arrangement.spacedBy(4.dp)
@@ -940,9 +933,8 @@ private fun NowPlayingFloatingGlassPlayer(
                             color = if (trackState.isShuffleActive) Color(0xFF1ED760).copy(alpha = 0.18f) else Color.Transparent,
                             shape = CircleShape,
                             modifier = Modifier
-                                .size(32.dp)
-                                .bouncyClickable(
-                                    pressedScale = 0.86f,
+                                .size(34.dp)
+                                .bouncyIconClickable(
                                     onClick = onToggleShuffle
                                 )
                         ) {
@@ -951,7 +943,7 @@ private fun NowPlayingFloatingGlassPlayer(
                                     imageVector = Icons.Default.Shuffle,
                                     contentDescription = if (trackState.isShuffleActive) "随机播放 (已开启)" else "顺序播放",
                                     tint = if (trackState.isShuffleActive) Color(0xFF1ED760) else Color.White.copy(alpha = 0.60f),
-                                    modifier = Modifier.size(17.dp)
+                                    modifier = Modifier.size(18.dp)
                                 )
                             }
                         }
@@ -960,29 +952,28 @@ private fun NowPlayingFloatingGlassPlayer(
                         Box(
                             contentAlignment = Alignment.Center,
                             modifier = Modifier
-                                .size(34.dp)
-                                .bouncyClickable(
-                                    pressedScale = 0.86f,
+                                .size(36.dp)
+                                .bouncyIconClickable(
                                     onClick = onPrevious
                                 )
                         ) {
                             Icon(
                                 imageVector = Icons.Default.SkipPrevious,
                                 contentDescription = "上一首",
-                                tint = Color.White.copy(alpha = 0.90f),
-                                modifier = Modifier.size(21.dp)
+                                tint = Color.White.copy(alpha = 0.92f),
+                                modifier = Modifier.size(22.dp)
                             )
                         }
 
-                        // 播放/暂停 Hero 圆钮
+                        // 播放/暂停 Hero 圆钮 (42dp 饱满白瓷高光)
                         Surface(
                             color = Color.White,
                             shape = CircleShape,
-                            shadowElevation = 8.dp,
+                            shadowElevation = 10.dp,
                             modifier = Modifier
-                                .size(38.dp)
-                                .bouncyClickable(
-                                    pressedScale = 0.88f,
+                                .size(42.dp)
+                                .bouncyIconClickable(
+                                    pressedScale = 0.90f,
                                     onClick = onPlayPause
                                 )
                         ) {
@@ -990,8 +981,8 @@ private fun NowPlayingFloatingGlassPlayer(
                                 Icon(
                                     imageVector = if (trackState.isPlaying) Icons.Default.Pause else Icons.Default.PlayArrow,
                                     contentDescription = if (trackState.isPlaying) "暂停" else "播放",
-                                    tint = Color(0xFF12131C),
-                                    modifier = Modifier.size(21.dp)
+                                    tint = Color(0xFF0F1118),
+                                    modifier = Modifier.size(23.dp)
                                 )
                             }
                         }
@@ -1000,17 +991,16 @@ private fun NowPlayingFloatingGlassPlayer(
                         Box(
                             contentAlignment = Alignment.Center,
                             modifier = Modifier
-                                .size(34.dp)
-                                .bouncyClickable(
-                                    pressedScale = 0.86f,
+                                .size(36.dp)
+                                .bouncyIconClickable(
                                     onClick = onNext
                                 )
                         ) {
                             Icon(
                                 imageVector = Icons.Default.SkipNext,
                                 contentDescription = "下一首",
-                                tint = Color.White.copy(alpha = 0.90f),
-                                modifier = Modifier.size(21.dp)
+                                tint = Color.White.copy(alpha = 0.92f),
+                                modifier = Modifier.size(22.dp)
                             )
                         }
                     }
@@ -1021,7 +1011,7 @@ private fun NowPlayingFloatingGlassPlayer(
 }
 
 /**
- * 极简平滑声学进度轨 (Apple Music / Spotify 3dp 极细流线，杜绝粗大白块)
+ * 极简平滑声学进度轨 (Apple Music / Spotify 3dp 极细流线，附带手指触碰即刻微绽放的触感动力学)
  */
 @Composable
 private fun SleekTrackScrubber(
@@ -1034,10 +1024,22 @@ private fun SleekTrackScrubber(
 
     val currentFraction = (if (isDragging) dragFraction else progress).coerceIn(0f, 1f)
 
+    // 触感物理绽放动力学：手指拖拽时微膨胀，松手时平滑沉降回极细流线
+    val trackHeight by animateDpAsState(
+        targetValue = if (isDragging) 4.5.dp else 3.dp,
+        animationSpec = spring(dampingRatio = 0.85f, stiffness = 400f),
+        label = "scrubberTrackHeight"
+    )
+    val thumbSize by animateDpAsState(
+        targetValue = if (isDragging) 12.dp else 8.dp,
+        animationSpec = spring(dampingRatio = 0.85f, stiffness = 400f),
+        label = "scrubberThumbSize"
+    )
+
     BoxWithConstraints(
         modifier = modifier
             .fillMaxWidth()
-            .height(20.dp)
+            .height(22.dp)
             .pointerInput(Unit) {
                 detectTapGestures { offset ->
                     val frac = (offset.x / size.width.toFloat()).coerceIn(0f, 1f)
@@ -1072,8 +1074,8 @@ private fun SleekTrackScrubber(
         Box(
             modifier = Modifier
                 .fillMaxWidth()
-                .height(3.dp)
-                .clip(RoundedCornerShape(1.5.dp))
+                .height(trackHeight)
+                .clip(CircleShape)
                 .background(Color.White.copy(alpha = 0.20f))
         )
 
@@ -1081,19 +1083,20 @@ private fun SleekTrackScrubber(
         Box(
             modifier = Modifier
                 .fillMaxWidth(currentFraction)
-                .height(3.dp)
-                .clip(RoundedCornerShape(1.5.dp))
+                .height(trackHeight)
+                .clip(CircleShape)
                 .background(Color.White)
         )
 
-        // 极细圆形滑块指示点
+        // 极细圆形滑块指示点 (具有拖拽触感绽放与高光边框)
+        val thumbRadiusPx = with(LocalDensity.current) { (thumbSize / 2).toPx() }
         val thumbOffsetDp = with(LocalDensity.current) {
-            ((widthPx * currentFraction) - 4.dp.toPx()).coerceAtLeast(0f).toDp()
+            ((widthPx * currentFraction) - thumbRadiusPx).coerceIn(0f, (widthPx - thumbRadiusPx * 2).coerceAtLeast(0f)).toDp()
         }
         Box(
             modifier = Modifier
                 .offset(x = thumbOffsetDp)
-                .size(8.dp)
+                .size(thumbSize)
                 .clip(CircleShape)
                 .background(Color.White)
         )
@@ -1117,16 +1120,18 @@ private fun NowPlayingIdleContent(
         verticalArrangement = Arrangement.Center
     ) {
         Surface(
-            color = Color.White.copy(alpha = 0.08f),
+            color = Color.White.copy(alpha = 0.06f),
             shape = CircleShape,
-            modifier = Modifier.size(88.dp)
+            border = BorderStroke(1.dp, Color(0xFF1DB954).copy(alpha = 0.35f)),
+            shadowElevation = 12.dp,
+            modifier = Modifier.size(92.dp)
         ) {
             Box(contentAlignment = Alignment.Center) {
                 Icon(
                     imageVector = Icons.Default.MusicNote,
                     contentDescription = null,
                     tint = Color(0xFF1DB954),
-                    modifier = Modifier.size(44.dp)
+                    modifier = Modifier.size(46.dp)
                 )
             }
         }
@@ -1136,16 +1141,17 @@ private fun NowPlayingIdleContent(
         Text(
             text = "LyricNotes",
             color = Color.White,
-            fontSize = 24.sp,
+            fontSize = 25.sp,
             fontWeight = FontWeight.Bold,
-            fontFamily = FontFamily.SansSerif
+            fontFamily = FontFamily.SansSerif,
+            letterSpacing = (-0.5).sp
         )
 
         Spacer(modifier = Modifier.height(8.dp))
 
         Text(
             text = "在 Spotify 开始播放音乐，实时双语歌词与\nGenius 典故将自动呈现在屏幕上",
-            color = Color.White.copy(alpha = 0.6f),
+            color = Color.White.copy(alpha = 0.60f),
             fontSize = 14.sp,
             textAlign = TextAlign.Center,
             fontFamily = FontFamily.SansSerif,
@@ -1156,9 +1162,9 @@ private fun NowPlayingIdleContent(
 
         if (!isNotificationGranted) {
             Surface(
-                color = Color.White.copy(alpha = 0.08f),
-                shape = RoundedCornerShape(16.dp),
-                border = BorderStroke(1.dp, Color(0xFF1DB954).copy(alpha = 0.4f)),
+                color = Color.White.copy(alpha = 0.06f),
+                shape = RoundedCornerShape(18.dp),
+                border = BorderStroke(1.dp, Color(0xFF1DB954).copy(alpha = 0.30f)),
                 modifier = Modifier.fillMaxWidth()
             ) {
                 Row(
@@ -1176,18 +1182,29 @@ private fun NowPlayingIdleContent(
                         )
                         Text(
                             text = "用于获取 Spotify 播放进度与歌词同屏",
-                            color = Color.White.copy(alpha = 0.5f),
-                            fontSize = 11.sp,
+                            color = Color.White.copy(alpha = 0.50f),
+                            fontSize = 11.5.sp,
                             fontFamily = FontFamily.SansSerif
                         )
                     }
 
-                    Button(
-                        onClick = onGrantPermission,
-                        colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF1DB954)),
-                        shape = RoundedCornerShape(10.dp)
+                    Surface(
+                        color = Color(0xFF1DB954),
+                        shape = RoundedCornerShape(12.dp),
+                        modifier = Modifier
+                            .bouncyClickable(
+                                pressedScale = 0.92f,
+                                onClick = onGrantPermission
+                            )
                     ) {
-                        Text("去开启", color = Color.Black, fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                        Text(
+                            text = "去开启",
+                            color = Color.Black,
+                            fontSize = 12.sp,
+                            fontWeight = FontWeight.Bold,
+                            fontFamily = FontFamily.SansSerif,
+                            modifier = Modifier.padding(horizontal = 14.dp, vertical = 7.dp)
+                        )
                     }
                 }
             }
@@ -1195,21 +1212,38 @@ private fun NowPlayingIdleContent(
             Spacer(modifier = Modifier.height(14.dp))
         }
 
-        Button(
-            onClick = onLaunchSpotify,
-            colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF1DB954)),
-            shape = RoundedCornerShape(14.dp),
+        Surface(
+            color = Color(0xFF1DB954),
+            shape = RoundedCornerShape(16.dp),
+            shadowElevation = 8.dp,
             modifier = Modifier
                 .fillMaxWidth()
-                .height(50.dp)
+                .height(52.dp)
+                .bouncyClickable(
+                    pressedScale = 0.96f,
+                    onClick = onLaunchSpotify
+                )
         ) {
-            Text(
-                text = "打开 Spotify 播放音乐 ➔",
-                color = Color.Black,
-                fontSize = 15.sp,
-                fontWeight = FontWeight.Bold,
-                fontFamily = FontFamily.SansSerif
-            )
+            Box(contentAlignment = Alignment.Center) {
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.PlayArrow,
+                        contentDescription = null,
+                        tint = Color.Black,
+                        modifier = Modifier.size(20.dp)
+                    )
+                    Text(
+                        text = "打开 Spotify 播放音乐",
+                        color = Color.Black,
+                        fontSize = 15.sp,
+                        fontWeight = FontWeight.Bold,
+                        fontFamily = FontFamily.SansSerif
+                    )
+                }
+            }
         }
     }
 }

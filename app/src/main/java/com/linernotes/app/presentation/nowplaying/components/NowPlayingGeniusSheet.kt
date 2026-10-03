@@ -1,5 +1,6 @@
 package com.linernotes.app.presentation.nowplaying.components
 
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
@@ -24,6 +25,7 @@ import androidx.compose.ui.unit.sp
 import coil.compose.AsyncImage
 import com.linernotes.app.data.local.entity.LyricAnnotationEntity
 import com.linernotes.app.presentation.booklet.components.BilingualContentView
+import com.linernotes.app.presentation.common.*
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -36,13 +38,17 @@ fun NowPlayingGeniusSheet(
 
     ModalBottomSheet(
         onDismissRequest = onDismiss,
-        containerColor = Color(0xFF141418),
+        containerColor = Color(0xFF13141B),
         dragHandle = {
-            BottomSheetDefaults.DragHandle(
-                color = Color.White.copy(alpha = 0.3f)
-            )
+            Surface(
+                modifier = Modifier.padding(top = 12.dp, bottom = 8.dp),
+                color = Color.White.copy(alpha = 0.20f),
+                shape = CircleShape
+            ) {
+                Box(modifier = Modifier.size(width = 38.dp, height = 4.5.dp))
+            }
         },
-        shape = RoundedCornerShape(topStart = 24.dp, topEnd = 24.dp)
+        shape = RoundedCornerShape(topStart = 28.dp, topEnd = 28.dp)
     ) {
         Column(
             modifier = Modifier
@@ -59,14 +65,14 @@ fun NowPlayingGeniusSheet(
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 Surface(
-                    color = Color(0xFFFFC107).copy(alpha = 0.18f),
-                    shape = RoundedCornerShape(12.dp),
-                    border = androidx.compose.foundation.BorderStroke(1.dp, Color(0xFFFFC107).copy(alpha = 0.4f))
+                    color = Color(0xFFFFC107).copy(alpha = 0.16f),
+                    shape = RoundedCornerShape(14.dp),
+                    border = BorderStroke(0.5.dp, Color(0xFFFFC107).copy(alpha = 0.45f))
                 ) {
                     Row(
-                        modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp),
+                        modifier = Modifier.padding(horizontal = 10.dp, vertical = 5.dp),
                         verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(4.dp)
+                        horizontalArrangement = Arrangement.spacedBy(5.dp)
                     ) {
                         Icon(
                             imageVector = Icons.Default.CheckCircle,
@@ -83,12 +89,21 @@ fun NowPlayingGeniusSheet(
                     }
                 }
 
-                IconButton(onClick = onDismiss, modifier = Modifier.size(32.dp)) {
-                    Icon(
-                        imageVector = Icons.Default.Close,
-                        contentDescription = "关闭",
-                        tint = Color.White.copy(alpha = 0.6f)
-                    )
+                Surface(
+                    color = Color.White.copy(alpha = 0.08f),
+                    shape = CircleShape,
+                    modifier = Modifier
+                        .size(34.dp)
+                        .bouncyIconClickable(onClick = onDismiss)
+                ) {
+                    Box(contentAlignment = Alignment.Center) {
+                        Icon(
+                            imageVector = Icons.Default.Close,
+                            contentDescription = "关闭",
+                            tint = Color.White.copy(alpha = 0.8f),
+                            modifier = Modifier.size(17.dp)
+                        )
+                    }
                 }
             }
 
@@ -96,8 +111,9 @@ fun NowPlayingGeniusSheet(
 
             // 被引用的歌词原句卡片
             Surface(
-                color = Color.White.copy(alpha = 0.06f),
-                shape = RoundedCornerShape(14.dp),
+                color = Color.White.copy(alpha = 0.05f),
+                shape = RoundedCornerShape(16.dp),
+                border = BorderStroke(0.5.dp, Color(0xFFFFD54F).copy(alpha = 0.25f)),
                 modifier = Modifier.fillMaxWidth()
             ) {
                 Column(modifier = Modifier.padding(14.dp)) {
@@ -112,7 +128,7 @@ fun NowPlayingGeniusSheet(
                         Spacer(modifier = Modifier.height(4.dp))
                         Text(
                             text = "❝ ${annotation.lyricTranslation} ❞",
-                            color = Color.White.copy(alpha = 0.7f),
+                            color = Color.White.copy(alpha = 0.70f),
                             fontSize = 13.sp
                         )
                     }
@@ -130,7 +146,7 @@ fun NowPlayingGeniusSheet(
 
             Spacer(modifier = Modifier.height(10.dp))
 
-            // 精准句对句/段对段双语对照视图 (中文在上，较小字号英文在下，支持中英对照/纯中文/纯英文平滑切换)
+            // 精准句对句/段对段双语对照视图
             BilingualContentView(
                 originalText = annotation.explanationText,
                 translatedText = annotation.explanationTranslation,
@@ -179,7 +195,7 @@ fun NowPlayingGeniusSheet(
                     }
                     Text(
                         text = annotation.authorName ?: "Genius Contributor",
-                        color = Color.White.copy(alpha = 0.7f),
+                        color = Color.White.copy(alpha = 0.70f),
                         fontSize = 12.sp
                     )
                 }

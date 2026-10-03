@@ -29,6 +29,7 @@ import androidx.compose.ui.unit.sp
 import coil.compose.AsyncImage
 import com.linernotes.app.core.playback.QueueTrackItem
 import com.linernotes.app.core.playback.TrackPlaybackState
+import com.linernotes.app.presentation.common.*
 
 /**
  * 仿 Spotify 待播队列 (Queue) 底部抽屉
@@ -51,17 +52,17 @@ fun NowPlayingQueueSheet(
     ModalBottomSheet(
         onDismissRequest = onDismiss,
         sheetState = sheetState,
-        containerColor = Color(0xFF16171E),
+        containerColor = Color(0xFF13141B),
         contentColor = Color.White,
         tonalElevation = 8.dp,
-        shape = RoundedCornerShape(topStart = 24.dp, topEnd = 24.dp),
+        shape = RoundedCornerShape(topStart = 28.dp, topEnd = 28.dp),
         dragHandle = {
             Surface(
                 modifier = Modifier.padding(top = 12.dp, bottom = 8.dp),
-                color = Color.White.copy(alpha = 0.25f),
+                color = Color.White.copy(alpha = 0.20f),
                 shape = CircleShape
             ) {
-                Box(modifier = Modifier.size(width = 36.dp, height = 4.dp))
+                Box(modifier = Modifier.size(width = 38.dp, height = 4.5.dp))
             }
         }
     ) {
@@ -86,7 +87,8 @@ fun NowPlayingQueueSheet(
                         color = Color.White,
                         fontSize = 22.sp,
                         fontWeight = FontWeight.Bold,
-                        fontFamily = FontFamily.SansSerif
+                        fontFamily = FontFamily.SansSerif,
+                        letterSpacing = (-0.3).sp
                     )
                     Text(
                         text = if (trackState.isSpotify) "Spotify 同步待播队列" else "当前媒体播放队列",
@@ -97,15 +99,18 @@ fun NowPlayingQueueSheet(
                 }
 
                 Surface(
-                    color = Color.White.copy(alpha = 0.08f),
+                    color = Color.White.copy(alpha = 0.09f),
                     shape = RoundedCornerShape(14.dp),
-                    modifier = Modifier.clickable(onClick = onDismiss)
+                    modifier = Modifier.bouncyClickable(
+                        pressedScale = 0.92f,
+                        onClick = onDismiss
+                    )
                 ) {
                     Text(
                         text = "完成",
-                        color = Color.White.copy(alpha = 0.8f),
+                        color = Color.White.copy(alpha = 0.85f),
                         fontSize = 13.sp,
-                        fontWeight = FontWeight.Medium,
+                        fontWeight = FontWeight.SemiBold,
                         modifier = Modifier.padding(horizontal = 14.dp, vertical = 6.dp)
                     )
                 }
@@ -124,6 +129,7 @@ fun NowPlayingQueueSheet(
             Surface(
                 color = Color.White.copy(alpha = 0.05f),
                 shape = RoundedCornerShape(16.dp),
+                border = BorderStroke(0.5.dp, Color.White.copy(alpha = 0.10f)),
                 modifier = Modifier.fillMaxWidth()
             ) {
                 Row(
@@ -182,15 +188,19 @@ fun NowPlayingQueueSheet(
                     Surface(
                         color = Color.White,
                         shape = CircleShape,
+                        shadowElevation = 6.dp,
                         modifier = Modifier
-                            .size(36.dp)
-                            .clickable(onClick = onPlayPause)
+                            .size(38.dp)
+                            .bouncyIconClickable(
+                                pressedScale = 0.90f,
+                                onClick = onPlayPause
+                            )
                     ) {
                         Box(contentAlignment = Alignment.Center) {
                             Icon(
                                 imageVector = if (trackState.isPlaying) Icons.Default.Pause else Icons.Default.PlayArrow,
                                 contentDescription = if (trackState.isPlaying) "暂停" else "播放",
-                                tint = Color.Black,
+                                tint = Color(0xFF0F1118),
                                 modifier = Modifier.size(20.dp)
                             )
                         }
@@ -260,26 +270,34 @@ fun NowPlayingQueueSheet(
                             lineHeight = 18.sp
                         )
 
-                        Button(
-                            onClick = {
-                                val launchIntent = context.packageManager.getLaunchIntentForPackage("com.spotify.music")
-                                if (launchIntent != null) {
-                                    context.startActivity(launchIntent)
-                                } else {
-                                    val webIntent = Intent(Intent.ACTION_VIEW, Uri.parse("https://open.spotify.com"))
-                                    context.startActivity(webIntent)
-                                }
-                            },
-                            colors = ButtonDefaults.buttonColors(containerColor = Color.White.copy(alpha = 0.12f)),
-                            shape = RoundedCornerShape(10.dp),
-                            modifier = Modifier.fillMaxWidth().height(38.dp)
+                        Surface(
+                            color = Color(0xFF1DB954),
+                            shape = RoundedCornerShape(12.dp),
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .height(40.dp)
+                                .bouncyClickable(
+                                    pressedScale = 0.96f,
+                                    onClick = {
+                                        val launchIntent = context.packageManager.getLaunchIntentForPackage("com.spotify.music")
+                                        if (launchIntent != null) {
+                                            context.startActivity(launchIntent)
+                                        } else {
+                                            val webIntent = Intent(Intent.ACTION_VIEW, Uri.parse("https://open.spotify.com"))
+                                            context.startActivity(webIntent)
+                                        }
+                                    }
+                                )
                         ) {
-                            Text(
-                                text = "在 Spotify 查看完整待播队列 ➔",
-                                color = Color.White,
-                                fontSize = 12.sp,
-                                fontWeight = FontWeight.Medium
-                            )
+                            Box(contentAlignment = Alignment.Center) {
+                                Text(
+                                    text = "在 Spotify 查看完整待播队列 ➔",
+                                    color = Color.Black,
+                                    fontSize = 12.5.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    fontFamily = FontFamily.SansSerif
+                                )
+                            }
                         }
                     }
                 }
@@ -415,8 +433,8 @@ private fun SpotifyQueueBottomButton(
         verticalArrangement = Arrangement.spacedBy(4.dp),
         modifier = Modifier
             .clip(RoundedCornerShape(12.dp))
-            .clickable(onClick = onClick)
-            .padding(horizontal = 8.dp, vertical = 4.dp)
+            .bouncyClickable(pressedScale = 0.90f, onClick = onClick)
+            .padding(horizontal = 10.dp, vertical = 6.dp)
     ) {
         Icon(
             imageVector = icon,
