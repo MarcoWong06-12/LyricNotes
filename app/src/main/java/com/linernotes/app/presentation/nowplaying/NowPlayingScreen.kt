@@ -106,7 +106,8 @@ fun NowPlayingScreen(
                     },
                     onAnnotationClicked = { annotation ->
                         viewModel.openGeniusAnnotation(annotation)
-                    }
+                    },
+                    onRetryLyrics = { viewModel.reloadLyrics() }
                 )
             } else {
                 NowPlayingIdleContent(
@@ -482,24 +483,26 @@ private fun NowPlayingLyricsContent(
     isTraditional: Boolean,
     isLoadingLyrics: Boolean,
     onLineClicked: (BilingualLyricLine) -> Unit,
-    onAnnotationClicked: (LyricAnnotationEntity) -> Unit
+    onAnnotationClicked: (LyricAnnotationEntity) -> Unit,
+    onRetryLyrics: () -> Unit = {}
 ) {
     if (isLoadingLyrics && lyrics.isEmpty()) {
         Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
             Column(
                 horizontalAlignment = Alignment.CenterHorizontally,
-                verticalArrangement = Arrangement.spacedBy(12.dp)
+                verticalArrangement = Arrangement.spacedBy(14.dp)
             ) {
                 CircularProgressIndicator(
-                    color = Color.White,
-                    strokeWidth = 2.dp,
-                    modifier = Modifier.size(24.dp)
+                    color = Color.White.copy(alpha = 0.9f),
+                    strokeWidth = 2.5.dp,
+                    modifier = Modifier.size(28.dp)
                 )
                 Text(
-                    text = "正在同步歌词...",
-                    color = Color.White.copy(alpha = 0.7f),
-                    fontSize = 13.sp,
-                    fontFamily = FontFamily.SansSerif
+                    text = "正在同步多源歌词...",
+                    color = Color.White.copy(alpha = 0.75f),
+                    fontSize = 13.5.sp,
+                    fontFamily = FontFamily.SansSerif,
+                    fontWeight = FontWeight.Medium
                 )
             }
         }
@@ -508,12 +511,45 @@ private fun NowPlayingLyricsContent(
 
     if (lyrics.isEmpty()) {
         Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-            Text(
-                text = "暂无带时间轴的歌词",
-                color = Color.White.copy(alpha = 0.55f),
-                fontSize = 15.sp,
-                fontFamily = FontFamily.SansSerif
-            )
+            Column(
+                horizontalAlignment = Alignment.CenterHorizontally,
+                verticalArrangement = Arrangement.spacedBy(16.dp),
+                modifier = Modifier.padding(horizontal = 32.dp)
+            ) {
+                Text(
+                    text = "暂无带时间轴的歌词",
+                    color = Color.White.copy(alpha = 0.55f),
+                    fontSize = 15.sp,
+                    fontFamily = FontFamily.SansSerif
+                )
+                Surface(
+                    color = Color.White.copy(alpha = 0.12f),
+                    shape = RoundedCornerShape(20.dp),
+                    border = BorderStroke(1.dp, Color.White.copy(alpha = 0.18f)),
+                    modifier = Modifier
+                        .bouncyClickable(pressedScale = 0.94f) { onRetryLyrics() }
+                ) {
+                    Row(
+                        modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(6.dp)
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.Refresh,
+                            contentDescription = "重新检索",
+                            tint = Color.White,
+                            modifier = Modifier.size(16.dp)
+                        )
+                        Text(
+                            text = "重新检索歌词",
+                            color = Color.White,
+                            fontSize = 13.sp,
+                            fontWeight = FontWeight.SemiBold,
+                            fontFamily = FontFamily.SansSerif
+                        )
+                    }
+                }
+            }
         }
         return
     }

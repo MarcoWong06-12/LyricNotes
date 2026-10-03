@@ -54,25 +54,25 @@ object UnifiedLyricsService {
         artistName: String,
         targetDurationMs: Long = 0L
     ): OnlineLyricsResult? = supervisorScope {
-        // 并发检索网易云与 QQ 音乐（具备官方双语翻译的最优源，给予 5000ms 充足检索窗口）
+        // 并发检索网易云与 QQ 音乐（具备官方双语翻译的最优源，给予 7000ms 充足检索窗口）
         val neteaseDeferred = async {
-            withTimeoutOrNull(5000L) {
+            withTimeoutOrNull(7000L) {
                 NetEaseLyricsService.fetchLyrics(trackTitle, artistName, targetDurationMs)
             }
         }
         val qqDeferred = async {
-            withTimeoutOrNull(5000L) {
+            withTimeoutOrNull(7000L) {
                 QQMusicLyricsService.fetchLyrics(trackTitle, artistName, targetDurationMs)
             }
         }
-        // 并发检索酷狗与 LRCLIB（具备海量时间轴原版歌词的坚实后盾）
+        // 并发检索酷狗与 LRCLIB（具备海量时间轴原版歌词的坚实后盾，给予 6500ms 窗口）
         val kugouDeferred = async {
-            withTimeoutOrNull(4500L) {
+            withTimeoutOrNull(6500L) {
                 KugouLyricsService.fetchLyrics(trackTitle, artistName, targetDurationMs)
             }
         }
         val lrclibDeferred = async {
-            withTimeoutOrNull(4500L) {
+            withTimeoutOrNull(6500L) {
                 LrclibLyricsService.fetchLyrics(trackTitle, artistName, targetDurationMs)
             }
         }
@@ -87,8 +87,18 @@ object UnifiedLyricsService {
             .filter { it.originalLyrics.isNotBlank() }
 
         if (candidates.isEmpty()) {
+            // 若首轮并发竞速受冷启动握手或多源并发网络抢占未果，立即对直连主力源执行单路极速补抓
+            val directFallback = NetEaseLyricsService.fetchLyrics(trackTitle, artistName, targetDurationMs)
+                ?: QQMusicLyricsService.fetchLyrics(trackTitle, artistName, targetDurationMs)
+                ?: KugouLyricsService.fetchLyrics(trackTitle, artistName, targetDurationMs)
+                ?: LrclibLyricsService.fetchLyrics(trackTitle, artistName, targetDurationMs)
+
+            if (directFallback != null && directFallback.originalLyrics.isNotBlank()) {
+                return@supervisorScope sanitizeResult(directFallback, null)
+            }
+
             // 尝试轻量 Musixmatch 兜底
-            return@supervisorScope withTimeoutOrNull(2500L) {
+            return@supervisorScope withTimeoutOrNull(3000L) {
                 MusixmatchLyricsService.fetchLyrics(trackTitle, artistName)
             }
         }
@@ -109,11 +119,10 @@ object UnifiedLyricsService {
             if (keywords.isNotEmpty()) {
                 val relevance = LyricSearchCleaner.calculateTitleKeywordRelevance(res.originalLyrics, keywords)
                 if (relevance > 0f) {
-                    score += (relevance * 200).toInt()
-                } else {
-                    // 若标题存在明显关键词但歌词全文无一处命中，扣减大额分（大概率为错歌）
-                    score -= 120
+                    score += (relevance * 150).toInt()
                 }
+                // 注：许多经典曲目（如 Drake - Family Matters、Bohemian Rhapsody、晴天）
+                // 歌词全文并不出现曲名，绝不进行大额扣分惩罚导致误杀
             }
 
             // 2. 歌曲物理时长对齐验证 (首选歌词末句时间戳，其次候选曲目元数据时长)

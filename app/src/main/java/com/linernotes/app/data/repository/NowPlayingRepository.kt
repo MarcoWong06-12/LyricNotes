@@ -155,7 +155,19 @@ class NowPlayingRepository @Inject constructor(
     }
 
     fun forceReloadLyrics(title: String, artist: String, songKey: String) {
-        memoryCache.remove(songKey)
+        val cached = memoryCache[songKey]
+        if (cached != null) {
+            // 清理歌词缓存但保留已抓取的 Genius 背景故事，防止重复拉取 Genius
+            memoryCache[songKey] = cached.copy(lyrics = emptyList(), annotatedLines = emptyMap())
+        } else {
+            memoryCache.remove(songKey)
+        }
+        _nowPlayingData.update {
+            it.copy(
+                isLoadingLyrics = true,
+                errorMessage = null
+            )
+        }
         loadSongLyricsAndGenius(title, artist, songKey)
     }
 
@@ -163,9 +175,9 @@ class NowPlayingRepository @Inject constructor(
         dataLoadJob?.cancel()
         noticeDismissJob?.cancel()
 
-        // 检查内存缓存：若歌词和典故都已具备，直接秒开
+        // 检查内存缓存：只有当歌词具备且（典故已具备 或 失败通知已结算）时，才视为完全命中缓存直接秒开
         val cached = memoryCache[songKey]
-        if (cached != null && (cached.annotatedLines.isNotEmpty() || cached.songStory != null)) {
+        if (cached != null && cached.lyrics.isNotEmpty() && (cached.annotatedLines.isNotEmpty() || cached.songStory != null || cached.geniusNotice != null)) {
             _nowPlayingData.update {
                 it.copy(
                     lyrics = cached.lyrics,
@@ -180,28 +192,29 @@ class NowPlayingRepository @Inject constructor(
             return
         }
 
-        // 若歌词已预加载但典故尚未获取，立刻展示歌词，后台并发补全典故
+        // 若歌词已就绪但典故尚未获取，立刻展示歌词，后台并发补全典故
         if (cached != null && cached.lyrics.isNotEmpty()) {
             _nowPlayingData.update {
                 it.copy(
                     lyrics = cached.lyrics,
-                    annotatedLines = emptyMap(),
-                    songStory = null,
+                    annotatedLines = cached.annotatedLines,
+                    songStory = cached.songStory,
                     isLoadingLyrics = false,
-                    isLoadingGenius = true,
+                    isLoadingGenius = cached.songStory == null && cached.geniusNotice == null,
                     geniusNoticeMessage = cached.geniusNotice,
                     errorMessage = null
                 )
             }
         } else {
+            // 歌词尚未就绪（或上次抓取落空），保留已有故事避免界面跳闪，进入歌词加载态
             _nowPlayingData.update {
                 it.copy(
                     lyrics = emptyList(),
                     annotatedLines = emptyMap(),
-                    songStory = null,
+                    songStory = cached?.songStory,
                     isLoadingLyrics = true,
-                    isLoadingGenius = true,
-                    geniusNoticeMessage = null,
+                    isLoadingGenius = cached?.songStory == null,
+                    geniusNoticeMessage = cached?.geniusNotice,
                     errorMessage = null
                 )
             }
@@ -209,7 +222,7 @@ class NowPlayingRepository @Inject constructor(
 
         dataLoadJob = repositoryScope.launch {
             var fetchedLyrics: List<BilingualLyricLine> = cached?.lyrics ?: emptyList()
-            var fetchedStory: SongStoryEntity? = null
+            var fetchedStory: SongStoryEntity? = cached?.songStory
             var fetchedAnnotations: List<LyricAnnotationEntity> = emptyList()
 
             // 1. 若歌词尚未就绪，并发抓取歌词与自动翻译补全
@@ -217,12 +230,21 @@ class NowPlayingRepository @Inject constructor(
                 if (fetchedLyrics.isNotEmpty()) return@async
                 try {
                     val curState = playbackStateManager.playbackState.value
-                    val rawResult = UnifiedLyricsService.fetchLyrics(
+                    var rawResult = UnifiedLyricsService.fetchLyrics(
                         trackTitle = title,
                         artistName = artist,
                         sourcePref = aiPreferences.lyricsSource,
                         targetDurationMs = curState.durationMs
                     )
+
+                    // 如果首次抓取落空（例如冷启动多源并发争抢导致超时），延时 300ms 进行一次直接直连兜底
+                    if (rawResult == null || rawResult.originalLyrics.isBlank()) {
+                        kotlinx.coroutines.delay(300)
+                        rawResult = NetEaseLyricsService.fetchLyrics(title, artist, curState.durationMs)
+                            ?: QQMusicLyricsService.fetchLyrics(title, artist, curState.durationMs)
+                            ?: KugouLyricsService.fetchLyrics(title, artist, curState.durationMs)
+                            ?: LrclibLyricsService.fetchLyrics(title, artist, curState.durationMs)
+                    }
 
                     if (rawResult != null && rawResult.originalLyrics.isNotBlank()) {
                         // 回填从歌词源中获取的高清官方专辑封面
@@ -374,14 +396,16 @@ class NowPlayingRepository @Inject constructor(
                 else -> "Genius 典故与当前歌词版本未能成功匹配"
             }
 
-            // 写入内存缓存（未翻译版本立即可供点击）
-            val preliminaryData = CachedSongData(
-                lyrics = fetchedLyrics,
-                annotatedLines = initialMatched,
-                songStory = fetchedStory,
-                geniusNotice = failureNotice
-            )
-            memoryCache[songKey] = preliminaryData
+            // 写入内存缓存（未翻译版本立即可供点击，仅当歌词有效时才缓存，防止空歌词锁死缓存）
+            if (fetchedLyrics.isNotEmpty()) {
+                val preliminaryData = CachedSongData(
+                    lyrics = fetchedLyrics,
+                    annotatedLines = initialMatched,
+                    songStory = fetchedStory,
+                    geniusNotice = failureNotice
+                )
+                memoryCache[songKey] = preliminaryData
+            }
 
             _nowPlayingData.update {
                 it.copy(
@@ -466,12 +490,14 @@ class NowPlayingRepository @Inject constructor(
                     initialMatched
                 }
 
-                memoryCache[songKey] = CachedSongData(
-                    lyrics = fetchedLyrics,
-                    annotatedLines = finalMatched,
-                    songStory = fetchedStory,
-                    geniusNotice = failureNotice
-                )
+                if (fetchedLyrics.isNotEmpty()) {
+                    memoryCache[songKey] = CachedSongData(
+                        lyrics = fetchedLyrics,
+                        annotatedLines = finalMatched,
+                        songStory = fetchedStory,
+                        geniusNotice = failureNotice
+                    )
+                }
 
                 _nowPlayingData.update {
                     it.copy(
@@ -489,6 +515,8 @@ class NowPlayingRepository @Inject constructor(
         if (queueItems.isEmpty()) return
         preloadingJob?.cancel()
         preloadingJob = repositoryScope.launch {
+            // 关键：让出前 2.5 秒最高优先级网络带宽与连接池给当前播放曲目！
+            delay(2500L)
             val currentKey = currentSongKey
             // 提取待播队列中接下来的 3 首曲目进行深度静默预加载 (并发预载歌词、翻译、Genius 典故与背景故事)
             val candidates = queueItems.filter { item ->
