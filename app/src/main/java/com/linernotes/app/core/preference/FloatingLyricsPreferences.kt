@@ -9,6 +9,8 @@ import dagger.hilt.EntryPoint
 import dagger.hilt.InstallIn
 import dagger.hilt.android.EntryPointAccessors
 import dagger.hilt.components.SingletonComponent
+import javax.inject.Inject
+import javax.inject.Singleton
 
 @EntryPoint
 @InstallIn(SingletonComponent::class)
