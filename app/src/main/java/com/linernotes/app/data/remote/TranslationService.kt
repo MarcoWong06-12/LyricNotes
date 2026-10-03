@@ -84,6 +84,32 @@ class TranslationService(
 
     private val TIMESTAMP_REGEX = Regex("""^\[\d{2}:\d{2}(?:\.\d{1,3})?\]""")
 
+    private val INDEXED_LINE_REGEX = Regex("""^\s*(\d+)[\.、\s\-:]+\s*(.*)$""")
+
+    private fun parseIndexedLines(rawLines: List<String>, expectedCount: Int): List<String> {
+        val map = mutableMapOf<Int, String>()
+        for (line in rawLines) {
+            val trimmed = line.trim()
+            val match = INDEXED_LINE_REGEX.find(trimmed)
+            if (match != null) {
+                val idx = match.groupValues[1].toIntOrNull()
+                val content = match.groupValues[2].trim()
+                if (idx != null && idx in 1..expectedCount) {
+                    map[idx] = content
+                }
+            }
+        }
+        if (map.size >= expectedCount / 2) {
+            return (1..expectedCount).map { i -> map[i] ?: "" }
+        }
+        if (rawLines.size == expectedCount) {
+            return rawLines.map { it.replace(INDEXED_LINE_REGEX, "$2").trim() }
+        }
+        return (0 until expectedCount).map { i ->
+            rawLines.getOrNull(i)?.replace(INDEXED_LINE_REGEX, "$2")?.trim() ?: ""
+        }
+    }
+
     /**
      * 针对带有 LRC 时间轴的多行歌词进行剥离时间戳、纯文本分块翻译并原样复位时间戳，
      * 杜绝有道等翻译引擎将中括号时间标签当作乱码吞行或串联，实现 100% 逐行毫秒级无损对齐。
@@ -109,22 +135,23 @@ class TranslationService(
         }
 
         val textsToTranslate = nonBlankEntries.map { it.second }
-        // 15 行智能分块并发翻译
-        val chunks = textsToTranslate.chunked(CHUNK_LINE_COUNT)
+        // 12 行智能带序号分块并发翻译（通过行号硬锚定，绝对杜绝丢行导致后续歌词产生 1 行位移）
+        val chunks = textsToTranslate.chunked(12)
         val translatedTexts = try {
             val translatedChunks = supervisorScope {
                 chunks.map { chunk ->
                     async {
-                        val chunkText = chunk.joinToString("\n")
-                        val youdaoResult = translateChunkViaYoudao(chunkText)
+                        val indexedChunkText = chunk.mapIndexed { idx, line -> "${idx + 1}. $line" }.joinToString("\n")
+                        val youdaoResult = translateChunkViaYoudao(indexedChunkText)
                         if (youdaoResult != null && youdaoResult.isNotEmpty()) {
-                            youdaoResult.map { HtmlUtils.cleanTranslationOutput(it) }
+                            parseIndexedLines(youdaoResult.map { HtmlUtils.cleanTranslationOutput(it) }, chunk.size)
                         } else {
-                            val googleFallback = translateViaGoogle(chunkText, targetIso, "https://translate.googleapis.com/translate_a/single")
+                            val googleFallback = translateViaGoogle(indexedChunkText, targetIso, "https://translate.googleapis.com/translate_a/single")
                             if (!googleFallback.isNullOrBlank()) {
-                                googleFallback.lines().map { HtmlUtils.cleanTranslationOutput(it) }
+                                parseIndexedLines(googleFallback.lines().map { HtmlUtils.cleanTranslationOutput(it) }, chunk.size)
                             } else {
-                                (translateViaMyMemory(chunkText, targetIso)?.lines() ?: chunk).map { HtmlUtils.cleanTranslationOutput(it) }
+                                val memoryFallback = translateViaMyMemory(indexedChunkText, targetIso)?.lines() ?: emptyList()
+                                parseIndexedLines(memoryFallback.map { HtmlUtils.cleanTranslationOutput(it) }, chunk.size)
                             }
                         }
                     }

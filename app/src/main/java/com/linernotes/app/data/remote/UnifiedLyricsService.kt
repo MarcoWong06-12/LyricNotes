@@ -54,25 +54,25 @@ object UnifiedLyricsService {
         artistName: String,
         targetDurationMs: Long = 0L
     ): OnlineLyricsResult? = supervisorScope {
-        // 并发检索网易云与 QQ 音乐（具备官方双语翻译的最优源）
+        // 并发检索网易云与 QQ 音乐（具备官方双语翻译的最优源，给予 5000ms 充足检索窗口）
         val neteaseDeferred = async {
-            withTimeoutOrNull(3000L) {
+            withTimeoutOrNull(5000L) {
                 NetEaseLyricsService.fetchLyrics(trackTitle, artistName, targetDurationMs)
             }
         }
         val qqDeferred = async {
-            withTimeoutOrNull(3000L) {
+            withTimeoutOrNull(5000L) {
                 QQMusicLyricsService.fetchLyrics(trackTitle, artistName, targetDurationMs)
             }
         }
         // 并发检索酷狗与 LRCLIB（具备海量时间轴原版歌词的坚实后盾）
         val kugouDeferred = async {
-            withTimeoutOrNull(3000L) {
+            withTimeoutOrNull(4500L) {
                 KugouLyricsService.fetchLyrics(trackTitle, artistName, targetDurationMs)
             }
         }
         val lrclibDeferred = async {
-            withTimeoutOrNull(3000L) {
+            withTimeoutOrNull(4500L) {
                 LrclibLyricsService.fetchLyrics(trackTitle, artistName, targetDurationMs)
             }
         }
@@ -142,9 +142,9 @@ object UnifiedLyricsService {
                 score += consensusPeers * 220
             }
 
-            // 4. 双语官方精翻加分
+            // 4. 双语官方精翻超高加权 (优先采用正版人工精翻，杜绝生硬机翻)
             if (res.isBilingual && !res.translatedLyrics.isNullOrBlank()) {
-                score += 80
+                score += 350
             }
 
             // 5. LRC 动态同步时间戳加分

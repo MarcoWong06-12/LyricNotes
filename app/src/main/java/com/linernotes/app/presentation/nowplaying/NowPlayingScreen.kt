@@ -823,20 +823,20 @@ private fun NowPlayingFloatingGlassPlayer(
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.SpaceBetween
                 ) {
-                    // 歌曲封面微缩图 + 歌名/歌手群
+                    // 歌曲封面微缩图 + 歌名/歌手群 (占用更多横向空间，支持平滑完整跑马灯)
                     Row(
                         modifier = Modifier
                             .weight(1f)
-                            .padding(end = 8.dp),
+                            .padding(end = 6.dp),
                         verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(10.dp)
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
                     ) {
-                        // 1. 歌曲封面缩略图 (44dp 黄金微胶囊，点击查看待播队列)
+                        // 1. 歌曲封面缩略图 (42dp 黄金微胶囊，点击查看待播队列)
                         Box(
                             modifier = Modifier
-                                .size(44.dp)
-                                .clip(RoundedCornerShape(12.dp))
-                                .border(BorderStroke(0.5.dp, Color.White.copy(alpha = 0.20f)), RoundedCornerShape(12.dp))
+                                .size(42.dp)
+                                .clip(RoundedCornerShape(11.dp))
+                                .border(BorderStroke(0.5.dp, Color.White.copy(alpha = 0.20f)), RoundedCornerShape(11.dp))
                                 .bouncyClickable(
                                     pressedScale = 0.90f,
                                     onClick = onOpenQueue
@@ -855,7 +855,7 @@ private fun NowPlayingFloatingGlassPlayer(
                             } else {
                                 Surface(
                                     color = Color.White.copy(alpha = 0.10f),
-                                    shape = RoundedCornerShape(12.dp),
+                                    shape = RoundedCornerShape(11.dp),
                                     modifier = Modifier.fillMaxSize()
                                 ) {
                                     Box(contentAlignment = Alignment.Center) {
@@ -870,7 +870,7 @@ private fun NowPlayingFloatingGlassPlayer(
                             }
                         }
 
-                        // 2. 歌曲信息 (支持超长跑马灯滚动，点击打开设置)
+                        // 2. 歌曲信息 (支持超长跑马灯滚动，绝不截断或吞字，点击打开设置)
                         Column(
                             modifier = Modifier
                                 .weight(1f)
@@ -887,7 +887,6 @@ private fun NowPlayingFloatingGlassPlayer(
                                 fontFamily = FontFamily.SansSerif,
                                 letterSpacing = (-0.2).sp,
                                 maxLines = 1,
-                                overflow = TextOverflow.Ellipsis,
                                 modifier = Modifier.basicMarquee()
                             )
                             Spacer(modifier = Modifier.height(1.dp))
@@ -897,22 +896,22 @@ private fun NowPlayingFloatingGlassPlayer(
                                 fontSize = 11.sp,
                                 fontFamily = FontFamily.SansSerif,
                                 maxLines = 1,
-                                overflow = TextOverflow.Ellipsis
+                                modifier = Modifier.basicMarquee()
                             )
                         }
                     }
 
-                    // 3. 播放控制按键群 (纯正流体弹簧触感按压)
+                    // 3. 播放控制按键群 (纯正流体弹簧触感按压，紧凑高质感布局)
                     Row(
                         verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(4.dp)
+                        horizontalArrangement = Arrangement.spacedBy(2.dp)
                     ) {
                         // 随机播放按键
                         Surface(
                             color = if (trackState.isShuffleActive) Color(0xFF1ED760).copy(alpha = 0.18f) else Color.Transparent,
                             shape = CircleShape,
                             modifier = Modifier
-                                .size(34.dp)
+                                .size(30.dp)
                                 .bouncyIconClickable(
                                     onClick = onToggleShuffle
                                 )
@@ -922,7 +921,7 @@ private fun NowPlayingFloatingGlassPlayer(
                                     imageVector = Icons.Default.Shuffle,
                                     contentDescription = if (trackState.isShuffleActive) "随机播放 (已开启)" else "顺序播放",
                                     tint = if (trackState.isShuffleActive) Color(0xFF1ED760) else Color.White.copy(alpha = 0.60f),
-                                    modifier = Modifier.size(18.dp)
+                                    modifier = Modifier.size(16.dp)
                                 )
                             }
                         }
@@ -931,7 +930,7 @@ private fun NowPlayingFloatingGlassPlayer(
                         Box(
                             contentAlignment = Alignment.Center,
                             modifier = Modifier
-                                .size(36.dp)
+                                .size(32.dp)
                                 .bouncyIconClickable(
                                     onClick = onPrevious
                                 )
@@ -940,17 +939,17 @@ private fun NowPlayingFloatingGlassPlayer(
                                 imageVector = Icons.Default.SkipPrevious,
                                 contentDescription = "上一首",
                                 tint = Color.White.copy(alpha = 0.92f),
-                                modifier = Modifier.size(22.dp)
+                                modifier = Modifier.size(20.dp)
                             )
                         }
 
-                        // 播放/暂停 Hero 圆钮 (42dp 饱满白瓷高光)
+                        // 播放/暂停 Hero 圆钮 (40dp 饱满白瓷高光)
                         Surface(
                             color = Color.White,
                             shape = CircleShape,
                             shadowElevation = 10.dp,
                             modifier = Modifier
-                                .size(42.dp)
+                                .size(40.dp)
                                 .bouncyIconClickable(
                                     pressedScale = 0.90f,
                                     onClick = onPlayPause
@@ -961,7 +960,7 @@ private fun NowPlayingFloatingGlassPlayer(
                                     imageVector = if (trackState.isPlaying) Icons.Default.Pause else Icons.Default.PlayArrow,
                                     contentDescription = if (trackState.isPlaying) "暂停" else "播放",
                                     tint = Color(0xFF0F1118),
-                                    modifier = Modifier.size(23.dp)
+                                    modifier = Modifier.size(22.dp)
                                 )
                             }
                         }
@@ -970,7 +969,7 @@ private fun NowPlayingFloatingGlassPlayer(
                         Box(
                             contentAlignment = Alignment.Center,
                             modifier = Modifier
-                                .size(36.dp)
+                                .size(32.dp)
                                 .bouncyIconClickable(
                                     onClick = onNext
                                 )
@@ -979,7 +978,7 @@ private fun NowPlayingFloatingGlassPlayer(
                                 imageVector = Icons.Default.SkipNext,
                                 contentDescription = "下一首",
                                 tint = Color.White.copy(alpha = 0.92f),
-                                modifier = Modifier.size(22.dp)
+                                modifier = Modifier.size(20.dp)
                             )
                         }
                     }
