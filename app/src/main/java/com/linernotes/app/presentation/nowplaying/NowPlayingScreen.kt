@@ -918,7 +918,7 @@ private fun NowPlayingFloatingGlassPlayer(
                                 modifier = Modifier.basicMarquee(
                                     iterations = Int.MAX_VALUE,
                                     initialDelayMillis = 2600,
-                                    delayMillis = 1500,
+                                    repeatDelayMillis = 1500,
                                     velocity = 26.dp
                                 )
                             )
@@ -932,7 +932,7 @@ private fun NowPlayingFloatingGlassPlayer(
                                 modifier = Modifier.basicMarquee(
                                     iterations = Int.MAX_VALUE,
                                     initialDelayMillis = 3000,
-                                    delayMillis = 1500,
+                                    repeatDelayMillis = 1500,
                                     velocity = 24.dp
                                 )
                             )

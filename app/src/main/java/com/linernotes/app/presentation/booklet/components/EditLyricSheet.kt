@@ -12,6 +12,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import com.linernotes.app.core.util.ChineseConverter
 import com.linernotes.app.data.local.entity.TrackEntity
+import androidx.compose.foundation.shape.RoundedCornerShape
 import com.linernotes.app.presentation.common.BouncyButton
 import com.linernotes.app.presentation.common.bouncyClickable
 
