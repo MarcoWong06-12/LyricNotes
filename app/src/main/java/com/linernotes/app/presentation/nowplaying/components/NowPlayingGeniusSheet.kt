@@ -31,7 +31,9 @@ import com.linernotes.app.presentation.common.*
 @Composable
 fun NowPlayingGeniusSheet(
     annotation: LyricAnnotationEntity?,
+    isTranslating: Boolean = false,
     isTraditional: Boolean = false,
+    onRetryTranslation: () -> Unit = {},
     onDismiss: () -> Unit
 ) {
     if (annotation == null) return
@@ -150,8 +152,10 @@ fun NowPlayingGeniusSheet(
             BilingualContentView(
                 originalText = annotation.explanationText,
                 translatedText = annotation.explanationTranslation,
+                isTranslating = isTranslating,
                 isTraditional = isTraditional,
                 isDark = true,
+                onRetryTranslation = onRetryTranslation,
                 modifier = Modifier.fillMaxWidth()
             )
 

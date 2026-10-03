@@ -86,6 +86,7 @@ fun BilingualContentView(
     isTranslating: Boolean = false,
     isTraditional: Boolean = false,
     isDark: Boolean = MaterialTheme.colorScheme.surface.luminance() < 0.5f,
+    onRetryTranslation: (() -> Unit)? = null,
     modifier: Modifier = Modifier
 ) {
     if (originalText.isBlank()) return
@@ -100,7 +101,7 @@ fun BilingualContentView(
         else translatedText
     }
 
-    val hasTranslation = !effectiveTranslation.isNullOrBlank()
+    val hasTranslation = !effectiveTranslation.isNullOrBlank() && (isAlreadyChinese || Regex("""[\u4e00-\u9fa5]""").containsMatchIn(effectiveTranslation))
 
     // 默认展示中英对照模式（若原文已是中文则直接展示）
     var selectedTab by remember(originalText, hasTranslation) {
@@ -190,6 +191,32 @@ fun BilingualContentView(
                         text = if (isTraditional) "正在為您生成精準中文對照釋義..." else "正在为您生成精准中文对照释义...",
                         style = MaterialTheme.typography.bodySmall.copy(fontSize = 11.5.sp),
                         color = loadingTextColor
+                    )
+                }
+            }
+        }
+
+        // 若未具备中文翻译且未在翻译中，显示一键即时生成按钮
+        if (!isAlreadyChinese && !hasTranslation && !isTranslating && onRetryTranslation != null) {
+            Surface(
+                onClick = onRetryTranslation,
+                shape = RoundedCornerShape(10.dp),
+                color = if (isEffectiveDark) Color.White.copy(alpha = 0.08f) else MaterialTheme.colorScheme.surfaceVariant,
+                border = BorderStroke(0.5.dp, Color(0xFF1ED760).copy(alpha = 0.45f)),
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Row(
+                    modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.Center
+                ) {
+                    Text("✨", fontSize = 12.sp)
+                    Spacer(modifier = Modifier.width(6.dp))
+                    Text(
+                        text = if (isTraditional) "即刻生成中文對照釋義" else "即刻生成中文对照释义",
+                        color = Color(0xFF1ED760),
+                        fontSize = 12.5.sp,
+                        fontWeight = FontWeight.Medium
                     )
                 }
             }

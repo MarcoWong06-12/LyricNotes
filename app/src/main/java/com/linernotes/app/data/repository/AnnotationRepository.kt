@@ -507,6 +507,8 @@ class AnnotationRepository @Inject constructor(
         if (translation.isNullOrBlank()) return true
         val orig = original.trim()
         val trans = translation.trim()
+        if (!AiAnnotationCurator.isAlreadyChinese(orig) && orig.equals(trans, ignoreCase = true)) return true
+        if (!AiAnnotationCurator.isAlreadyChinese(orig) && !Regex("""[\u4e00-\u9fa5]""").containsMatchIn(trans)) return true
         if (orig.length >= 35 && trans.length < 15) return true
         if (orig.length >= 80 && trans.length < orig.length * 0.15) return true
         return false

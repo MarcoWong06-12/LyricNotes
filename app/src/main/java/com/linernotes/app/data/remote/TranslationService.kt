@@ -165,9 +165,12 @@ class TranslationService(
     suspend fun translateText(text: String, targetIso: String): String? = withContext(Dispatchers.IO) {
         if (text.isBlank()) return@withContext ""
 
+        val cleaned = HtmlUtils.cleanPlainText(text)
+        if (cleaned.isBlank()) return@withContext ""
+
         // 按段落 (\n\s*\n) 划分，保护段落上下文与双语对齐结构
-        val paragraphs = text.split(Regex("""\n\s*\n"""))
-            .map { HtmlUtils.cleanPlainText(it) }
+        val paragraphs = cleaned.split(Regex("""(?:\r?\n\s*){2,}"""))
+            .map { it.trim() }
             .filter { it.isNotBlank() }
 
         if (paragraphs.isEmpty()) return@withContext text
@@ -180,10 +183,13 @@ class TranslationService(
                     }
                 }.awaitAll()
             }
-            translatedParagraphs.joinToString("\n\n")
+            // 确保每个段落都有对应的译文，即使单段翻译失败也保留原段作为占位，绝不破坏段落对齐结构
+            translatedParagraphs.mapIndexed { idx, trans ->
+                if (trans.isNotBlank()) trans else paragraphs[idx]
+            }.joinToString("\n\n")
         } catch (e: Exception) {
             // 全量容灾兜底
-            translateSingleParagraph(text, targetIso)
+            translateSingleParagraph(cleaned, targetIso)
         }
     }
 
@@ -194,23 +200,35 @@ class TranslationService(
         val cleanInput = HtmlUtils.cleanPlainText(paragraph)
         if (cleanInput.isBlank()) return ""
 
-        // 1. 优先使用有道移动端极速端点
-        val youdaoResult = translateChunkViaYoudao(cleanInput)
-        if (!youdaoResult.isNullOrEmpty()) {
-            val fullTranslated = youdaoResult.joinToString("\n").trim()
-            val cleaned = HtmlUtils.cleanTranslationOutput(fullTranslated)
-            if (cleaned.isNotBlank()) return cleaned
+        // 1. 优先使用有道移动端极速端点 (带轻微重试)
+        for (attempt in 0..1) {
+            val youdaoResult = translateChunkViaYoudao(cleanInput)
+            if (!youdaoResult.isNullOrEmpty()) {
+                val fullTranslated = youdaoResult.joinToString("\n").trim()
+                val cleaned = HtmlUtils.cleanTranslationOutput(fullTranslated)
+                    .replace(Regex("""(?:\r?\n\s*){2,}"""), "\n")
+                if (cleaned.isNotBlank()) return cleaned
+            }
+            if (attempt == 0) kotlinx.coroutines.delay(150)
         }
 
         // 2. 容灾回退至 Google Translate 公共端点
         val google = translateViaGoogle(cleanInput, targetIso, "https://translate.googleapis.com/translate_a/single")
-        if (!google.isNullOrBlank()) return HtmlUtils.cleanTranslationOutput(google)
+        if (!google.isNullOrBlank()) {
+            val cleaned = HtmlUtils.cleanTranslationOutput(google)
+                .replace(Regex("""(?:\r?\n\s*){2,}"""), "\n")
+            if (cleaned.isNotBlank()) return cleaned
+        }
 
         // 3. 容灾回退至 MyMemory
         val myMemory = translateViaMyMemory(cleanInput, targetIso)
-        if (!myMemory.isNullOrBlank()) return HtmlUtils.cleanTranslationOutput(myMemory)
+        if (!myMemory.isNullOrBlank()) {
+            val cleaned = HtmlUtils.cleanTranslationOutput(myMemory)
+                .replace(Regex("""(?:\r?\n\s*){2,}"""), "\n")
+            if (cleaned.isNotBlank()) return cleaned
+        }
 
-        return cleanInput
+        return ""
     }
 
     /**

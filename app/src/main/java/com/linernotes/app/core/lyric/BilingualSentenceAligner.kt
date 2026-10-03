@@ -23,6 +23,8 @@ object BilingualSentenceAligner {
         "e.g.", "i.e.", "St.", "Jr.", "Sr.", "No.", "Vol.", "approx."
     )
 
+    private val CHINESE_CHAR_REGEX = Regex("""[\u4e00-\u9fa5]""")
+
     /**
      * 将原文与译文进行段落和句子级的精细对齐。
      * 若未提供译文或原文已为中文，则返回单语言单元。
@@ -73,7 +75,7 @@ object BilingualSentenceAligner {
         val origClean = originalPara.trim()
         val transClean = translationPara.trim()
 
-        if (transClean.isBlank()) {
+        if (transClean.isBlank() || !CHINESE_CHAR_REGEX.containsMatchIn(transClean)) {
             return AlignedBilingualParagraph(listOf(AlignedSentenceUnit(chinese = "", original = origClean)))
         }
 
@@ -100,7 +102,7 @@ object BilingualSentenceAligner {
      * 按段落（空行 \n\s*\n）拆分文本
      */
     fun splitParagraphs(text: String): List<String> {
-        return text.split(Regex("""\n\s*\n"""))
+        return text.split(Regex("""(?:\r?\n\s*){2,}"""))
             .map { it.trim() }
             .filter { it.isNotBlank() }
     }

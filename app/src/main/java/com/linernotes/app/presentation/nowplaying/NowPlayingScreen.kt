@@ -252,7 +252,9 @@ fun NowPlayingScreen(
         if (state.isGeniusSheetOpen) {
             NowPlayingGeniusSheet(
                 annotation = state.selectedAnnotation,
+                isTranslating = state.isAnnotationTranslating,
                 isTraditional = state.isTraditionalChinese,
+                onRetryTranslation = { viewModel.retryAnnotationTranslation() },
                 onDismiss = { viewModel.closeGeniusSheet() }
             )
         }
@@ -261,7 +263,9 @@ fun NowPlayingScreen(
         if (state.isSongStorySheetOpen) {
             NowPlayingSongStorySheet(
                 story = nowData.songStory,
+                isTranslating = state.isSongStoryTranslating,
                 isTraditional = state.isTraditionalChinese,
+                onRetryTranslation = { viewModel.retrySongStoryTranslation() },
                 onDismiss = { viewModel.closeSongStory() }
             )
         }
@@ -502,7 +506,7 @@ private fun NowPlayingLyricsContent(
         }
     }
 
-    // 物理级黄金聚焦点对齐动力学 (Lyricify 经典 Spring 弹性物理阻尼与低刚度阻尼衰减)
+    // 物理级黄金聚焦点对齐动力学 (对标 Lyricify / Apple Music 视频中的流体顺滑滑动与零回弹)
     LaunchedEffect(currentLineIndex) {
         if (currentLineIndex in lyrics.indices) {
             val isInteracting = (System.currentTimeMillis() - lastUserInteractionTime) < 2500L && listState.isScrollInProgress
@@ -511,19 +515,21 @@ private fun NowPlayingLyricsContent(
             }
 
             val viewportHeight = listState.layoutInfo.viewportSize.height.toFloat()
-            val targetFocalY = if (viewportHeight > 0f) viewportHeight * 0.36f else 320f
+            // 黄金聚焦基准线：视口高度的 32%（顶部三分之一处），与视频中的视线重心完美对齐
+            val targetFocalY = if (viewportHeight > 0f) viewportHeight * 0.32f else 300f
             val visibleItem = listState.layoutInfo.visibleItemsInfo.find { it.index == currentLineIndex }
 
             if (visibleItem != null && viewportHeight > 0f) {
-                val currentCenter = visibleItem.offset.toFloat() + (visibleItem.size.toFloat() / 2f)
-                val scrollDelta = currentCenter - targetFocalY
+                // 统一以活跃行的顶部为基准线对齐，杜绝因行数不同导致的上下晃动
+                val currentTop = visibleItem.offset.toFloat()
+                val scrollDelta = currentTop - targetFocalY
 
-                if (kotlin.math.abs(scrollDelta) > 1.0f) {
+                if (kotlin.math.abs(scrollDelta) > 1.5f) {
                     listState.animateScrollBy(
                         value = scrollDelta,
                         animationSpec = spring(
-                            dampingRatio = 0.84f, // 黄金次临界阻尼：消除机械顿挫感，平滑衰减沉降
-                            stiffness = 220f      // 柔和低刚度：丝滑滑动耗时约 520ms，如水般流淌
+                            dampingRatio = Spring.DampingRatioNoBouncy, // 1.0f 临界阻尼：消除机械回弹与颠簸，精准平稳滑停！
+                            stiffness = 320f                            // 柔和刚度：丝滑滑行动效耗时约 420ms，优雅如水
                         )
                     )
                 }
@@ -597,46 +603,32 @@ private fun LyricLineRow(
     onClick: () -> Unit,
     onAnnotationClick: () -> Unit
 ) {
-    // Lyricify / Apple Music 经典动力学：活跃行 1.04f 微弹聚焦，非活跃行 0.96f，左边缘锚定，弹性平滑缓动
-    val animatedScale by animateFloatAsState(
-        targetValue = when {
-            isActive -> 1.04f
-            distance == 1 -> 0.985f
-            else -> 0.96f
-        },
-        animationSpec = spring(
-            dampingRatio = 0.82f,
-            stiffness = 300f
-        ),
-        label = "lyricScale"
-    )
-
-    // 原文透明度动力学：活跃行 100% 纯白锁定，相邻行 68%，远行 36%
+    // 原文透明度动力学：活跃行 100% 纯白高对比锁定，相邻行 45% 柔和暗白，远行 25%
     val animatedOriginalAlpha by animateFloatAsState(
         targetValue = when {
             isActive -> 1.0f
-            distance == 1 -> 0.68f
-            distance == 2 -> 0.48f
-            else -> 0.35f
+            distance == 1 -> 0.45f
+            distance == 2 -> 0.32f
+            else -> 0.25f
         },
         animationSpec = tween(
-            durationMillis = 360,
-            easing = CubicBezierEasing(0.20f, 0.0f, 0.0f, 1.0f)
+            durationMillis = 350,
+            easing = FastOutSlowInEasing
         ),
         label = "origAlpha"
     )
 
-    // 中文翻译透明度动力学：活跃行 90%，相邻行 60%，远行 30%
+    // 中文翻译透明度动力学：活跃行 88%，相邻行 40%，远行 20%
     val animatedTransAlpha by animateFloatAsState(
         targetValue = when {
-            isActive -> 0.90f
-            distance == 1 -> 0.60f
-            distance == 2 -> 0.42f
-            else -> 0.30f
+            isActive -> 0.88f
+            distance == 1 -> 0.40f
+            distance == 2 -> 0.28f
+            else -> 0.20f
         },
         animationSpec = tween(
-            durationMillis = 360,
-            easing = CubicBezierEasing(0.20f, 0.0f, 0.0f, 1.0f)
+            durationMillis = 350,
+            easing = FastOutSlowInEasing
         ),
         label = "transAlpha"
     )
@@ -648,34 +640,30 @@ private fun LyricLineRow(
     Column(
         modifier = Modifier
             .fillMaxWidth()
-            .graphicsLayer {
-                scaleX = animatedScale
-                scaleY = animatedScale
-                transformOrigin = TransformOrigin(0f, 0.5f)
-            }
-            .bouncyItemClickable(onClick = onClick)
+            .bouncyItemClickable(pressedScale = 0.985f, onClick = onClick)
     ) {
-        // 原文歌词 (纯白高对比，饱满视觉重心)
+        // 原文歌词：统一固定字号与行高，彻底消除动态测量导致的整列上下抖动与颠簸！
+        // 视觉重心完全由 Weight (Bold vs Medium) 与 Alpha (100% vs 45%) 优雅表达
         Text(
             text = line.original,
             color = Color.White.copy(alpha = animatedOriginalAlpha),
-            fontSize = if (isActive) 27.sp else 21.sp,
-            fontWeight = if (isActive) FontWeight.Bold else FontWeight.SemiBold,
+            fontSize = 24.5.sp,
+            fontWeight = if (isActive) FontWeight.Bold else FontWeight.Medium,
             fontFamily = FontFamily.SansSerif,
-            lineHeight = if (isActive) 36.sp else 29.sp,
+            lineHeight = 33.sp,
             letterSpacing = (-0.3).sp
         )
 
-        // 中文翻译 (舒适字号与清晰行高)
+        // 中文翻译：统一固定字号与清晰行高
         if (displayTranslation.isNotBlank()) {
             Spacer(modifier = Modifier.height(4.dp))
             Text(
                 text = displayTranslation,
                 color = Color.White.copy(alpha = animatedTransAlpha),
-                fontSize = if (isActive) 15.sp else 13.5.sp,
+                fontSize = 15.sp,
                 fontWeight = if (isActive) FontWeight.Medium else FontWeight.Normal,
                 fontFamily = FontFamily.SansSerif,
-                lineHeight = 21.sp
+                lineHeight = 22.sp
             )
         }
 

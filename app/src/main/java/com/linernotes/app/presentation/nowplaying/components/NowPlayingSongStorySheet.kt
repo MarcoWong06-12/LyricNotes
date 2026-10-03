@@ -29,7 +29,9 @@ import com.linernotes.app.presentation.common.*
 @Composable
 fun NowPlayingSongStorySheet(
     story: SongStoryEntity?,
+    isTranslating: Boolean = false,
     isTraditional: Boolean = false,
+    onRetryTranslation: () -> Unit = {},
     onDismiss: () -> Unit
 ) {
     if (story == null) return
@@ -154,8 +156,10 @@ fun NowPlayingSongStorySheet(
             BilingualContentView(
                 originalText = story.descriptionPlain,
                 translatedText = story.descriptionTranslation,
+                isTranslating = isTranslating,
                 isTraditional = isTraditional,
                 isDark = true,
+                onRetryTranslation = onRetryTranslation,
                 modifier = Modifier.fillMaxWidth()
             )
         }

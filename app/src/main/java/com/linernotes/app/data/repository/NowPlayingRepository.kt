@@ -8,7 +8,8 @@ import com.linernotes.app.core.lyric.LyricSanitizer
 import com.linernotes.app.core.lyric.LyricSearchCleaner
 import com.linernotes.app.core.playback.PlaybackStateManager
 import com.linernotes.app.core.playback.TrackPlaybackState
-import com.linernotes.app.core.preference.AiPreferences
+import com.linernotes.app.core.util.ChineseConverter
+import com.linernotes.app.core.util.HtmlUtils
 import com.linernotes.app.data.local.entity.LyricAnnotationEntity
 import com.linernotes.app.data.local.entity.SongStoryEntity
 import com.linernotes.app.data.remote.GeniusService
@@ -388,6 +389,9 @@ class NowPlayingRepository @Inject constructor(
 
             // 阶段二：后台受控并发极速补全中文对照翻译 (4 协程并行，1.5 秒内全部就绪并平滑刷新界面)
             if (fetchedStory != null || fetchedAnnotations.isNotEmpty()) {
+                val targetIso = TranslationTargetLanguage.fromCode(aiPreferences.targetLanguage).fallbackIso
+                val isTraditionalTarget = aiPreferences.targetLanguage == "zh-TW" ||
+                    TranslationTargetLanguage.fromCode(aiPreferences.targetLanguage) == TranslationTargetLanguage.ZH_TW
                 val transSemaphore = Semaphore(4)
                 coroutineScope {
                     val storyTransDeferred = async {
@@ -397,10 +401,11 @@ class NowPlayingRepository @Inject constructor(
                         ) {
                             transSemaphore.withPermit {
                                 try {
-                                    val res = translationService.translateTrack("Story", cStory.descriptionPlain)
-                                    val tr = res?.translatedLyrics
-                                    if (!tr.isNullOrBlank()) {
-                                        fetchedStory = cStory.copy(descriptionTranslation = tr)
+                                    val tr = translationService.translateText(cStory.descriptionPlain, targetIso)
+                                    if (!tr.isNullOrBlank() && (AiAnnotationCurator.isAlreadyChinese(tr) || Regex("""[\u4e00-\u9fa5]""").containsMatchIn(tr))) {
+                                        val cleaned = HtmlUtils.cleanTranslationOutput(tr)
+                                        val finalStoryTrans = if (isTraditionalTarget) ChineseConverter.toTraditional(cleaned) else cleaned
+                                        fetchedStory = cStory.copy(descriptionTranslation = finalStoryTrans)
                                     }
                                 } catch (e: Exception) { }
                             }
@@ -414,9 +419,14 @@ class NowPlayingRepository @Inject constructor(
                             ) {
                                 transSemaphore.withPermit {
                                     try {
-                                        val res = translationService.translateTrack("Annotation", annot.explanationText)
-                                        val tr = res?.translatedLyrics
-                                        if (!tr.isNullOrBlank()) annot.copy(explanationTranslation = tr) else annot
+                                        val tr = translationService.translateText(annot.explanationText, targetIso)
+                                        if (!tr.isNullOrBlank() && (AiAnnotationCurator.isAlreadyChinese(tr) || Regex("""[\u4e00-\u9fa5]""").containsMatchIn(tr))) {
+                                            val cleaned = HtmlUtils.cleanTranslationOutput(tr)
+                                            val finalTrans = if (isTraditionalTarget) ChineseConverter.toTraditional(cleaned) else cleaned
+                                            annot.copy(explanationTranslation = finalTrans)
+                                        } else {
+                                            annot
+                                        }
                                     } catch (e: Exception) {
                                         annot
                                     }
@@ -576,6 +586,9 @@ class NowPlayingRepository @Inject constructor(
                 }
 
                 // 并发极速翻译
+                val targetIso = TranslationTargetLanguage.fromCode(aiPreferences.targetLanguage).fallbackIso
+                val isTraditionalTarget = aiPreferences.targetLanguage == "zh-TW" ||
+                    TranslationTargetLanguage.fromCode(aiPreferences.targetLanguage) == TranslationTargetLanguage.ZH_TW
                 val transSemaphore = Semaphore(4)
                 coroutineScope {
                     val storyTransDeferred = async {
@@ -585,10 +598,11 @@ class NowPlayingRepository @Inject constructor(
                         ) {
                             transSemaphore.withPermit {
                                 try {
-                                    val res = translationService.translateTrack("Story", curStory.descriptionPlain)
-                                    val tr = res?.translatedLyrics
-                                    if (!tr.isNullOrBlank()) {
-                                        fetchedStory = curStory.copy(descriptionTranslation = tr)
+                                    val tr = translationService.translateText(curStory.descriptionPlain, targetIso)
+                                    if (!tr.isNullOrBlank() && (AiAnnotationCurator.isAlreadyChinese(tr) || Regex("""[\u4e00-\u9fa5]""").containsMatchIn(tr))) {
+                                        val cleaned = HtmlUtils.cleanTranslationOutput(tr)
+                                        val finalTr = if (isTraditionalTarget) ChineseConverter.toTraditional(cleaned) else cleaned
+                                        fetchedStory = curStory.copy(descriptionTranslation = finalTr)
                                     }
                                 } catch (e: Exception) { }
                             }
@@ -600,9 +614,14 @@ class NowPlayingRepository @Inject constructor(
                             if (annot.explanationText.isNotBlank() && !AiAnnotationCurator.isAlreadyChinese(annot.explanationText)) {
                                 transSemaphore.withPermit {
                                     try {
-                                        val res = translationService.translateTrack("Annotation", annot.explanationText)
-                                        val tr = res?.translatedLyrics
-                                        if (!tr.isNullOrBlank()) annot.copy(explanationTranslation = tr) else annot
+                                        val tr = translationService.translateText(annot.explanationText, targetIso)
+                                        if (!tr.isNullOrBlank() && (AiAnnotationCurator.isAlreadyChinese(tr) || Regex("""[\u4e00-\u9fa5]""").containsMatchIn(tr))) {
+                                            val cleaned = HtmlUtils.cleanTranslationOutput(tr)
+                                            val finalTr = if (isTraditionalTarget) ChineseConverter.toTraditional(cleaned) else cleaned
+                                            annot.copy(explanationTranslation = finalTr)
+                                        } else {
+                                            annot
+                                        }
                                     } catch (e: Exception) {
                                         annot
                                     }
@@ -673,6 +692,70 @@ class NowPlayingRepository @Inject constructor(
             memoryCache.remove(songKey)
         }
         loadSongLyricsAndGenius(state.title, state.artist, songKey)
+    }
+
+    suspend fun translateSingleAnnotation(annotation: LyricAnnotationEntity): LyricAnnotationEntity = withContext(Dispatchers.IO) {
+        if (AiAnnotationCurator.isAlreadyChinese(annotation.explanationText)) {
+            return@withContext annotation
+        }
+        val targetIso = TranslationTargetLanguage.fromCode(aiPreferences.targetLanguage).fallbackIso
+        val isTraditionalTarget = aiPreferences.targetLanguage == "zh-TW" ||
+            TranslationTargetLanguage.fromCode(aiPreferences.targetLanguage) == TranslationTargetLanguage.ZH_TW
+
+        val tr = translationService.translateText(annotation.explanationText, targetIso)
+        if (!tr.isNullOrBlank() && (AiAnnotationCurator.isAlreadyChinese(tr) || Regex("""[\u4e00-\u9fa5]""").containsMatchIn(tr))) {
+            val cleaned = HtmlUtils.cleanTranslationOutput(tr)
+            val finalTr = if (isTraditionalTarget) ChineseConverter.toTraditional(cleaned) else cleaned
+            val updated = annotation.copy(explanationTranslation = finalTr)
+
+            val current = _nowPlayingData.value
+            val newAnnotatedLines = current.annotatedLines.mapValues { (_, v) ->
+                if (v.id == annotation.id || (v.lyricFragment == annotation.lyricFragment && v.explanationText == annotation.explanationText)) updated else v
+            }
+            _nowPlayingData.value = current.copy(annotatedLines = newAnnotatedLines)
+
+            val curKey = currentSongKey
+            if (curKey != null) {
+                memoryCache[curKey]?.let { cached ->
+                    val updatedCache = cached.copy(
+                        annotatedLines = cached.annotatedLines.mapValues { (_, v) ->
+                            if (v.id == annotation.id || (v.lyricFragment == annotation.lyricFragment && v.explanationText == annotation.explanationText)) updated else v
+                        }
+                    )
+                    memoryCache[curKey] = updatedCache
+                }
+            }
+            return@withContext updated
+        }
+        return@withContext annotation
+    }
+
+    suspend fun translateCurrentStory(story: SongStoryEntity): SongStoryEntity = withContext(Dispatchers.IO) {
+        if (AiAnnotationCurator.isAlreadyChinese(story.descriptionPlain)) {
+            return@withContext story
+        }
+        val targetIso = TranslationTargetLanguage.fromCode(aiPreferences.targetLanguage).fallbackIso
+        val isTraditionalTarget = aiPreferences.targetLanguage == "zh-TW" ||
+            TranslationTargetLanguage.fromCode(aiPreferences.targetLanguage) == TranslationTargetLanguage.ZH_TW
+
+        val tr = translationService.translateText(story.descriptionPlain, targetIso)
+        if (!tr.isNullOrBlank() && (AiAnnotationCurator.isAlreadyChinese(tr) || Regex("""[\u4e00-\u9fa5]""").containsMatchIn(tr))) {
+            val cleaned = HtmlUtils.cleanTranslationOutput(tr)
+            val finalTr = if (isTraditionalTarget) ChineseConverter.toTraditional(cleaned) else cleaned
+            val updated = story.copy(descriptionTranslation = finalTr)
+
+            val current = _nowPlayingData.value
+            _nowPlayingData.value = current.copy(songStory = updated)
+
+            val curKey = currentSongKey
+            if (curKey != null) {
+                memoryCache[curKey]?.let { cached ->
+                    memoryCache[curKey] = cached.copy(songStory = updated)
+                }
+            }
+            return@withContext updated
+        }
+        return@withContext story
     }
 
     // 播控方法代理回传 Spotify

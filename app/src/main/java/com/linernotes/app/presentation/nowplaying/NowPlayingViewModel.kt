@@ -2,6 +2,7 @@ package com.linernotes.app.presentation.nowplaying
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.linernotes.app.core.lyric.AiAnnotationCurator
 import com.linernotes.app.core.preference.AiPreferences
 import com.linernotes.app.data.local.entity.LyricAnnotationEntity
 import com.linernotes.app.data.repository.NowPlayingData
@@ -26,6 +27,8 @@ data class NowPlayingUiState(
     val isGeniusSheetOpen: Boolean = false,
     val isSongStorySheetOpen: Boolean = false,
     val isSettingsSheetOpen: Boolean = false,
+    val isAnnotationTranslating: Boolean = false,
+    val isSongStoryTranslating: Boolean = false,
     val furiganaMode: FuriganaDisplayMode = FuriganaDisplayMode.OFF,
     val isTraditionalChinese: Boolean = false,
     val isDeCensorEnabled: Boolean = true,
@@ -47,7 +50,19 @@ class NowPlayingViewModel @Inject constructor(
     init {
         viewModelScope.launch {
             nowPlayingRepository.nowPlayingData.collect { data ->
-                _uiState.update { it.copy(nowPlayingData = data) }
+                _uiState.update { current ->
+                    val updatedSelected = if (current.selectedAnnotation != null) {
+                        data.annotatedLines.values.find {
+                            (it.id > 0L && it.id == current.selectedAnnotation.id) ||
+                            (it.lyricFragment == current.selectedAnnotation.lyricFragment && it.explanationText == current.selectedAnnotation.explanationText)
+                        } ?: current.selectedAnnotation
+                    } else null
+
+                    current.copy(
+                        nowPlayingData = data,
+                        selectedAnnotation = updatedSelected
+                    )
+                }
             }
         }
     }
@@ -137,11 +152,58 @@ class NowPlayingViewModel @Inject constructor(
     }
 
     fun openGeniusAnnotation(annotation: LyricAnnotationEntity) {
+        val needsTrans = annotation.explanationTranslation.isNullOrBlank() &&
+            annotation.explanationText.isNotBlank() &&
+            !AiAnnotationCurator.isAlreadyChinese(annotation.explanationText)
+
         _uiState.update {
             it.copy(
                 selectedAnnotation = annotation,
-                isGeniusSheetOpen = true
+                isGeniusSheetOpen = true,
+                isAnnotationTranslating = needsTrans
             )
+        }
+
+        if (needsTrans) {
+            viewModelScope.launch {
+                try {
+                    val updated = nowPlayingRepository.translateSingleAnnotation(annotation)
+                    _uiState.update { cur ->
+                        if (cur.selectedAnnotation?.lyricFragment == annotation.lyricFragment) {
+                            cur.copy(
+                                selectedAnnotation = updated,
+                                isAnnotationTranslating = false
+                            )
+                        } else {
+                            cur.copy(isAnnotationTranslating = false)
+                        }
+                    }
+                } catch (e: Exception) {
+                    _uiState.update { it.copy(isAnnotationTranslating = false) }
+                }
+            }
+        }
+    }
+
+    fun retryAnnotationTranslation() {
+        val current = _uiState.value.selectedAnnotation ?: return
+        _uiState.update { it.copy(isAnnotationTranslating = true) }
+        viewModelScope.launch {
+            try {
+                val updated = nowPlayingRepository.translateSingleAnnotation(current)
+                _uiState.update { cur ->
+                    if (cur.selectedAnnotation?.lyricFragment == current.lyricFragment) {
+                        cur.copy(
+                            selectedAnnotation = updated,
+                            isAnnotationTranslating = false
+                        )
+                    } else {
+                        cur.copy(isAnnotationTranslating = false)
+                    }
+                }
+            } catch (e: Exception) {
+                _uiState.update { it.copy(isAnnotationTranslating = false) }
+            }
         }
     }
 
@@ -149,17 +211,57 @@ class NowPlayingViewModel @Inject constructor(
         _uiState.update {
             it.copy(
                 selectedAnnotation = null,
-                isGeniusSheetOpen = false
+                isGeniusSheetOpen = false,
+                isAnnotationTranslating = false
             )
         }
     }
 
     fun openSongStory() {
-        _uiState.update { it.copy(isSongStorySheetOpen = true) }
+        val story = _uiState.value.nowPlayingData.songStory
+        val needsTrans = story != null && story.descriptionTranslation.isNullOrBlank() &&
+            story.descriptionPlain.isNotBlank() &&
+            !AiAnnotationCurator.isAlreadyChinese(story.descriptionPlain)
+
+        _uiState.update {
+            it.copy(
+                isSongStorySheetOpen = true,
+                isSongStoryTranslating = needsTrans
+            )
+        }
+
+        if (needsTrans && story != null) {
+            viewModelScope.launch {
+                try {
+                    nowPlayingRepository.translateCurrentStory(story)
+                    _uiState.update { it.copy(isSongStoryTranslating = false) }
+                } catch (e: Exception) {
+                    _uiState.update { it.copy(isSongStoryTranslating = false) }
+                }
+            }
+        }
+    }
+
+    fun retrySongStoryTranslation() {
+        val story = _uiState.value.nowPlayingData.songStory ?: return
+        _uiState.update { it.copy(isSongStoryTranslating = true) }
+        viewModelScope.launch {
+            try {
+                nowPlayingRepository.translateCurrentStory(story)
+                _uiState.update { it.copy(isSongStoryTranslating = false) }
+            } catch (e: Exception) {
+                _uiState.update { it.copy(isSongStoryTranslating = false) }
+            }
+        }
     }
 
     fun closeSongStory() {
-        _uiState.update { it.copy(isSongStorySheetOpen = false) }
+        _uiState.update {
+            it.copy(
+                isSongStorySheetOpen = false,
+                isSongStoryTranslating = false
+            )
+        }
     }
 
     fun clearUserMessage() {
