@@ -59,7 +59,7 @@ class FloatingLyricsService : Service() {
 
     private var windowManager: WindowManager? = null
     private var composeView: ComposeView? = null
-    private var layoutParams: WindowManager.LayoutParams? = null
+    private var windowLayoutParams: WindowManager.LayoutParams? = null
 
     private val serviceScope = CoroutineScope(SupervisorJob() + Dispatchers.Main)
     private val overlayLifecycleOwner = OverlayLifecycleOwner()
@@ -129,7 +129,7 @@ class FloatingLyricsService : Service() {
             baseFlags
         }
 
-        layoutParams = WindowManager.LayoutParams(
+        windowLayoutParams = WindowManager.LayoutParams(
             WindowManager.LayoutParams.WRAP_CONTENT,
             WindowManager.LayoutParams.WRAP_CONTENT,
             windowType,
@@ -160,14 +160,14 @@ class FloatingLyricsService : Service() {
                     backgroundAlpha = bgAlpha,
                     fontScale = fontScale,
                     onDrag = { dx, dy ->
-                        layoutParams?.let { params ->
+                        windowLayoutParams?.let { params ->
                             params.x += dx.toInt()
                             params.y += dy.toInt()
                             windowManager?.updateViewLayout(this@apply, params)
                         }
                     },
                     onDragEnd = {
-                        layoutParams?.let { params ->
+                        windowLayoutParams?.let { params ->
                             snapToNearestEdge(params)
                         }
                     },
@@ -186,7 +186,7 @@ class FloatingLyricsService : Service() {
         }
 
         try {
-            windowManager?.addView(composeView, layoutParams)
+            windowManager?.addView(composeView, windowLayoutParams)
         } catch (e: Exception) {
             e.printStackTrace()
             stopSelf()
@@ -222,7 +222,7 @@ class FloatingLyricsService : Service() {
     private fun updateLockState(locked: Boolean) {
         val wm = windowManager ?: return
         val cv = composeView ?: return
-        val lp = layoutParams ?: return
+        val lp = windowLayoutParams ?: return
 
         val baseFlags = WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or
             WindowManager.LayoutParams.FLAG_LAYOUT_NO_LIMITS

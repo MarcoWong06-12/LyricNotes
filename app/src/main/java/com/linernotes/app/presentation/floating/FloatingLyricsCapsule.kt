@@ -268,7 +268,7 @@ fun FloatingLyricsCapsule(
                     ) {
                         Box(contentAlignment = Alignment.Center) {
                             Icon(
-                                imageVector = Icons.Default.LockOutline,
+                                imageVector = Icons.Default.Lock,
                                 contentDescription = "Lock",
                                 tint = Color.White.copy(alpha = 0.75f),
                                 modifier = Modifier.size(16.dp)
