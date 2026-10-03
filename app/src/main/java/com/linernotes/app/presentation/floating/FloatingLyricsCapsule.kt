@@ -74,10 +74,11 @@ fun FloatingLyricsCapsule(
     val state = nowPlayingData.playbackState
     val lyrics = nowPlayingData.lyrics
     val activeIndex = nowPlayingData.currentLineIndex
+    val isLoadingLyrics = nowPlayingData.isLoadingLyrics
     val currentLine = if (activeIndex in lyrics.indices) lyrics[activeIndex] else null
 
     // 稳定视觉骨架：即使无歌词或加载中，副行优雅回退至艺人/状态信息，彻底杜绝高度跳变 (Layout Shift)
-    val (originalText, secondaryText) = remember(currentLine, state.title, state.artist, state.isInstrumental, state.hasValidTrack, isBilingual) {
+    val (originalText, secondaryText) = remember(currentLine, state.title, state.artist, state.hasValidTrack, isBilingual, isLoadingLyrics) {
         if (currentLine != null) {
             val orig = currentLine.original.ifBlank { state.title.ifBlank { "LyricNotes 桌面歌词" } }
             val trans = if (isBilingual && !currentLine.translation.isNullOrBlank()) {
@@ -90,9 +91,9 @@ fun FloatingLyricsCapsule(
             if (state.hasValidTrack) {
                 val orig = state.title.ifBlank { "正在播放" }
                 val trans = when {
-                    state.isInstrumental -> "纯音乐，请欣赏"
+                    isLoadingLyrics -> "歌词同步中..."
                     state.artist.isNotBlank() -> state.artist
-                    else -> "歌词同步中..."
+                    else -> "暂无滚动歌词"
                 }
                 orig to trans
             } else {
