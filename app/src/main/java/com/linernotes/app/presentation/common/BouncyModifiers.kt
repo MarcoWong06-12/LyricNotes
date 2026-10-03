@@ -37,10 +37,10 @@ import androidx.compose.ui.platform.LocalHapticFeedback
 fun Modifier.bouncyPress(
     interactionSource: MutableInteractionSource,
     enabled: Boolean = true,
-    pressedScale: Float = 0.95f,
-    pressedAlpha: Float = 0.94f,
-    dampingRatio: Float = 0.85f,
-    stiffness: Float = 900f
+    pressedScale: Float = 0.965f,
+    pressedAlpha: Float = 0.95f,
+    dampingRatio: Float = 0.86f,
+    stiffness: Float = 1150f
 ): Modifier = composed {
     val isPressed by interactionSource.collectIsPressedAsState()
     val scale by animateFloatAsState(
@@ -72,10 +72,10 @@ fun Modifier.bouncyPress(
  */
 fun Modifier.bouncyClickable(
     enabled: Boolean = true,
-    pressedScale: Float = 0.95f,
-    pressedAlpha: Float = 0.94f,
-    dampingRatio: Float = 0.84f,
-    stiffness: Float = 880f,
+    pressedScale: Float = 0.965f,
+    pressedAlpha: Float = 0.95f,
+    dampingRatio: Float = 0.86f,
+    stiffness: Float = 1150f,
     onClick: () -> Unit
 ): Modifier = composed {
     val interactionSource = remember { MutableInteractionSource() }
@@ -109,14 +109,14 @@ fun Modifier.bouncyClickable(
  */
 fun Modifier.bouncyIconClickable(
     enabled: Boolean = true,
-    pressedScale: Float = 0.91f,
+    pressedScale: Float = 0.925f,
     onClick: () -> Unit
 ): Modifier = bouncyClickable(
     enabled = enabled,
     pressedScale = pressedScale,
-    pressedAlpha = 0.92f,
-    dampingRatio = 0.82f,
-    stiffness = 920f,
+    pressedAlpha = 0.94f,
+    dampingRatio = 0.84f,
+    stiffness = 1250f,
     onClick = onClick
 )
 
@@ -125,14 +125,14 @@ fun Modifier.bouncyIconClickable(
  */
 fun Modifier.bouncyItemClickable(
     enabled: Boolean = true,
-    pressedScale: Float = 0.975f,
+    pressedScale: Float = 0.985f,
     onClick: () -> Unit
 ): Modifier = bouncyClickable(
     enabled = enabled,
     pressedScale = pressedScale,
-    pressedAlpha = 0.96f,
-    dampingRatio = 0.86f,
-    stiffness = 1000f,
+    pressedAlpha = 0.97f,
+    dampingRatio = 0.88f,
+    stiffness = 1350f,
     onClick = onClick
 )
 

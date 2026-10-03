@@ -40,7 +40,7 @@ object QQMusicLyricsService {
         null
     }
 
-    private fun searchAndFetch(
+    private suspend fun searchAndFetch(
         query: String,
         targetTitle: String,
         targetArtist: String,
@@ -49,7 +49,7 @@ object QQMusicLyricsService {
         return try {
             val encodedQuery = URLEncoder.encode(query, "UTF-8")
             val searchUrl = "$SEARCH_API?p=1&n=5&w=$encodedQuery&format=json"
-            val searchJson = LinerNotesHttpClient.get(searchUrl, SEARCH_HEADERS) ?: return null
+            val searchJson = LinerNotesHttpClient.getAsync(searchUrl, SEARCH_HEADERS) ?: return null
 
             val searchRoot = JSONObject(searchJson)
             val dataObj = searchRoot.optJSONObject("data") ?: return null
@@ -96,7 +96,7 @@ object QQMusicLyricsService {
             val matchedDuration = targetSong.optLong("interval", 0L) * 1000L
 
             val lyricUrl = "$LYRIC_API?songmid=$songmid&format=json&nobase64=1"
-            val lyricJson = LinerNotesHttpClient.get(lyricUrl, LYRIC_HEADERS) ?: return null
+            val lyricJson = LinerNotesHttpClient.getAsync(lyricUrl, LYRIC_HEADERS) ?: return null
             val lyricRoot = JSONObject(lyricJson)
 
             var rawLrc = lyricRoot.optString("lyric", "")

@@ -89,16 +89,17 @@ class NowPlayingRepository @Inject constructor(
     }
 
     private fun handlePlaybackStateUpdate(state: TrackPlaybackState) {
-        val current = _nowPlayingData.value
-        val activeLine = if (current.lyrics.isNotEmpty()) {
-            val currentPos = (state.getEstimatedPositionMs() + lyricOffsetMs).coerceAtLeast(0L)
-            calculateActiveLineIndex(current.lyrics, currentPos)
-        } else current.currentLineIndex
+        _nowPlayingData.update { current ->
+            val activeLine = if (current.lyrics.isNotEmpty()) {
+                val currentPos = (state.getEstimatedPositionMs() + lyricOffsetMs).coerceAtLeast(0L)
+                calculateActiveLineIndex(current.lyrics, currentPos)
+            } else current.currentLineIndex
 
-        _nowPlayingData.value = current.copy(
-            playbackState = state,
-            currentLineIndex = activeLine
-        )
+            current.copy(
+                playbackState = state,
+                currentLineIndex = activeLine
+            )
+        }
 
         if (!state.hasValidTrack) return
 
@@ -126,11 +127,15 @@ class NowPlayingRepository @Inject constructor(
             while (isActive) {
                 val current = _nowPlayingData.value
                 val state = current.playbackState
-                if (current.lyrics.isNotEmpty() && state.hasValidTrack) {
+                if (current.lyrics.isNotEmpty() && state.hasValidTrack && state.isPlaying) {
                     val currentPos = (state.getEstimatedPositionMs() + lyricOffsetMs).coerceAtLeast(0L)
                     val lineIndex = calculateActiveLineIndex(current.lyrics, currentPos)
                     if (lineIndex != current.currentLineIndex) {
-                        _nowPlayingData.value = current.copy(currentLineIndex = lineIndex)
+                        _nowPlayingData.update { latest ->
+                            if (latest.lyrics.isNotEmpty() && latest.currentLineIndex != lineIndex) {
+                                latest.copy(currentLineIndex = lineIndex)
+                            } else latest
+                        }
                     }
                 }
                 delay(50) // 50ms 刷新周期，平滑灵敏捕捉
@@ -783,11 +788,12 @@ class NowPlayingRepository @Inject constructor(
             val finalTr = if (isTraditionalTarget) ChineseConverter.toTraditional(cleaned) else cleaned
             val updated = annotation.copy(explanationTranslation = finalTr)
 
-            val current = _nowPlayingData.value
-            val newAnnotatedLines = current.annotatedLines.mapValues { (_, v) ->
-                if (v.id == annotation.id || (v.lyricFragment == annotation.lyricFragment && v.explanationText == annotation.explanationText)) updated else v
+            _nowPlayingData.update { current ->
+                val newAnnotatedLines = current.annotatedLines.mapValues { (_, v) ->
+                    if (v.id == annotation.id || (v.lyricFragment == annotation.lyricFragment && v.explanationText == annotation.explanationText)) updated else v
+                }
+                current.copy(annotatedLines = newAnnotatedLines)
             }
-            _nowPlayingData.value = current.copy(annotatedLines = newAnnotatedLines)
 
             val curKey = currentSongKey
             if (curKey != null) {
@@ -819,8 +825,9 @@ class NowPlayingRepository @Inject constructor(
             val finalTr = if (isTraditionalTarget) ChineseConverter.toTraditional(cleaned) else cleaned
             val updated = story.copy(descriptionTranslation = finalTr)
 
-            val current = _nowPlayingData.value
-            _nowPlayingData.value = current.copy(songStory = updated)
+            _nowPlayingData.update { current ->
+                current.copy(songStory = updated)
+            }
 
             val curKey = currentSongKey
             if (curKey != null) {

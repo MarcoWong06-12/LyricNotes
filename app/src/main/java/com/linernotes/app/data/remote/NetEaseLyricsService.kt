@@ -27,7 +27,7 @@ object NetEaseLyricsService {
     ): OnlineLyricsResult? = withContext(Dispatchers.IO) {
         if (songId <= 0L) return@withContext null
         val lyricUrl = "$LYRIC_API?id=$songId&lv=1&kv=1&tv=1"
-        val lyricJson = LinerNotesHttpClient.get(lyricUrl, HEADERS) ?: return@withContext null
+        val lyricJson = LinerNotesHttpClient.getAsync(lyricUrl, HEADERS) ?: return@withContext null
         try {
             val lyricRoot = JSONObject(lyricJson)
             val lrcObj = lyricRoot.optJSONObject("lrc")
@@ -68,7 +68,7 @@ object NetEaseLyricsService {
         null
     }
 
-    private fun searchAndFetch(
+    private suspend fun searchAndFetch(
         query: String,
         targetTitle: String,
         targetArtist: String,
@@ -117,7 +117,7 @@ object NetEaseLyricsService {
 
         // 获取原版与翻译歌词
         val lyricUrl = "$LYRIC_API?id=$songId&lv=1&kv=1&tv=1"
-        val lyricJson = LinerNotesHttpClient.get(lyricUrl, HEADERS) ?: return null
+        val lyricJson = LinerNotesHttpClient.getAsync(lyricUrl, HEADERS) ?: return null
 
         return try {
             val lyricRoot = JSONObject(lyricJson)
@@ -145,7 +145,7 @@ object NetEaseLyricsService {
         }
     }
 
-    private fun searchSongs(query: String): JSONArray? {
+    private suspend fun searchSongs(query: String): JSONArray? {
         // 首选 CloudSearch POST
         try {
             val postParams = mapOf(
@@ -154,7 +154,7 @@ object NetEaseLyricsService {
                 "offset" to "0",
                 "limit" to "5"
             )
-            val jsonStr = LinerNotesHttpClient.postForm(CLOUD_SEARCH_API, postParams, HEADERS)
+            val jsonStr = LinerNotesHttpClient.postFormAsync(CLOUD_SEARCH_API, postParams, HEADERS)
             if (!jsonStr.isNullOrBlank()) {
                 val root = JSONObject(jsonStr)
                 val result = root.optJSONObject("result")
@@ -171,7 +171,7 @@ object NetEaseLyricsService {
         return try {
             val encQuery = URLEncoder.encode(query, "UTF-8")
             val getUrl = "$WEB_SEARCH_API?s=$encQuery&type=1&limit=5"
-            val jsonStr = LinerNotesHttpClient.get(getUrl, HEADERS) ?: return null
+            val jsonStr = LinerNotesHttpClient.getAsync(getUrl, HEADERS) ?: return null
             val root = JSONObject(jsonStr)
             root.optJSONObject("result")?.optJSONArray("songs")
         } catch (e: Exception) {

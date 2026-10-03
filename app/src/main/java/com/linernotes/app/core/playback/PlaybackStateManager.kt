@@ -1,5 +1,10 @@
 package com.linernotes.app.core.playback
 
+import android.content.Context
+import dagger.hilt.EntryPoint
+import dagger.hilt.InstallIn
+import dagger.hilt.android.EntryPointAccessors
+import dagger.hilt.components.SingletonComponent
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -15,6 +20,12 @@ interface MediaControlActionHandler {
     fun seekTo(positionMs: Long)
     fun toggleShuffle()
     fun cycleRepeatMode()
+}
+
+@EntryPoint
+@InstallIn(SingletonComponent::class)
+interface PlaybackStateManagerEntryPoint {
+    fun playbackStateManager(): PlaybackStateManager
 }
 
 /**
@@ -74,6 +85,23 @@ class PlaybackStateManager @Inject constructor() {
     companion object {
         @Volatile
         private var instance: PlaybackStateManager? = null
+
+        /**
+         * 优先从 Hilt 全局容器获取统一单例，彻底杜绝 Service 与 UI 出现双重实例裂脑
+         */
+        fun get(context: Context): PlaybackStateManager {
+            return instance ?: synchronized(this) {
+                instance ?: try {
+                    val entryPoint = EntryPointAccessors.fromApplication(
+                        context.applicationContext,
+                        PlaybackStateManagerEntryPoint::class.java
+                    )
+                    entryPoint.playbackStateManager().also { instance = it }
+                } catch (e: Exception) {
+                    instance ?: PlaybackStateManager().also { instance = it }
+                }
+            }
+        }
 
         fun getInstance(): PlaybackStateManager {
             return instance ?: synchronized(this) {

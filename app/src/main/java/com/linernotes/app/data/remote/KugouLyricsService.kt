@@ -35,7 +35,7 @@ object KugouLyricsService {
         null
     }
 
-    private fun searchAndFetch(
+    private suspend fun searchAndFetch(
         query: String,
         targetTitle: String,
         targetArtist: String,
@@ -44,7 +44,7 @@ object KugouLyricsService {
         return try {
             val encodedQuery = URLEncoder.encode(query, "UTF-8")
             val searchUrl = "$SEARCH_API?keyword=$encodedQuery&page=1&pagesize=5&platform=WebFilter"
-            val searchJson = LinerNotesHttpClient.get(searchUrl, HEADERS) ?: return null
+            val searchJson = LinerNotesHttpClient.getAsync(searchUrl, HEADERS) ?: return null
 
             val searchRoot = JSONObject(searchJson)
             val dataObj = searchRoot.optJSONObject("data") ?: return null
@@ -87,7 +87,7 @@ object KugouLyricsService {
             // 检索歌词候选集
             val encTitle = URLEncoder.encode(LyricSearchCleaner.cleanTrackTitle(targetTitle), "UTF-8")
             val candUrl = "$CANDIDATE_API?ver=1&man=yes&client=mobi&keyword=$encTitle&duration=$duration&hash=$hash"
-            val candJson = LinerNotesHttpClient.get(candUrl, HEADERS) ?: return null
+            val candJson = LinerNotesHttpClient.getAsync(candUrl, HEADERS) ?: return null
             val candRoot = JSONObject(candJson)
             val candidates = candRoot.optJSONArray("candidates") ?: return null
             if (candidates.length() == 0) return null
@@ -99,7 +99,7 @@ object KugouLyricsService {
 
             // 下载歌词
             val downUrl = "$DOWNLOAD_API?ver=1&client=mobi&id=$id&accesskey=$accesskey&fmt=lrc&charset=utf8"
-            val downJson = LinerNotesHttpClient.get(downUrl, HEADERS) ?: return null
+            val downJson = LinerNotesHttpClient.getAsync(downUrl, HEADERS) ?: return null
             val downRoot = JSONObject(downJson)
             val b64Content = downRoot.optString("content", "")
             if (b64Content.isBlank()) return null

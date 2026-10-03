@@ -1,5 +1,8 @@
 package com.linernotes.app.core.network
 
+import kotlinx.coroutines.suspendCancellableCoroutine
+import okhttp3.Call
+import okhttp3.Callback
 import okhttp3.ConnectionPool
 import okhttp3.Cookie
 import okhttp3.CookieJar
@@ -9,8 +12,11 @@ import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.OkHttpClient
 import okhttp3.Request
 import okhttp3.RequestBody.Companion.toRequestBody
+import okhttp3.Response
+import java.io.IOException
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.TimeUnit
+import kotlin.coroutines.resume
 
 object LinerNotesHttpClient {
 
@@ -98,6 +104,98 @@ object LinerNotesHttpClient {
         } catch (e: Exception) {
             null
         }
+    }
+
+    /**
+     * 响应式协程挂起 GET 请求（严格感知 Coroutine 取消，超时自动物理掐断底层连接与释放线程池）
+     */
+    suspend fun getAsync(url: String, headers: Map<String, String> = emptyMap()): String? =
+        suspendCancellableCoroutine { continuation ->
+            val reqBuilder = Request.Builder()
+                .url(url)
+                .header("User-Agent", headers["User-Agent"] ?: DEFAULT_USER_AGENT)
+                .header("Accept-Language", headers["Accept-Language"] ?: "en-US,en;q=0.9,zh-CN;q=0.8,zh;q=0.7")
+
+            headers.forEach { (k, v) ->
+                if (!k.equals("User-Agent", ignoreCase = true) && !k.equals("Accept-Language", ignoreCase = true)) {
+                    reqBuilder.header(k, v)
+                }
+            }
+
+            val call = client.newCall(reqBuilder.build())
+            continuation.invokeOnCancellation {
+                call.cancel()
+            }
+
+            call.enqueue(object : Callback {
+                override fun onResponse(call: Call, response: Response) {
+                    try {
+                        response.use { res ->
+                            if (res.isSuccessful) {
+                                continuation.resume(res.body?.string())
+                            } else {
+                                continuation.resume(null)
+                            }
+                        }
+                    } catch (e: Exception) {
+                        continuation.resume(null)
+                    }
+                }
+
+                override fun onFailure(call: Call, e: IOException) {
+                    if (continuation.isCancelled) return
+                    continuation.resume(null)
+                }
+            })
+        }
+
+    /**
+     * 响应式协程挂起 POST Form 请求（严格感知 Coroutine 取消，超时自动物理掐断底层连接与释放线程池）
+     */
+    suspend fun postFormAsync(
+        url: String,
+        formParams: Map<String, String>,
+        headers: Map<String, String> = emptyMap()
+    ): String? = suspendCancellableCoroutine { continuation ->
+        val formBuilder = FormBody.Builder()
+        formParams.forEach { (k, v) -> formBuilder.add(k, v) }
+
+        val reqBuilder = Request.Builder()
+            .url(url)
+            .post(formBuilder.build())
+            .header("User-Agent", headers["User-Agent"] ?: DEFAULT_USER_AGENT)
+
+        headers.forEach { (k, v) ->
+            if (!k.equals("User-Agent", ignoreCase = true)) {
+                reqBuilder.header(k, v)
+            }
+        }
+
+        val call = client.newCall(reqBuilder.build())
+        continuation.invokeOnCancellation {
+            call.cancel()
+        }
+
+        call.enqueue(object : Callback {
+            override fun onResponse(call: Call, response: Response) {
+                try {
+                    response.use { res ->
+                        if (res.isSuccessful) {
+                            continuation.resume(res.body?.string())
+                        } else {
+                            continuation.resume(null)
+                        }
+                    }
+                } catch (e: Exception) {
+                    continuation.resume(null)
+                }
+            }
+
+            override fun onFailure(call: Call, e: IOException) {
+                if (continuation.isCancelled) return
+                continuation.resume(null)
+            }
+        })
     }
 
     fun postJson(

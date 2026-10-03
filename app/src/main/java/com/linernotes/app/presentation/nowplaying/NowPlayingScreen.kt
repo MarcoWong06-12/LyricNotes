@@ -582,12 +582,12 @@ private fun NowPlayingLyricsContent(
                 val itemCenterY = visibleItem.offset.toFloat() + (visibleItem.size.toFloat() / 2f)
                 val scrollDelta = itemCenterY - targetFocalY
 
-                if (kotlin.math.abs(scrollDelta) > 1.5f) {
+                if (kotlin.math.abs(scrollDelta) > 3.5f) {
                     listState.animateScrollBy(
                         value = scrollDelta,
                         animationSpec = spring(
-                            dampingRatio = 0.84f, // 次临界有机阻尼：消除机械回弹，具备磁滞吸附的平稳悬停感
-                            stiffness = 250f      // 流体柔和刚度：耗时约 480ms，完美匹配音乐律动
+                            dampingRatio = 0.88f, // 次临界有机阻尼：消除机械回弹，具备磁滞吸附的平稳悬停感
+                            stiffness = 280f      // 流体柔和刚度：耗时约 450ms，完美匹配音乐律动
                         )
                     )
                 }
@@ -662,23 +662,42 @@ private fun LyricLineRow(
     onClick: () -> Unit,
     onAnnotationClick: () -> Unit
 ) {
-    // 严格遵循 Apple Music / Lyricify 原生规范：仅当前活跃行高亮聚焦，非活跃行保持静止统一暗白
+    // 严格遵循 Apple Music & Lyricify 空间景深动力学：距离活跃行越远，字阶与透明度平滑向深空沉底
+    val targetOriginalAlpha = when {
+        isActive -> 1.0f
+        distance == 1 -> 0.44f
+        distance == 2 -> 0.32f
+        else -> (0.26f - (distance * 0.02f)).coerceAtLeast(0.12f)
+    }
+
+    val targetTransAlpha = when {
+        isActive -> 0.88f
+        distance == 1 -> 0.36f
+        distance == 2 -> 0.24f
+        else -> (0.20f - (distance * 0.015f)).coerceAtLeast(0.08f)
+    }
+
+    val targetScale = when {
+        isActive -> 1.02f
+        distance == 1 -> 0.99f
+        else -> 0.98f
+    }
+
     val animatedOriginalAlpha by animateFloatAsState(
-        targetValue = if (isActive) 1.0f else 0.36f,
-        animationSpec = spring(dampingRatio = 0.88f, stiffness = 400f),
+        targetValue = targetOriginalAlpha,
+        animationSpec = spring(dampingRatio = 0.88f, stiffness = 420f),
         label = "origAlpha"
     )
 
-    // 中文翻译透明度动力学：活跃行 88% 清晰对照，非活跃行 26% 雅致弱化
     val animatedTransAlpha by animateFloatAsState(
-        targetValue = if (isActive) 0.88f else 0.26f,
-        animationSpec = spring(dampingRatio = 0.88f, stiffness = 400f),
+        targetValue = targetTransAlpha,
+        animationSpec = spring(dampingRatio = 0.88f, stiffness = 420f),
         label = "transAlpha"
     )
 
     val animatedScale by animateFloatAsState(
-        targetValue = if (isActive) 1.02f else 0.985f,
-        animationSpec = spring(dampingRatio = 0.85f, stiffness = 420f),
+        targetValue = targetScale,
+        animationSpec = spring(dampingRatio = 0.86f, stiffness = 440f),
         label = "lineScale"
     )
 

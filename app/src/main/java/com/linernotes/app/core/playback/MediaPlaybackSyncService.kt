@@ -31,7 +31,7 @@ class MediaPlaybackSyncService : NotificationListenerService(), MediaControlActi
     private var mediaSessionManager: MediaSessionManager? = null
     private var activeController: MediaController? = null
     private var activeCompatController: MediaControllerCompat? = null
-    private val playbackStateManager = PlaybackStateManager.getInstance()
+    private val playbackStateManager by lazy { PlaybackStateManager.get(this) }
 
     private val compatCallback = object : MediaControllerCompat.Callback() {
         override fun onShuffleModeChanged(shuffleMode: Int) {

@@ -13,7 +13,7 @@ class SpotifyBroadcastReceiver : BroadcastReceiver() {
 
     override fun onReceive(context: Context, intent: Intent) {
         val action = intent.action ?: return
-        val manager = PlaybackStateManager.getInstance()
+        val manager = PlaybackStateManager.get(context)
         val current = manager.playbackState.value
 
         when (action) {

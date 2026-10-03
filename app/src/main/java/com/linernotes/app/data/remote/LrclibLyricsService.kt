@@ -32,7 +32,7 @@ object LrclibLyricsService {
         null
     }
 
-    private fun searchAndFetch(
+    private suspend fun searchAndFetch(
         query: String,
         targetTitle: String,
         targetArtist: String,
@@ -41,7 +41,7 @@ object LrclibLyricsService {
         return try {
             val encQuery = URLEncoder.encode(query, "UTF-8")
             val url = "$SEARCH_API?q=$encQuery"
-            val jsonStr = LinerNotesHttpClient.get(url, HEADERS) ?: return null
+            val jsonStr = LinerNotesHttpClient.getAsync(url, HEADERS) ?: return null
             val array = JSONArray(jsonStr)
             if (array.length() == 0) return null
 
