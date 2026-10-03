@@ -78,6 +78,14 @@ class NowPlayingRepository @Inject constructor(
         val geniusNotice: String? = null
     )
 
+    val lyricOffsetMsFlow: StateFlow<Long> = floatingPreferences.lyricOffsetMsFlow
+    private var lyricOffsetMs: Long = 0L
+
+    fun setLyricOffset(offsetMs: Long) {
+        lyricOffsetMs = offsetMs
+        floatingPreferences.lyricOffsetMs = offsetMs
+    }
+
     init {
         // 1. 监听 Spotify 播放状态变更
         repositoryScope.launch {
@@ -123,14 +131,6 @@ class NowPlayingRepository @Inject constructor(
         if (state.queueItems.isNotEmpty()) {
             preloadNextTracks(state.queueItems)
         }
-    }
-
-    val lyricOffsetMsFlow: StateFlow<Long> = floatingPreferences.lyricOffsetMsFlow
-    private var lyricOffsetMs: Long = 0L
-
-    fun setLyricOffset(offsetMs: Long) {
-        lyricOffsetMs = offsetMs
-        floatingPreferences.lyricOffsetMs = offsetMs
     }
 
     private fun startPositionTracker() {
