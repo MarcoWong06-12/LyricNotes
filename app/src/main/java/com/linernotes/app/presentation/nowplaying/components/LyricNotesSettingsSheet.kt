@@ -7,6 +7,7 @@ import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.*
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
@@ -21,9 +22,11 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import com.linernotes.app.core.floating.FloatingLyricsService
+import com.linernotes.app.core.preference.FloatingLyricsPreferences
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
@@ -313,7 +316,7 @@ fun LyricNotesSettingsSheet(
                 }
             }
 
-            // 3. 歌词时间轴微调 (Lyrics Offset)
+            // 3. 歌词时间轴微调与低延迟补偿 (Lyrics Offset)
             Surface(
                 color = Color.White.copy(alpha = 0.05f),
                 shape = RoundedCornerShape(18.dp),
@@ -326,17 +329,29 @@ fun LyricNotesSettingsSheet(
                         horizontalArrangement = Arrangement.SpaceBetween,
                         verticalAlignment = Alignment.CenterVertically
                     ) {
+                        Column {
+                            Text(
+                                text = "歌词同步与时间轴补偿",
+                                color = Color.White,
+                                fontSize = 15.sp,
+                                fontWeight = FontWeight.Bold,
+                                fontFamily = FontFamily.SansSerif
+                            )
+                            Text(
+                                text = "抵消蓝牙/系统音频缓冲延迟，消除提前跳行感",
+                                color = Color.White.copy(alpha = 0.5f),
+                                fontSize = 12.sp,
+                                fontFamily = FontFamily.SansSerif
+                            )
+                        }
                         Text(
-                            text = "歌词时间轴微调",
-                            color = Color.White,
-                            fontSize = 15.sp,
-                            fontWeight = FontWeight.Bold,
-                            fontFamily = FontFamily.SansSerif
-                        )
-                        Text(
-                            text = if (lyricOffsetMs == 0L) "准时" else "${if (lyricOffsetMs > 0) "+" else ""}${lyricOffsetMs} ms",
-                            color = if (lyricOffsetMs == 0L) Color.White.copy(alpha = 0.5f) else Color(0xFF1ED760),
-                            fontSize = 14.sp,
+                            text = when (lyricOffsetMs) {
+                                0L -> "0 ms (无补偿)"
+                                -200L -> "-200 ms (推荐)"
+                                else -> "${if (lyricOffsetMs > 0) "+" else ""}${lyricOffsetMs} ms"
+                            },
+                            color = if (lyricOffsetMs == -200L) Color(0xFF1ED760) else Color.White.copy(alpha = 0.85f),
+                            fontSize = 13.5.sp,
                             fontWeight = FontWeight.Bold,
                             fontFamily = FontFamily.SansSerif
                         )
@@ -344,13 +359,13 @@ fun LyricNotesSettingsSheet(
 
                     Row(
                         modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                        horizontalArrangement = Arrangement.spacedBy(6.dp)
                     ) {
-                        OffsetButton("-0.5s", onClick = { onAdjustOffset(-500) }, modifier = Modifier.weight(1f))
-                        OffsetButton("-0.2s", onClick = { onAdjustOffset(-200) }, modifier = Modifier.weight(1f))
-                        OffsetButton("复位", onClick = onResetOffset, modifier = Modifier.weight(1f), isReset = true)
-                        OffsetButton("+0.2s", onClick = { onAdjustOffset(200) }, modifier = Modifier.weight(1f))
-                        OffsetButton("+0.5s", onClick = { onAdjustOffset(500) }, modifier = Modifier.weight(1f))
+                        OffsetButton("-100ms", onClick = { onAdjustOffset(-100) }, modifier = Modifier.weight(1f))
+                        OffsetButton("-50ms", onClick = { onAdjustOffset(-50) }, modifier = Modifier.weight(1f))
+                        OffsetButton("推荐-200ms", onClick = onResetOffset, modifier = Modifier.weight(1.35f), isReset = true)
+                        OffsetButton("+50ms", onClick = { onAdjustOffset(50) }, modifier = Modifier.weight(1f))
+                        OffsetButton("+100ms", onClick = { onAdjustOffset(100) }, modifier = Modifier.weight(1f))
                     }
                 }
             }
@@ -358,6 +373,10 @@ fun LyricNotesSettingsSheet(
             // 4. 桌面悬浮歌词胶囊 (Floating Lyrics Capsule)
             val isFloatingActive by FloatingLyricsService.isRunningFlow.collectAsState()
             val isOverlayGranted = Settings.canDrawOverlays(context)
+            val floatingPrefs = remember { FloatingLyricsPreferences.get(context) }
+            val currentBgAlpha by floatingPrefs.backgroundAlphaFlow.collectAsState(initial = floatingPrefs.backgroundAlpha)
+            val currentTextColor by floatingPrefs.textColorFlow.collectAsState(initial = floatingPrefs.textColor)
+            val isLocked by floatingPrefs.isLockedFlow.collectAsState(initial = floatingPrefs.isLocked)
 
             Surface(
                 color = if (isFloatingActive) Color(0xFF162538).copy(alpha = 0.70f) else Color.White.copy(alpha = 0.05f),
@@ -389,7 +408,7 @@ fun LyricNotesSettingsSheet(
                                     fontFamily = FontFamily.SansSerif
                                 )
                                 Text(
-                                    text = if (!isOverlayGranted) "需授予【显示在其他应用上层】权限" else "轻触灵动胶囊展开播控，支持触摸穿透锁定",
+                                    text = if (!isOverlayGranted) "需授予【显示在其他应用上层】权限" else "极速展开播控，居中换行全词展示",
                                     color = if (!isOverlayGranted) Color(0xFFFFB74D) else Color.White.copy(alpha = 0.6f),
                                     fontSize = 12.sp,
                                     fontFamily = FontFamily.SansSerif
@@ -418,6 +437,164 @@ fun LyricNotesSettingsSheet(
                             )
                         )
                     }
+
+                    // 悬浮胶囊个性化定制参数 (透明度、字体颜色、锁定穿透)
+                    HorizontalDivider(
+                        color = Color.White.copy(alpha = 0.08f),
+                        thickness = 0.5.dp,
+                        modifier = Modifier.padding(vertical = 12.dp)
+                    )
+
+                    // 4.1 视窗背景透明度调节 (35%, 55%, 75%, 90%)
+                    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Text(
+                                text = "视窗背景透明度",
+                                color = Color.White.copy(alpha = 0.85f),
+                                fontSize = 13.5.sp,
+                                fontWeight = FontWeight.SemiBold,
+                                fontFamily = FontFamily.SansSerif
+                            )
+                            Text(
+                                text = "${(currentBgAlpha * 100).toInt()}%",
+                                color = Color(0xFF81D4FA),
+                                fontSize = 13.sp,
+                                fontWeight = FontWeight.Bold,
+                                fontFamily = FontFamily.SansSerif
+                            )
+                        }
+
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.spacedBy(6.dp)
+                        ) {
+                            val alphaOptions = listOf(
+                                0.35f to "35% 极透",
+                                0.55f to "55% 推荐",
+                                0.75f to "75% 磨砂",
+                                0.90f to "90% 深色"
+                            )
+                            alphaOptions.forEach { (alphaVal, label) ->
+                                val isSelected = kotlin.math.abs(currentBgAlpha - alphaVal) < 0.08f
+                                Surface(
+                                    color = if (isSelected) Color(0xFF03A9F4).copy(alpha = 0.30f) else Color.White.copy(alpha = 0.08f),
+                                    shape = RoundedCornerShape(10.dp),
+                                    border = BorderStroke(
+                                        0.5.dp,
+                                        if (isSelected) Color(0xFF81D4FA) else Color.White.copy(alpha = 0.12f)
+                                    ),
+                                    modifier = Modifier
+                                        .weight(1f)
+                                        .height(34.dp)
+                                        .bouncyClickable(pressedScale = 0.92f) {
+                                            floatingPrefs.backgroundAlpha = alphaVal
+                                        }
+                                ) {
+                                    Box(contentAlignment = Alignment.Center) {
+                                        Text(
+                                            text = label,
+                                            color = if (isSelected) Color(0xFF81D4FA) else Color.White.copy(alpha = 0.75f),
+                                            fontSize = 11.5.sp,
+                                            fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal,
+                                            fontFamily = FontFamily.SansSerif
+                                        )
+                                    }
+                                }
+                            }
+                        }
+                    }
+
+                    Spacer(modifier = Modifier.height(14.dp))
+
+                    // 4.2 歌词文字颜色自定义调色盘
+                    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Column {
+                                Text(
+                                    text = "歌词文字颜色",
+                                    color = Color.White.copy(alpha = 0.85f),
+                                    fontSize = 13.5.sp,
+                                    fontWeight = FontWeight.SemiBold,
+                                    fontFamily = FontFamily.SansSerif
+                                )
+                                Text(
+                                    text = "智能反差描边阴影，杜绝与壁纸及图标重叠",
+                                    color = Color.White.copy(alpha = 0.45f),
+                                    fontSize = 11.5.sp,
+                                    fontFamily = FontFamily.SansSerif
+                                )
+                            }
+                        }
+
+                        val colorPresets = remember {
+                            listOf(
+                                -1 to Color.White,                       // 纯白
+                                0xFFFFD54F.toInt() to Color(0xFFFFD54F), // 暖金
+                                0xFF1ED760.toInt() to Color(0xFF1ED760), // 荧光绿 (Spotify)
+                                0xFF00E5FF.toInt() to Color(0xFF00E5FF), // 电光青
+                                0xFFFF80AB.toInt() to Color(0xFFFF80AB), // 樱花粉
+                                0xFFB388FF.toInt() to Color(0xFFB388FF), // 浅紫
+                                0xFFFF9100.toInt() to Color(0xFFFF9100), // 暖橙
+                                0xFF121212.toInt() to Color(0xFF121212)  // 曜黑 (带白色反差投影)
+                            )
+                        }
+
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            colorPresets.forEach { (colorVal, colorCompose) ->
+                                val isSelected = currentTextColor == colorVal
+                                val isDarkSwatch = colorCompose.luminance() < 0.20f
+
+                                Box(
+                                    contentAlignment = Alignment.Center,
+                                    modifier = Modifier
+                                        .size(34.dp)
+                                        .clip(CircleShape)
+                                        .background(colorCompose)
+                                        .border(
+                                            width = if (isSelected) 2.5.dp else if (isDarkSwatch) 1.dp else 0.5.dp,
+                                            color = if (isSelected) Color(0xFF00E5FF) else if (isDarkSwatch) Color.White.copy(alpha = 0.5f) else Color.White.copy(alpha = 0.15f),
+                                            shape = CircleShape
+                                        )
+                                        .bouncyClickable(pressedScale = 0.85f) {
+                                            floatingPrefs.textColor = colorVal
+                                        }
+                                ) {
+                                    if (isSelected) {
+                                        Icon(
+                                            imageVector = Icons.Default.Check,
+                                            contentDescription = "Selected",
+                                            tint = if (colorCompose.luminance() > 0.45f) Color.Black else Color.White,
+                                            modifier = Modifier.size(17.dp)
+                                        )
+                                    }
+                                }
+                            }
+                        }
+                    }
+
+                    Spacer(modifier = Modifier.height(14.dp))
+
+                    // 4.3 触摸穿透锁定开关
+                    SettingsSwitchRow(
+                        title = "锁定触摸穿透",
+                        subtitle = "锁定后手势穿透到下方桌面或应用，避免滑动误触（可通过通知栏解锁）",
+                        checked = isLocked,
+                        onCheckedChange = {
+                            floatingPrefs.isLocked = !isLocked
+                        }
+                    )
                 }
             }
 

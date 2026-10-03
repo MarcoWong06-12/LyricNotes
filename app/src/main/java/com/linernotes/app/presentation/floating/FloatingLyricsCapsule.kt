@@ -1,7 +1,9 @@
 package com.linernotes.app.presentation.floating
 
 import androidx.compose.animation.*
+import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.spring
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
@@ -20,15 +22,16 @@ import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Shadow
+import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.platform.LocalHapticFeedback
+import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
-import androidx.compose.ui.unit.dp
-import androidx.compose.ui.hapticfeedback.HapticFeedbackType
-import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import coil.compose.AsyncImage
@@ -47,6 +50,7 @@ fun FloatingLyricsCapsule(
     isBilingual: Boolean,
     backgroundAlpha: Float,
     fontScale: Float,
+    textColor: Int = -1,
     onDragStart: () -> Unit = {},
     onDrag: (deltaX: Float, deltaY: Float) -> Unit,
     onDragEnd: () -> Unit,
@@ -104,28 +108,34 @@ fun FloatingLyricsCapsule(
 
     val hasCover = !state.coverUrl.isNullOrBlank()
 
-    // 基础毛玻璃深色背板：锁定状态下背景更加清透，非锁定时饱满沉稳
-    val effectiveBgAlpha = if (isLocked) (backgroundAlpha * 0.65f).coerceAtLeast(0.25f) else backgroundAlpha
-    val capsuleBackground = Color(0xFF101114).copy(alpha = effectiveBgAlpha)
+    val lyricColor = if (textColor != -1) Color(textColor) else Color.White
+    val secondaryColor = if (textColor != -1) Color(textColor).copy(alpha = 0.85f) else Color.White.copy(alpha = 0.82f)
 
+    // 智能高对比度投影：根据前景色亮度自动选择深黑或雪白投影，无论桌面壁纸是浅色还是深色，均有极强辨识度
+    val isLightColor = lyricColor.luminance() > 0.40f
     val textShadow = Shadow(
-        color = Color.Black.copy(alpha = 0.85f),
+        color = if (isLightColor) Color.Black.copy(alpha = 0.92f) else Color.White.copy(alpha = 0.85f),
         offset = Offset(0f, 1.5f),
-        blurRadius = 3f
+        blurRadius = 4f
     )
+
+    // 基础毛玻璃深色背板：锁定状态下背景更加清透，非锁定时轻量通透 (默认 0.55f)
+    val effectiveBgAlpha = if (isLocked) (backgroundAlpha * 0.70f).coerceAtLeast(0.18f) else backgroundAlpha
+    val capsuleBackground = Color(0xFF101114).copy(alpha = effectiveBgAlpha)
 
     Surface(
         color = capsuleBackground,
         shape = if (isExpanded) RoundedCornerShape(22.dp) else RoundedCornerShape(26.dp),
         border = BorderStroke(
-            width = if (isLocked) 0.4.dp else 0.6.dp,
-            color = Color.White.copy(alpha = if (isLocked) 0.12f else 0.22f)
+            width = if (isLocked) 0.5.dp else 0.8.dp,
+            color = if (isLightColor) Color.White.copy(alpha = if (isLocked) 0.15f else 0.25f)
+                    else Color.Black.copy(alpha = if (isLocked) 0.20f else 0.35f)
         ),
         shadowElevation = if (isLocked) 2.dp else 8.dp,
         modifier = Modifier
-            .widthIn(min = 220.dp, max = 360.dp)
+            .widthIn(min = 260.dp, max = 460.dp)
             .animateContentSize(
-                animationSpec = spring(dampingRatio = 0.86f, stiffness = 650f)
+                animationSpec = tween(durationMillis = 180, easing = FastOutSlowInEasing)
             )
             .then(
                 if (!isLocked) {
@@ -151,7 +161,7 @@ fun FloatingLyricsCapsule(
             Row(
                 verticalAlignment = Alignment.CenterVertically,
                 modifier = Modifier
-                    .padding(horizontal = 9.dp, vertical = 7.dp)
+                    .padding(horizontal = 12.dp, vertical = 8.dp)
                     .then(
                         if (!isLocked) {
                             Modifier.clickable {
@@ -166,7 +176,7 @@ fun FloatingLyricsCapsule(
                 Box(
                     contentAlignment = Alignment.Center,
                     modifier = Modifier
-                        .size(32.dp)
+                        .size(34.dp)
                         .clip(CircleShape)
                         .background(Color(0xFF22242B))
                 ) {
@@ -181,52 +191,57 @@ fun FloatingLyricsCapsule(
                         Icon(
                             imageVector = Icons.Default.MusicNote,
                             contentDescription = "Music",
-                            tint = Color.White.copy(alpha = 0.80f),
+                            tint = lyricColor.copy(alpha = 0.85f),
                             modifier = Modifier.size(17.dp)
                         )
                     }
                 }
 
-                Spacer(modifier = Modifier.width(9.dp))
+                Spacer(modifier = Modifier.width(10.dp))
 
-                // 中间：当前歌词（单行或双语对照）
+                // 中间：当前歌词（居中折行完整展示原文与译文，避免被截断为省略号）
                 Column(
                     verticalArrangement = Arrangement.Center,
+                    horizontalAlignment = Alignment.CenterHorizontally,
                     modifier = Modifier.weight(1f)
                 ) {
-                    // 原文行
+                    // 原文行（居中换行，最大 2 行完整展示）
                     AnimatedContent(
                         targetState = originalText,
-                        transitionSpec = { fadeIn(spring(stiffness = 500f)) togetherWith fadeOut(spring(stiffness = 500f)) },
+                        transitionSpec = { fadeIn(tween(140)) togetherWith fadeOut(tween(140)) },
                         label = "floatingOriginal"
                     ) { targetOrig ->
                         Text(
                             text = targetOrig,
-                            color = Color.White,
+                            color = lyricColor,
                             fontSize = (13.5f * fontScale).sp,
                             fontWeight = FontWeight.SemiBold,
                             fontFamily = FontFamily.SansSerif,
-                            maxLines = 1,
+                            textAlign = TextAlign.Center,
+                            maxLines = 2,
+                            lineHeight = (18f * fontScale).sp,
                             overflow = TextOverflow.Ellipsis,
                             style = TextStyle(shadow = textShadow)
                         )
                     }
 
-                    // 稳定展示第二行（双语译文 / 艺人信息 / 纯音乐提示）
+                    // 稳定展示第二行（双语译文 / 艺人信息 / 状态提示，居中换行，最大 2 行）
                     if (!secondaryText.isNullOrBlank()) {
-                        Spacer(modifier = Modifier.height(2.dp))
+                        Spacer(modifier = Modifier.height(3.dp))
                         AnimatedContent(
                             targetState = secondaryText,
-                            transitionSpec = { fadeIn(spring(stiffness = 500f)) togetherWith fadeOut(spring(stiffness = 500f)) },
+                            transitionSpec = { fadeIn(tween(140)) togetherWith fadeOut(tween(140)) },
                             label = "floatingSecondary"
                         ) { targetSec ->
                             Text(
                                 text = targetSec,
-                                color = Color.White.copy(alpha = 0.82f),
+                                color = secondaryColor,
                                 fontSize = (11.5f * fontScale).sp,
                                 fontWeight = FontWeight.Normal,
                                 fontFamily = FontFamily.SansSerif,
-                                maxLines = 1,
+                                textAlign = TextAlign.Center,
+                                maxLines = 2,
+                                lineHeight = (15.5f * fontScale).sp,
                                 overflow = TextOverflow.Ellipsis,
                                 style = TextStyle(shadow = textShadow)
                             )
@@ -239,7 +254,7 @@ fun FloatingLyricsCapsule(
                     Icon(
                         imageVector = Icons.Default.MoreHoriz,
                         contentDescription = "Expand",
-                        tint = Color.White.copy(alpha = 0.50f),
+                        tint = lyricColor.copy(alpha = 0.50f),
                         modifier = Modifier.size(17.dp)
                     )
                 }
@@ -367,27 +382,32 @@ fun FloatingLyricsCapsule(
 
                 Spacer(modifier = Modifier.height(10.dp))
 
-                // 中间：当前歌词高光
-                Column(modifier = Modifier.fillMaxWidth()) {
+                // 中间：当前歌词高光（居中折行完整展示）
+                Column(
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                    modifier = Modifier.fillMaxWidth()
+                ) {
                     Text(
                         text = originalText,
-                        color = Color.White,
-                        fontSize = (14.5f * fontScale).sp,
+                        color = lyricColor,
+                        fontSize = (15f * fontScale).sp,
                         fontWeight = FontWeight.Bold,
-                        lineHeight = 19.sp,
-                        maxLines = 2,
+                        textAlign = TextAlign.Center,
+                        lineHeight = (20f * fontScale).sp,
+                        maxLines = 3,
                         overflow = TextOverflow.Ellipsis,
                         style = TextStyle(shadow = textShadow)
                     )
                     if (!secondaryText.isNullOrBlank()) {
-                        Spacer(modifier = Modifier.height(3.dp))
+                        Spacer(modifier = Modifier.height(4.dp))
                         Text(
                             text = secondaryText,
-                            color = Color.White.copy(alpha = 0.85f),
-                            fontSize = (12f * fontScale).sp,
+                            color = secondaryColor,
+                            fontSize = (12.5f * fontScale).sp,
                             fontWeight = FontWeight.Medium,
-                            lineHeight = 16.sp,
-                            maxLines = 2,
+                            textAlign = TextAlign.Center,
+                            lineHeight = (17f * fontScale).sp,
+                            maxLines = 3,
                             overflow = TextOverflow.Ellipsis,
                             style = TextStyle(shadow = textShadow)
                         )

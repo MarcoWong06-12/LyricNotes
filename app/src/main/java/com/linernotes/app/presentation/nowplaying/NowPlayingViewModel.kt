@@ -34,7 +34,7 @@ data class NowPlayingUiState(
     val isTraditionalChinese: Boolean = false,
     val isDeCensorEnabled: Boolean = true,
     val showPlaybackControls: Boolean = true,
-    val lyricOffsetMs: Long = 0L,
+    val lyricOffsetMs: Long = -200L,
     val isQueueSheetOpen: Boolean = false,
     val userMessage: String? = null
 )
@@ -64,6 +64,12 @@ class NowPlayingViewModel @Inject constructor(
                         selectedAnnotation = updatedSelected
                     )
                 }
+            }
+        }
+
+        viewModelScope.launch {
+            nowPlayingRepository.lyricOffsetMsFlow.collect { offset ->
+                _uiState.update { it.copy(lyricOffsetMs = offset) }
             }
         }
     }
@@ -114,9 +120,14 @@ class NowPlayingViewModel @Inject constructor(
         nowPlayingRepository.setLyricOffset(newOffset)
     }
 
+    fun setLyricOffset(offsetMs: Long) {
+        _uiState.update { it.copy(lyricOffsetMs = offsetMs) }
+        nowPlayingRepository.setLyricOffset(offsetMs)
+    }
+
     fun resetLyricOffset() {
-        _uiState.update { it.copy(lyricOffsetMs = 0L) }
-        nowPlayingRepository.setLyricOffset(0L)
+        _uiState.update { it.copy(lyricOffsetMs = -200L) }
+        nowPlayingRepository.setLyricOffset(-200L)
     }
 
     fun togglePlaybackControls() {

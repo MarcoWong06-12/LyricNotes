@@ -158,6 +158,7 @@ class FloatingLyricsService : Service() {
                 val isBilingual by floatingPreferences.isBilingualFlow.collectAsState()
                 val bgAlpha by floatingPreferences.backgroundAlphaFlow.collectAsState()
                 val fontScale by floatingPreferences.fontScaleFlow.collectAsState()
+                val textColor by floatingPreferences.textColorFlow.collectAsState()
 
                 FloatingLyricsCapsule(
                     nowPlayingData = nowData,
@@ -165,6 +166,7 @@ class FloatingLyricsService : Service() {
                     isBilingual = isBilingual,
                     backgroundAlpha = bgAlpha,
                     fontScale = fontScale,
+                    textColor = textColor,
                     onDragStart = {
                         cancelSnapAnimation()
                     },

@@ -10,6 +10,7 @@ import com.linernotes.app.core.lyric.LyricSearchCleaner
 import com.linernotes.app.core.playback.PlaybackStateManager
 import com.linernotes.app.core.playback.TrackPlaybackState
 import com.linernotes.app.core.preference.AiPreferences
+import com.linernotes.app.core.preference.FloatingLyricsPreferences
 import com.linernotes.app.core.util.ChineseConverter
 import com.linernotes.app.core.util.HtmlUtils
 import com.linernotes.app.data.local.entity.LyricAnnotationEntity
@@ -49,7 +50,8 @@ data class NowPlayingData(
 class NowPlayingRepository @Inject constructor(
     private val playbackStateManager: PlaybackStateManager,
     private val translationService: TranslationService,
-    private val aiPreferences: AiPreferences
+    private val aiPreferences: AiPreferences,
+    private val floatingPreferences: FloatingLyricsPreferences
 ) {
 
     private val repositoryScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
@@ -86,6 +88,14 @@ class NowPlayingRepository @Inject constructor(
 
         // 2. 毫秒级时间轴驱动与高亮行定位 (60fps 级流畅推算)
         startPositionTracker()
+
+        // 3. 初始载入并动态监听全局歌词时间轴偏移 (默认 -200ms 音频与蓝牙硬件延迟补偿)
+        lyricOffsetMs = floatingPreferences.lyricOffsetMs
+        repositoryScope.launch {
+            floatingPreferences.lyricOffsetMsFlow.collect { offset ->
+                lyricOffsetMs = offset
+            }
+        }
     }
 
     private fun handlePlaybackStateUpdate(state: TrackPlaybackState) {
@@ -115,10 +125,12 @@ class NowPlayingRepository @Inject constructor(
         }
     }
 
+    val lyricOffsetMsFlow: StateFlow<Long> = floatingPreferences.lyricOffsetMsFlow
     private var lyricOffsetMs: Long = 0L
 
     fun setLyricOffset(offsetMs: Long) {
         lyricOffsetMs = offsetMs
+        floatingPreferences.lyricOffsetMs = offsetMs
     }
 
     private fun startPositionTracker() {
