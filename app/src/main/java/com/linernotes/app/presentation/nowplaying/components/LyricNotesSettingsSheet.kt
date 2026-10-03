@@ -2,6 +2,8 @@ package com.linernotes.app.presentation.nowplaying.components
 
 import android.content.Intent
 import android.net.Uri
+import androidx.compose.animation.animateColorAsState
+import androidx.compose.animation.core.*
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
@@ -14,6 +16,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -36,6 +39,7 @@ fun LyricNotesSettingsSheet(
     trackState: TrackPlaybackState,
     hasSongStory: Boolean,
     geniusNotice: String? = null,
+    isLoadingGenius: Boolean = false,
     furiganaMode: FuriganaDisplayMode,
     isTraditionalChinese: Boolean,
     isDeCensorEnabled: Boolean,
@@ -140,7 +144,17 @@ fun LyricNotesSettingsSheet(
 
                     Surface(
                         color = if (trackState.isSpotify) Color(0xFF1DB954).copy(alpha = 0.2f) else Color.White.copy(alpha = 0.1f),
-                        shape = CircleShape
+                        shape = CircleShape,
+                        border = BorderStroke(0.5.dp, if (trackState.isSpotify) Color(0xFF1ED760).copy(alpha = 0.35f) else Color.White.copy(alpha = 0.15f)),
+                        modifier = Modifier.bouncyClickable(pressedScale = 0.92f) {
+                            val launchIntent = context.packageManager.getLaunchIntentForPackage("com.spotify.music")
+                            if (launchIntent != null) {
+                                context.startActivity(launchIntent)
+                            } else {
+                                val webIntent = Intent(Intent.ACTION_VIEW, Uri.parse("https://open.spotify.com"))
+                                context.startActivity(webIntent)
+                            }
+                        }
                     ) {
                         Text(
                             text = trackState.sourceApp.displayName,
@@ -200,10 +214,24 @@ fun LyricNotesSettingsSheet(
                     }
                 }
             } else {
+                val infiniteTransition = rememberInfiniteTransition(label = "geniusPulse")
+                val pulseAlpha by infiniteTransition.animateFloat(
+                    initialValue = 0.12f,
+                    targetValue = if (isLoadingGenius) 0.55f else 0.12f,
+                    animationSpec = infiniteRepeatable(
+                        animation = tween(800, easing = LinearEasing),
+                        repeatMode = RepeatMode.Reverse
+                    ),
+                    label = "geniusBorderPulse"
+                )
+
                 Surface(
                     color = Color.White.copy(alpha = 0.05f),
                     shape = RoundedCornerShape(18.dp),
-                    border = BorderStroke(0.5.dp, Color.White.copy(alpha = 0.12f)),
+                    border = BorderStroke(
+                        0.5.dp,
+                        if (isLoadingGenius) Color(0xFF1ED760).copy(alpha = pulseAlpha) else Color.White.copy(alpha = 0.12f)
+                    ),
                     modifier = Modifier.fillMaxWidth()
                 ) {
                     Row(
@@ -216,7 +244,7 @@ fun LyricNotesSettingsSheet(
                             horizontalArrangement = Arrangement.spacedBy(10.dp),
                             modifier = Modifier.weight(1f)
                         ) {
-                            Text("💡", fontSize = 18.sp)
+                            Text(if (isLoadingGenius) "⏳" else "💡", fontSize = 18.sp)
                             Column {
                                 Text(
                                     text = "Genius 典故与背景故事",
@@ -225,24 +253,60 @@ fun LyricNotesSettingsSheet(
                                     fontWeight = FontWeight.SemiBold
                                 )
                                 Text(
-                                    text = geniusNotice ?: "未检索到本曲 Genius 典故注释",
-                                    color = Color.White.copy(alpha = 0.5f),
+                                    text = if (isLoadingGenius) "正在重新检索 Genius 典故与背景故事..." else (geniusNotice ?: "未检索到本曲 Genius 典故注释"),
+                                    color = if (isLoadingGenius) Color(0xFF1ED760) else Color.White.copy(alpha = 0.5f),
                                     fontSize = 12.sp
                                 )
                             }
                         }
+
+                        // 重试 / 检索中 胶囊按钮 (专为手指触控优化，高响应物理弹簧反馈)
                         Surface(
-                            color = Color.Transparent,
-                            shape = RoundedCornerShape(8.dp),
-                            modifier = Modifier.bouncyClickable(pressedScale = 0.90f, onClick = onReloadGenius)
+                            color = if (isLoadingGenius) Color(0xFF1ED760).copy(alpha = 0.12f) else Color(0xFF1ED760).copy(alpha = 0.16f),
+                            shape = RoundedCornerShape(10.dp),
+                            border = BorderStroke(
+                                0.5.dp,
+                                if (isLoadingGenius) Color(0xFF1ED760).copy(alpha = 0.30f) else Color(0xFF1ED760).copy(alpha = 0.40f)
+                            ),
+                            modifier = Modifier
+                                .bouncyClickable(
+                                    enabled = !isLoadingGenius,
+                                    pressedScale = 0.90f,
+                                    onClick = onReloadGenius
+                                )
                         ) {
-                            Text(
-                                text = "重试",
-                                color = Color(0xFF1ED760),
-                                fontSize = 13.sp,
-                                fontWeight = FontWeight.Bold,
-                                modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
-                            )
+                            Row(
+                                modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp),
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(5.dp)
+                            ) {
+                                if (isLoadingGenius) {
+                                    CircularProgressIndicator(
+                                        modifier = Modifier.size(12.dp),
+                                        strokeWidth = 1.8.dp,
+                                        color = Color(0xFF1ED760)
+                                    )
+                                    Text(
+                                        text = "检索中...",
+                                        color = Color(0xFF1ED760),
+                                        fontSize = 12.5.sp,
+                                        fontWeight = FontWeight.Bold
+                                    )
+                                } else {
+                                    Icon(
+                                        imageVector = Icons.Default.Refresh,
+                                        contentDescription = null,
+                                        tint = Color(0xFF1ED760),
+                                        modifier = Modifier.size(13.dp)
+                                    )
+                                    Text(
+                                        text = "重试",
+                                        color = Color(0xFF1ED760),
+                                        fontSize = 12.5.sp,
+                                        fontWeight = FontWeight.Bold
+                                    )
+                                }
+                            }
                         }
                     }
                 }
@@ -440,9 +504,9 @@ private fun OffsetButton(
         shape = RoundedCornerShape(10.dp),
         border = BorderStroke(0.5.dp, if (isReset) Color.White.copy(alpha = 0.25f) else Color.White.copy(alpha = 0.10f)),
         modifier = modifier
-            .height(36.dp)
+            .height(38.dp)
             .bouncyClickable(
-                pressedScale = 0.92f,
+                pressedScale = 0.90f,
                 onClick = onClick
             )
     ) {
@@ -468,7 +532,11 @@ private fun SettingsSwitchRow(
     Row(
         modifier = Modifier
             .fillMaxWidth()
-            .padding(vertical = 12.dp),
+            .clip(RoundedCornerShape(12.dp))
+            .bouncyItemClickable(pressedScale = 0.985f) {
+                onCheckedChange(!checked)
+            }
+            .padding(vertical = 10.dp, horizontal = 4.dp),
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.SpaceBetween
     ) {
@@ -508,12 +576,28 @@ private fun FuriganaPill(
     onClick: () -> Unit,
     modifier: Modifier = Modifier
 ) {
+    val bgColor by animateColorAsState(
+        targetValue = if (isSelected) Color(0xFF1ED760) else Color.White.copy(alpha = 0.08f),
+        animationSpec = spring(stiffness = 600f),
+        label = "furiganaBg"
+    )
+    val textColor by animateColorAsState(
+        targetValue = if (isSelected) Color.Black else Color.White.copy(alpha = 0.85f),
+        animationSpec = spring(stiffness = 600f),
+        label = "furiganaText"
+    )
+    val borderColor by animateColorAsState(
+        targetValue = if (isSelected) Color(0xFF1ED760) else Color.White.copy(alpha = 0.12f),
+        animationSpec = spring(stiffness = 600f),
+        label = "furiganaBorder"
+    )
+
     Surface(
-        color = if (isSelected) Color(0xFF1DB954) else Color.White.copy(alpha = 0.08f),
+        color = bgColor,
         shape = RoundedCornerShape(10.dp),
-        border = BorderStroke(0.5.dp, if (isSelected) Color(0xFF1DB954) else Color.White.copy(alpha = 0.12f)),
+        border = BorderStroke(0.5.dp, borderColor),
         modifier = modifier
-            .height(36.dp)
+            .height(38.dp)
             .bouncyClickable(
                 pressedScale = 0.92f,
                 onClick = onClick
@@ -522,7 +606,7 @@ private fun FuriganaPill(
         Box(contentAlignment = Alignment.Center) {
             Text(
                 text = title,
-                color = if (isSelected) Color.Black else Color.White.copy(alpha = 0.85f),
+                color = textColor,
                 fontSize = 12.sp,
                 fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium,
                 fontFamily = FontFamily.SansSerif

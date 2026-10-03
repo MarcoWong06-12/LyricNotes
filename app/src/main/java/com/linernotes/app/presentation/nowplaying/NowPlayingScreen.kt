@@ -169,17 +169,38 @@ fun NowPlayingScreen(
                             modifier = Modifier.weight(1f, fill = false)
                         )
                         Spacer(modifier = Modifier.width(2.dp))
-                        Text(
-                            text = "重试",
-                            color = Color(0xFF1ED760),
-                            fontSize = 12.sp,
-                            fontWeight = FontWeight.Bold,
-                            fontFamily = FontFamily.SansSerif,
-                            modifier = Modifier
-                                .clip(RoundedCornerShape(6.dp))
-                                .bouncyClickable(pressedScale = 0.92f) { viewModel.retryGenius() }
-                                .padding(horizontal = 6.dp, vertical = 2.dp)
-                        )
+                        if (nowData.isLoadingGenius) {
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(4.dp),
+                                modifier = Modifier.padding(horizontal = 4.dp)
+                            ) {
+                                CircularProgressIndicator(
+                                    modifier = Modifier.size(10.dp),
+                                    strokeWidth = 1.5.dp,
+                                    color = Color(0xFF1ED760)
+                                )
+                                Text(
+                                    text = "检索中",
+                                    color = Color(0xFF1ED760),
+                                    fontSize = 11.5.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    fontFamily = FontFamily.SansSerif
+                                )
+                            }
+                        } else {
+                            Text(
+                                text = "重试",
+                                color = Color(0xFF1ED760),
+                                fontSize = 12.sp,
+                                fontWeight = FontWeight.Bold,
+                                fontFamily = FontFamily.SansSerif,
+                                modifier = Modifier
+                                    .clip(RoundedCornerShape(6.dp))
+                                    .bouncyClickable(pressedScale = 0.92f) { viewModel.retryGenius() }
+                                    .padding(horizontal = 6.dp, vertical = 2.dp)
+                            )
+                        }
                         Icon(
                             imageVector = Icons.Default.Close,
                             contentDescription = "关闭",
@@ -230,6 +251,7 @@ fun NowPlayingScreen(
                 trackState = trackState,
                 hasSongStory = nowData.songStory != null,
                 geniusNotice = nowData.geniusNoticeMessage,
+                isLoadingGenius = nowData.isLoadingGenius,
                 furiganaMode = state.furiganaMode,
                 isTraditionalChinese = state.isTraditionalChinese,
                 isDeCensorEnabled = state.isDeCensorEnabled,
@@ -907,8 +929,18 @@ private fun NowPlayingFloatingGlassPlayer(
                         horizontalArrangement = Arrangement.spacedBy(2.dp)
                     ) {
                         // 随机播放按键
+                        val shuffleBg by animateColorAsState(
+                            targetValue = if (trackState.isShuffleActive) Color(0xFF1ED760).copy(alpha = 0.20f) else Color.Transparent,
+                            animationSpec = spring(stiffness = 600f),
+                            label = "shuffleBg"
+                        )
+                        val shuffleTint by animateColorAsState(
+                            targetValue = if (trackState.isShuffleActive) Color(0xFF1ED760) else Color.White.copy(alpha = 0.60f),
+                            animationSpec = spring(stiffness = 600f),
+                            label = "shuffleTint"
+                        )
                         Surface(
-                            color = if (trackState.isShuffleActive) Color(0xFF1ED760).copy(alpha = 0.18f) else Color.Transparent,
+                            color = shuffleBg,
                             shape = CircleShape,
                             modifier = Modifier
                                 .size(30.dp)
@@ -920,7 +952,7 @@ private fun NowPlayingFloatingGlassPlayer(
                                 Icon(
                                     imageVector = Icons.Default.Shuffle,
                                     contentDescription = if (trackState.isShuffleActive) "随机播放 (已开启)" else "顺序播放",
-                                    tint = if (trackState.isShuffleActive) Color(0xFF1ED760) else Color.White.copy(alpha = 0.60f),
+                                    tint = shuffleTint,
                                     modifier = Modifier.size(16.dp)
                                 )
                             }
@@ -943,7 +975,7 @@ private fun NowPlayingFloatingGlassPlayer(
                             )
                         }
 
-                        // 播放/暂停 Hero 圆钮 (40dp 饱满白瓷高光)
+                        // 播放/暂停 Hero 圆钮 (40dp 饱满白瓷高光，带物理弹簧与丝滑形态形变)
                         Surface(
                             color = Color.White,
                             shape = CircleShape,
@@ -951,17 +983,26 @@ private fun NowPlayingFloatingGlassPlayer(
                             modifier = Modifier
                                 .size(40.dp)
                                 .bouncyIconClickable(
-                                    pressedScale = 0.90f,
+                                    pressedScale = 0.88f,
                                     onClick = onPlayPause
                                 )
                         ) {
                             Box(contentAlignment = Alignment.Center) {
-                                Icon(
-                                    imageVector = if (trackState.isPlaying) Icons.Default.Pause else Icons.Default.PlayArrow,
-                                    contentDescription = if (trackState.isPlaying) "暂停" else "播放",
-                                    tint = Color(0xFF0F1118),
-                                    modifier = Modifier.size(22.dp)
-                                )
+                                AnimatedContent(
+                                    targetState = trackState.isPlaying,
+                                    transitionSpec = {
+                                        fadeIn(tween(140)) + scaleIn(initialScale = 0.78f) togetherWith
+                                            fadeOut(tween(120)) + scaleOut(targetScale = 0.78f)
+                                    },
+                                    label = "playPauseMorph"
+                                ) { isPlaying ->
+                                    Icon(
+                                        imageVector = if (isPlaying) Icons.Default.Pause else Icons.Default.PlayArrow,
+                                        contentDescription = if (isPlaying) "暂停" else "播放",
+                                        tint = Color(0xFF0F1118),
+                                        modifier = Modifier.size(22.dp)
+                                    )
+                                }
                             }
                         }
 

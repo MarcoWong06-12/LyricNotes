@@ -25,6 +25,8 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.composed
 import androidx.compose.ui.graphics.Shape
 import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.hapticfeedback.HapticFeedbackType
+import androidx.compose.ui.platform.LocalHapticFeedback
 
 /**
  * 具有物理弹性触感的按压动效 Modifier (遵循 Apple WWDC & Emil Kowalski 交互物理学)
@@ -72,11 +74,12 @@ fun Modifier.bouncyClickable(
     enabled: Boolean = true,
     pressedScale: Float = 0.95f,
     pressedAlpha: Float = 0.94f,
-    dampingRatio: Float = 0.85f,
-    stiffness: Float = 900f,
+    dampingRatio: Float = 0.84f,
+    stiffness: Float = 880f,
     onClick: () -> Unit
 ): Modifier = composed {
     val interactionSource = remember { MutableInteractionSource() }
+    val haptic = LocalHapticFeedback.current
     this
         .bouncyPress(
             interactionSource = interactionSource,
@@ -90,7 +93,14 @@ fun Modifier.bouncyClickable(
             interactionSource = interactionSource,
             indication = null, // 由物理弹簧形变呈现高纯净度反馈
             enabled = enabled,
-            onClick = onClick
+            onClick = {
+                try {
+                    haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                } catch (e: Exception) {
+                    // 兼容静音或不支持触觉设备
+                }
+                onClick()
+            }
         )
 }
 
@@ -105,8 +115,8 @@ fun Modifier.bouncyIconClickable(
     enabled = enabled,
     pressedScale = pressedScale,
     pressedAlpha = 0.92f,
-    dampingRatio = 0.84f,
-    stiffness = 950f,
+    dampingRatio = 0.82f,
+    stiffness = 920f,
     onClick = onClick
 )
 
@@ -121,8 +131,8 @@ fun Modifier.bouncyItemClickable(
     enabled = enabled,
     pressedScale = pressedScale,
     pressedAlpha = 0.96f,
-    dampingRatio = 0.88f,
-    stiffness = 1100f,
+    dampingRatio = 0.86f,
+    stiffness = 1000f,
     onClick = onClick
 )
 

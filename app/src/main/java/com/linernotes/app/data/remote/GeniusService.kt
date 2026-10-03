@@ -219,7 +219,10 @@ object GeniusService {
         val urls = if (hasCustomToken) {
             listOf("$GENIUS_PROD_API/search?q=$encodedQuery")
         } else {
-            listOf("$GENIUS_WEB_API/search/multi?q=$encodedQuery")
+            listOf(
+                "$GENIUS_WEB_API/search/multi?q=$encodedQuery",
+                "$GENIUS_WEB_API/search/song?q=$encodedQuery"
+            )
         }
 
         for (url in urls) {

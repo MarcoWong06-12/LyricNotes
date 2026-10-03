@@ -712,8 +712,19 @@ class NowPlayingRepository @Inject constructor(
         val current = _nowPlayingData.value
         val state = current.playbackState
         if (!state.hasValidTrack) return
+        if (current.isLoadingGenius) return
+
         val songKey = "${state.artist.trim().lowercase()} - ${state.title.trim().lowercase()}"
         val existingLyrics = memoryCache[songKey]?.lyrics ?: current.lyrics
+
+        // 立即进入加载中状态并清空前置旧提醒，瞬间给用户清晰正反馈
+        _nowPlayingData.update {
+            it.copy(
+                isLoadingGenius = true,
+                geniusNoticeMessage = null
+            )
+        }
+
         if (existingLyrics.isNotEmpty()) {
             memoryCache[songKey] = CachedSongData(
                 lyrics = existingLyrics,
