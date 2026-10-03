@@ -15,6 +15,8 @@ import com.linernotes.app.core.util.HtmlUtils
 import com.linernotes.app.data.local.entity.LyricAnnotationEntity
 import com.linernotes.app.data.local.entity.SongStoryEntity
 import com.linernotes.app.data.remote.GeniusService
+import com.linernotes.app.data.remote.KugouLyricsService
+import com.linernotes.app.data.remote.LrclibLyricsService
 import com.linernotes.app.data.remote.NetEaseLyricsService
 import com.linernotes.app.data.remote.QQMusicLyricsService
 import com.linernotes.app.data.remote.TranslationService
