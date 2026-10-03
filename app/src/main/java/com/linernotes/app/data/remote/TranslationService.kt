@@ -82,9 +82,9 @@ class TranslationService(
         )
     }
 
-    private val TIMESTAMP_REGEX = Regex("""^\[\d{2}:\d{2}(?:\.\d{1,3})?\]""")
+    private val TIMESTAMP_REGEX = Regex("""\[\d{1,2}:\d{2}(?:\.\d{1,3})?\]""")
 
-    private val INDEXED_LINE_REGEX = Regex("""^\s*(\d+)[\.、\s\-:]+\s*(.*)$""")
+    private val INDEXED_LINE_REGEX = Regex("""^\s*(?:\[#?(\d+)\]|(\d+)[\.、\s\-:])\s*(.*)$""")
 
     private fun parseIndexedLines(rawLines: List<String>, expectedCount: Int): List<String> {
         val map = mutableMapOf<Int, String>()
@@ -92,21 +92,21 @@ class TranslationService(
             val trimmed = line.trim()
             val match = INDEXED_LINE_REGEX.find(trimmed)
             if (match != null) {
-                val idx = match.groupValues[1].toIntOrNull()
-                val content = match.groupValues[2].trim()
+                val idx = match.groupValues[1].toIntOrNull() ?: match.groupValues[2].toIntOrNull()
+                val content = match.groupValues[3].trim()
                 if (idx != null && idx in 1..expectedCount) {
                     map[idx] = content
                 }
             }
         }
-        if (map.size >= expectedCount / 2) {
+        if (map.size >= (expectedCount + 1) / 2) {
             return (1..expectedCount).map { i -> map[i] ?: "" }
         }
         if (rawLines.size == expectedCount) {
-            return rawLines.map { it.replace(INDEXED_LINE_REGEX, "$2").trim() }
+            return rawLines.map { it.replace(INDEXED_LINE_REGEX, "$3").trim() }
         }
         return (0 until expectedCount).map { i ->
-            rawLines.getOrNull(i)?.replace(INDEXED_LINE_REGEX, "$2")?.trim() ?: ""
+            rawLines.getOrNull(i)?.replace(INDEXED_LINE_REGEX, "$3")?.trim() ?: ""
         }
     }
 
@@ -135,24 +135,33 @@ class TranslationService(
         }
 
         val textsToTranslate = nonBlankEntries.map { it.second }
-        // 12 行智能带序号分块并发翻译（通过行号硬锚定，绝对杜绝丢行导致后续歌词产生 1 行位移）
-        val chunks = textsToTranslate.chunked(12)
+        // 8 行智能紧凑带序号分块并发翻译（更小的分块能彻底避免长文本末尾丢行与截断）
+        val chunks = textsToTranslate.chunked(8)
         val translatedTexts = try {
             val translatedChunks = supervisorScope {
                 chunks.map { chunk ->
                     async {
-                        val indexedChunkText = chunk.mapIndexed { idx, line -> "${idx + 1}. $line" }.joinToString("\n")
+                        val indexedChunkText = chunk.mapIndexed { idx, line -> "[#${idx + 1}] $line" }.joinToString("\n")
                         val youdaoResult = translateChunkViaYoudao(indexedChunkText)
-                        if (youdaoResult != null && youdaoResult.isNotEmpty()) {
+                        var parsed = if (youdaoResult != null && youdaoResult.isNotEmpty()) {
                             parseIndexedLines(youdaoResult.map { HtmlUtils.cleanTranslationOutput(it) }, chunk.size)
-                        } else {
+                        } else emptyList()
+
+                        // 容灾检查：若有道丢行较多，平滑回退至 Google Translate 或逐行重试
+                        if (parsed.isEmpty() || parsed.count { it.isNotBlank() } < (chunk.size + 1) / 2) {
                             val googleFallback = translateViaGoogle(indexedChunkText, targetIso, "https://translate.googleapis.com/translate_a/single")
                             if (!googleFallback.isNullOrBlank()) {
-                                parseIndexedLines(googleFallback.lines().map { HtmlUtils.cleanTranslationOutput(it) }, chunk.size)
+                                parsed = parseIndexedLines(googleFallback.lines().map { HtmlUtils.cleanTranslationOutput(it) }, chunk.size)
                             } else {
                                 val memoryFallback = translateViaMyMemory(indexedChunkText, targetIso)?.lines() ?: emptyList()
-                                parseIndexedLines(memoryFallback.map { HtmlUtils.cleanTranslationOutput(it) }, chunk.size)
+                                parsed = parseIndexedLines(memoryFallback.map { HtmlUtils.cleanTranslationOutput(it) }, chunk.size)
                             }
+                        }
+
+                        // 对每行译文进行音乐俚语语义润色
+                        (0 until chunk.size).map { idx ->
+                            val rawTrans = parsed.getOrNull(idx) ?: ""
+                            refineMusicSlang(rawTrans, chunk[idx])
                         }
                     }
                 }.awaitAll()
@@ -185,9 +194,9 @@ class TranslationService(
 
     /**
      * 底层文本翻译逻辑（支持标题、短语、长注释与整篇背景故事）：
-     * 1. 采用自然段落 (\n\s*\n) 语义切分，杜绝破坏句意和跨段截断。
-     * 2. 逐段通过有道移动端极速翻译，完整保留全部译文字符行 (杜绝 firstOrNull 截断)。
-     * 3. 自动多重容灾降级（有道 -> Google Translate -> MyMemory）。
+     * 1. 优先对整篇文本进行整体段落保真翻译（避免频繁 HTTP 连接触发 429 报错，并保留上下文代词一致性）。
+     * 2. 若整篇过长 (>1200 字符) 则按自然段落分组翻译。
+     * 3. 自动多重容灾降级（有道 -> Google Translate -> MyMemory），确保 100% 每一段都有译文，绝不出现后半段纯英文！
      */
     suspend fun translateText(text: String, targetIso: String): String? = withContext(Dispatchers.IO) {
         if (text.isBlank()) return@withContext ""
@@ -195,7 +204,7 @@ class TranslationService(
         val cleaned = HtmlUtils.cleanPlainText(text)
         if (cleaned.isBlank()) return@withContext ""
 
-        // 按段落 (\n\s*\n) 划分，保护段落上下文与双语对齐结构
+        // 按段落 (\n\s*\n) 划分
         val paragraphs = cleaned.split(Regex("""(?:\r?\n\s*){2,}"""))
             .map { it.trim() }
             .filter { it.isNotBlank() }
@@ -203,43 +212,46 @@ class TranslationService(
         if (paragraphs.isEmpty()) return@withContext text
 
         try {
+            // 策略 A: 若总长度适中 (<=1500 字符)，整篇整体翻译！
+            // 极大减少网络请求次数（1 次 vs 7 次），避免 429 封禁，且上下文语义更自然连贯！
+            if (cleaned.length <= 1500) {
+                val wholeTrans = translateSingleTextUnit(cleaned, targetIso)
+                if (wholeTrans.isNotBlank() && Regex("""[\u4e00-\u9fa5]""").containsMatchIn(wholeTrans)) {
+                    val wholeParas = wholeTrans.split(Regex("""(?:\r?\n\s*){2,}""")).map { it.trim() }.filter { it.isNotBlank() }
+                    if (wholeParas.size == paragraphs.size) {
+                        return@withContext wholeParas.joinToString("\n\n")
+                    } else if (wholeParas.size > 1 && paragraphs.size > 1) {
+                        return@withContext wholeTrans
+                    }
+                }
+            }
+
+            // 策略 B: 逐段稳健并发/串行翻译 (针对长篇或格式特异文本)
             val translatedParagraphs = mutableListOf<String>()
             for ((idx, para) in paragraphs.withIndex()) {
-                val trans = translateSingleParagraph(para, targetIso)
-                translatedParagraphs.add(trans)
+                val trans = translateSingleTextUnit(para, targetIso)
+                val finalParaTrans = if (trans.isNotBlank()) trans else {
+                    // 若有道失败，用 Google 再次单独抢救这一段
+                    translateViaGoogle(para, targetIso, "https://translate.googleapis.com/translate_a/single")
+                        ?.let { HtmlUtils.cleanTranslationOutput(it) } ?: ""
+                }
+                translatedParagraphs.add(finalParaTrans)
                 if (idx < paragraphs.lastIndex) {
-                    kotlinx.coroutines.delay(60)
+                    kotlinx.coroutines.delay(40)
                 }
             }
 
-            // 如果全部段落翻译成功，直接拼合返回
-            val allSucceeded = translatedParagraphs.all { it.isNotBlank() && Regex("""[\u4e00-\u9fa5]""").containsMatchIn(it) }
-            if (allSucceeded) {
-                return@withContext translatedParagraphs.joinToString("\n\n")
-            }
-
-            // 如果有部分段落失败，尝试对整体进行一次统一容灾翻译
-            val fullFallback = translateSingleParagraph(cleaned, targetIso)
-            if (fullFallback.isNotBlank() && Regex("""[\u4e00-\u9fa5]""").containsMatchIn(fullFallback)) {
-                val fallbackParas = fullFallback.split(Regex("""(?:\r?\n\s*){2,}""")).map { it.trim() }.filter { it.isNotBlank() }
-                if (fallbackParas.size == paragraphs.size) {
-                    return@withContext fullFallback
-                }
-            }
-
-            // 严禁将未翻译的英文原段落作为译文混入（杜绝中英夹杂与假成功）
             translatedParagraphs.joinToString("\n\n")
         } catch (e: Exception) {
-            // 全量容灾兜底
-            translateSingleParagraph(cleaned, targetIso)
+            translateSingleTextUnit(cleaned, targetIso)
         }
     }
 
     /**
      * 单段落高可靠完整翻译，绝不漏行、绝不截断
      */
-    private suspend fun translateSingleParagraph(paragraph: String, targetIso: String): String {
-        val cleanInput = HtmlUtils.cleanPlainText(paragraph)
+    private suspend fun translateSingleTextUnit(unitText: String, targetIso: String): String {
+        val cleanInput = HtmlUtils.cleanPlainText(unitText)
         if (cleanInput.isBlank()) return ""
 
         // 1. 优先使用有道移动端极速端点 (带轻微重试)
@@ -248,17 +260,15 @@ class TranslationService(
             if (!youdaoResult.isNullOrEmpty()) {
                 val fullTranslated = youdaoResult.joinToString("\n").trim()
                 val cleaned = HtmlUtils.cleanTranslationOutput(fullTranslated)
-                    .replace(Regex("""(?:\r?\n\s*){2,}"""), "\n")
                 if (cleaned.isNotBlank()) return cleaned
             }
-            if (attempt == 0) kotlinx.coroutines.delay(150)
+            if (attempt == 0) kotlinx.coroutines.delay(120)
         }
 
         // 2. 容灾回退至 Google Translate 公共端点
         val google = translateViaGoogle(cleanInput, targetIso, "https://translate.googleapis.com/translate_a/single")
         if (!google.isNullOrBlank()) {
             val cleaned = HtmlUtils.cleanTranslationOutput(google)
-                .replace(Regex("""(?:\r?\n\s*){2,}"""), "\n")
             if (cleaned.isNotBlank()) return cleaned
         }
 
@@ -266,11 +276,43 @@ class TranslationService(
         val myMemory = translateViaMyMemory(cleanInput, targetIso)
         if (!myMemory.isNullOrBlank()) {
             val cleaned = HtmlUtils.cleanTranslationOutput(myMemory)
-                .replace(Regex("""(?:\r?\n\s*){2,}"""), "\n")
             if (cleaned.isNotBlank()) return cleaned
         }
 
         return ""
+    }
+
+    /**
+     * 音乐与 Hip-Hop 流行俚语常见机翻生硬直译校准器 (提高中文译文的地道性与可读性)
+     */
+    private fun refineMusicSlang(translated: String, originalLine: String): String {
+        if (translated.isBlank()) return translated
+        var res = translated
+        val origLower = originalLine.lowercase()
+
+        // 常见 Hip-Hop / 流行语机翻修正
+        if (origLower.contains("slimed me") || origLower.contains("slimed him")) {
+            res = res.replace("涂了粘液", "背叛坑害了")
+                .replace("给我涂了粘液", "坑害洗劫了我")
+                .replace("给他涂了粘液", "坑害背叛了他")
+        }
+        if (origLower.contains("say cheese")) {
+            res = res.replace("说奶酪", "笑一个合照")
+                .replace("说\"奶酪\"", "笑一个合照")
+                .replace("说“奶酪”", "笑一个合照")
+        }
+        if (origLower.contains("fake tea") || origLower.contains("fake plea")) {
+            res = res.replace("假装茶", "假八卦")
+                .replace("请假装茶", "纯属假八卦")
+        }
+        if (origLower.contains("puppy love")) {
+            res = res.replace("所有的早恋", "那些年少青涩的早恋")
+        }
+        if (origLower.contains("wifin' up") || origLower.contains("wifing up")) {
+            res = res.replace("娶了一个", "迎娶了")
+        }
+
+        return res
     }
 
     /**

@@ -329,9 +329,12 @@ fun CdTracklistSheet(
 
                             // 状态图标：正在播放显示双竖线 Pause，暂停显示三角 PlayArrow。支持独立点击控制播放/暂停
                             if (isCurrent) {
-                                IconButton(
+                                BouncyIconButton(
                                     onClick = onTogglePlay,
-                                    modifier = Modifier.size(28.dp)
+                                    modifier = Modifier.size(28.dp),
+                                    colors = IconButtonDefaults.filledIconButtonColors(
+                                        containerColor = Color.Transparent
+                                    )
                                 ) {
                                     Icon(
                                         imageVector = if (cdPlaying) Icons.Default.Pause else Icons.Default.PlayArrow,
@@ -423,14 +426,20 @@ private fun CdMatchOnlineSearchDialog(
                         modifier = Modifier.weight(1f),
                         trailingIcon = {
                             if (query.isNotEmpty()) {
-                                IconButton(onClick = { query = "" }) {
+                                BouncyIconButton(
+                                    onClick = { query = "" },
+                                    modifier = Modifier.size(28.dp),
+                                    colors = IconButtonDefaults.filledIconButtonColors(
+                                        containerColor = Color.Transparent
+                                    )
+                                ) {
                                     Icon(Icons.Default.Close, contentDescription = null, modifier = Modifier.size(16.dp))
                                 }
                             }
                         }
                     )
                     Spacer(modifier = Modifier.width(8.dp))
-                    Button(
+                    BouncyButton(
                         onClick = {
                             if (query.isNotBlank() && !isSearching) {
                                 isSearching = true
@@ -441,6 +450,7 @@ private fun CdMatchOnlineSearchDialog(
                                 }
                             }
                         },
+                        shape = RoundedCornerShape(12.dp),
                         enabled = query.isNotBlank() && !isSearching
                     ) {
                         if (isSearching) {

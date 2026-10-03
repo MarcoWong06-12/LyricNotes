@@ -189,7 +189,7 @@ class NowPlayingRepository @Inject constructor(
                     songStory = null,
                     isLoadingLyrics = false,
                     isLoadingGenius = true,
-                    geniusNoticeMessage = null,
+                    geniusNoticeMessage = cached.geniusNotice,
                     errorMessage = null
                 )
             }
@@ -717,11 +717,12 @@ class NowPlayingRepository @Inject constructor(
         val songKey = "${state.artist.trim().lowercase()} - ${state.title.trim().lowercase()}"
         val existingLyrics = memoryCache[songKey]?.lyrics ?: current.lyrics
 
-        // 立即进入加载中状态并清空前置旧提醒，瞬间给用户清晰正反馈
+        // 立即进入加载中状态并更新通知，向用户提供即时正反馈
+        val loadingNotice = "正在检索 Genius 典故..."
         _nowPlayingData.update {
             it.copy(
                 isLoadingGenius = true,
-                geniusNoticeMessage = null
+                geniusNoticeMessage = loadingNotice
             )
         }
 
@@ -730,7 +731,7 @@ class NowPlayingRepository @Inject constructor(
                 lyrics = existingLyrics,
                 annotatedLines = emptyMap(),
                 songStory = null,
-                geniusNotice = null
+                geniusNotice = loadingNotice
             )
         } else {
             memoryCache.remove(songKey)

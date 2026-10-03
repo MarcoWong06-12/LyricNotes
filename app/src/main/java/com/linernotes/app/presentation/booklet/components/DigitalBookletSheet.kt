@@ -41,6 +41,7 @@ import coil.request.ImageRequest
 import com.linernotes.app.data.local.entity.AlbumEntity
 import com.linernotes.app.data.local.entity.BookletPageEntity
 import com.linernotes.app.data.local.entity.TrackEntity
+import com.linernotes.app.presentation.common.BouncyButton
 import com.linernotes.app.presentation.common.BouncyIconButton
 import com.linernotes.app.presentation.common.BouncyTonalButton
 import com.linernotes.app.presentation.theme.VaultBlack
@@ -216,7 +217,7 @@ private fun BookletPagesViewer(
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
                 Spacer(modifier = Modifier.height(20.dp))
-                Button(
+                BouncyButton(
                     onClick = onAddMore,
                     shape = RoundedCornerShape(20.dp),
                     colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primary)
@@ -282,13 +283,15 @@ private fun BookletPagesViewer(
 
                         // 删除自定义页面按钮 (仅限用户自己导入的非默认封面页)
                         if (page.id > 0) {
-                            IconButton(
+                            BouncyIconButton(
                                 onClick = { onDeletePage(page.id) },
                                 modifier = Modifier
                                     .align(Alignment.TopEnd)
                                     .padding(8.dp)
-                                    .size(32.dp)
-                                    .background(Color.Black.copy(alpha = 0.5f), CircleShape)
+                                    .size(32.dp),
+                                colors = IconButtonDefaults.filledIconButtonColors(
+                                    containerColor = Color.Black.copy(alpha = 0.5f)
+                                )
                             ) {
                                 Icon(Icons.Default.Delete, contentDescription = "Delete", tint = Color.Red.copy(alpha = 0.8f), modifier = Modifier.size(16.dp))
                             }

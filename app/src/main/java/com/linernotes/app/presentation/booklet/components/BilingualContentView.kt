@@ -21,6 +21,7 @@ import androidx.compose.ui.unit.sp
 import com.linernotes.app.core.lyric.AiAnnotationCurator
 import com.linernotes.app.core.lyric.BilingualSentenceAligner
 import com.linernotes.app.core.util.ChineseConverter
+import com.linernotes.app.presentation.common.bouncyClickable
 
 enum class BilingualDisplayTab {
     PARALLEL, // 中英对照
@@ -200,14 +201,18 @@ fun BilingualContentView(
         // 若未具备中文翻译且未在翻译中，显示一键即时生成按钮
         if (!isAlreadyChinese && !hasTranslation && !isTranslating && onRetryTranslation != null) {
             Surface(
-                onClick = onRetryTranslation,
                 shape = RoundedCornerShape(10.dp),
                 color = if (isEffectiveDark) Color.White.copy(alpha = 0.08f) else MaterialTheme.colorScheme.surfaceVariant,
                 border = BorderStroke(0.5.dp, Color(0xFF1ED760).copy(alpha = 0.45f)),
-                modifier = Modifier.fillMaxWidth()
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .bouncyClickable(
+                        pressedScale = 0.96f,
+                        onClick = onRetryTranslation
+                    )
             ) {
                 Row(
-                    modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp),
+                    modifier = Modifier.padding(horizontal = 12.dp, vertical = 9.dp),
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.Center
                 ) {
@@ -333,15 +338,13 @@ private fun TabItem(
     modifier: Modifier = Modifier,
     onClick: () -> Unit
 ) {
-    val haptic = LocalHapticFeedback.current
     Surface(
-        onClick = {
-            haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
-            onClick()
-        },
         shape = RoundedCornerShape(8.dp),
         color = if (isSelected) selectedBg else Color.Transparent,
-        modifier = modifier
+        modifier = modifier.bouncyClickable(
+            pressedScale = 0.94f,
+            onClick = onClick
+        )
     ) {
         Box(
             contentAlignment = Alignment.Center,

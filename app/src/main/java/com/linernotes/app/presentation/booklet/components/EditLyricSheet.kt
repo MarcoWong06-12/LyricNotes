@@ -12,6 +12,8 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import com.linernotes.app.core.util.ChineseConverter
 import com.linernotes.app.data.local.entity.TrackEntity
+import com.linernotes.app.presentation.common.BouncyButton
+import com.linernotes.app.presentation.common.bouncyClickable
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -108,14 +110,18 @@ fun EditLyricSheet(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.End
             ) {
-                TextButton(onClick = onDismiss) {
+                TextButton(
+                    onClick = onDismiss,
+                    modifier = Modifier.bouncyClickable(pressedScale = 0.94f, onClick = onDismiss)
+                ) {
                     Text(strings.cancel)
                 }
                 Spacer(modifier = Modifier.width(8.dp))
-                Button(
+                BouncyButton(
                     onClick = {
                         onSave(zhTitle.ifBlank { null }, origLyrics, transLyrics)
-                    }
+                    },
+                    shape = RoundedCornerShape(12.dp)
                 ) {
                     Text(strings.saveChanges)
                 }

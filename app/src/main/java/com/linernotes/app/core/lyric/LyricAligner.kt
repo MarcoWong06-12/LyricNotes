@@ -109,30 +109,38 @@ object LyricAligner {
 
         if (hasOrigTimestamps && hasTransTimestamps) {
             // 双通道高精度时间轴对齐系统：
-            // 解决前奏制作人、作词口白等导致的歌词与译文错位问题（杜绝"牛头不对马嘴"）
+            // 基于单调递增时间轴严格对齐，彻底杜绝跳行、错位与反向乱序
             val matchedTrans = MutableList(origLines.size) { "" }
             val usedTransIndices = BooleanArray(transLines.size) { false }
 
             // Pass 1: 绝对时间戳精准对齐 (diff == 0ms)
+            var lastMatchedTransIdx = -1
             for (i in origLines.indices) {
                 val oTime = origTimes[i] ?: continue
                 for (j in transLines.indices) {
-                    if (!usedTransIndices[j] && transTimes[j] == oTime) {
+                    if (!usedTransIndices[j] && transTimes[j] == oTime && transLines[j].isNotBlank()) {
                         matchedTrans[i] = transLines[j]
                         usedTransIndices[j] = true
+                        lastMatchedTransIdx = j
                         break
                     }
                 }
             }
 
-            // Pass 2: 邻近微时间差吸附 (diff <= 500ms)
+            // Pass 2: 邻近微时间差吸附 (diff <= 800ms)，严格遵循单调性约束
+            var prevTransIdx = -1
             for (i in origLines.indices) {
-                if (matchedTrans[i].isNotBlank()) continue
+                if (matchedTrans[i].isNotBlank()) {
+                    prevTransIdx = transLines.indexOfFirst { it == matchedTrans[i] }
+                    continue
+                }
                 val oTime = origTimes[i] ?: continue
-                var bestDiff = 500L
+                var bestDiff = 800L
                 var bestJ = -1
                 for (j in transLines.indices) {
-                    if (!usedTransIndices[j] && transTimes[j] != null) {
+                    if (!usedTransIndices[j] && transTimes[j] != null && transLines[j].isNotBlank()) {
+                        // 单调递增约束：只匹配前方未使用的候选，杜绝乱序倒退
+                        if (j < prevTransIdx) continue
                         val diff = kotlin.math.abs(oTime - transTimes[j]!!)
                         if (diff <= bestDiff) {
                             bestDiff = diff
@@ -143,6 +151,7 @@ object LyricAligner {
                 if (bestJ != -1) {
                     matchedTrans[i] = transLines[bestJ]
                     usedTransIndices[bestJ] = true
+                    prevTransIdx = bestJ
                 }
             }
 
@@ -181,54 +190,112 @@ object LyricAligner {
                 )
             }
         } else {
-            // 智能段落容错对齐：
-            // 大模型经常会漏掉原歌词中的空行（导致原歌词第 10 行空行与译文第 10 行文字错位，引发后面全部移位“不齐”）。
-            // 策略：保留原歌词空行作为段落标记，原歌词的每一句非空歌词严格匹配译文的每一句非空歌词！
-            val nonBlankTrans = transLines.filter { it.isNotBlank() }
-            var transIdx = 0
-            var lineNum = 1
+            // 智能段落与行数容错对齐：
+            // 优先检查译文中是否含有行号标记（如 "1. "、"[#1] " 等），实现确定性绝对锚定
+            val indexRegex = Regex("""^\s*(?:\[#?(\d+)\]|(\d+)[\.、\s\-:])\s*(.*)$""")
+            val indexedTransMap = mutableMapOf<Int, String>()
+            var hasNumberedTrans = false
 
-            for (i in origLines.indices) {
-                val orig = origLines[i]
-                val time = origTimes.getOrNull(i)
-                if (orig.isBlank()) {
-                    result.add(
-                        BilingualLyricLine(
-                            lineNumber = lineNum++,
-                            original = "",
-                            translation = "",
-                            isStanzaBreak = true,
-                            startTimeMs = time
-                        )
-                    )
-                } else {
-                    val trans = if (transIdx < nonBlankTrans.size) nonBlankTrans[transIdx++] else ""
-                    result.add(
-                        BilingualLyricLine(
-                            lineNumber = lineNum++,
-                            original = orig,
-                            translation = trans,
-                            isStanzaBreak = false,
-                            startTimeMs = time
-                        )
-                    )
+            for (line in transLines) {
+                val m = indexRegex.find(line.trim())
+                if (m != null) {
+                    val num = (m.groupValues[1].toIntOrNull() ?: m.groupValues[2].toIntOrNull())
+                    val text = m.groupValues[3].trim()
+                    if (num != null) {
+                        indexedTransMap[num] = text
+                        hasNumberedTrans = true
+                    }
                 }
             }
 
-            while (transIdx < nonBlankTrans.size) {
-                result.add(
-                    BilingualLyricLine(
-                        lineNumber = lineNum++,
-                        original = "",
-                        translation = nonBlankTrans[transIdx++],
-                        isStanzaBreak = false,
-                        startTimeMs = null
-                    )
-                )
+            if (hasNumberedTrans && indexedTransMap.size >= (transLines.size.coerceAtLeast(1) / 2)) {
+                // 带行号的译文：根据原歌词非空行的绝对顺序 (1-based) 进行 100% 绝对映射！
+                var nonBlankSeq = 1
+                for (i in origLines.indices) {
+                    val orig = origLines[i]
+                    val time = origTimes.getOrNull(i)
+                    if (orig.isBlank()) {
+                        result.add(
+                            BilingualLyricLine(
+                                lineNumber = i + 1,
+                                original = "",
+                                translation = "",
+                                isStanzaBreak = true,
+                                startTimeMs = time
+                            )
+                        )
+                    } else {
+                        val trans = indexedTransMap[nonBlankSeq++] ?: ""
+                        result.add(
+                            BilingualLyricLine(
+                                lineNumber = i + 1,
+                                original = orig,
+                                translation = trans,
+                                isStanzaBreak = false,
+                                startTimeMs = time
+                            )
+                        )
+                    }
+                }
+            } else {
+                // 普通纯文本对齐：在原歌词和译文均按段落 (空行) 拆解，
+                // 仅在各段内部按行匹配，若段内英文多于译文，未匹配行留空，绝不发生跨段连锁位移！
+                val origParas = splitIntoParagraphs(origLines)
+                val transParas = splitIntoParagraphs(transLines)
+
+                var globalLineNum = 1
+                for (pIdx in origParas.indices) {
+                    val oPara = origParas[pIdx]
+                    val tPara = transParas.getOrNull(pIdx) ?: emptyList()
+
+                    for (lineIdx in oPara.indices) {
+                        val orig = oPara[lineIdx]
+                        val trans = tPara.getOrNull(lineIdx) ?: ""
+                        result.add(
+                            BilingualLyricLine(
+                                lineNumber = globalLineNum++,
+                                original = orig,
+                                translation = trans,
+                                isStanzaBreak = false,
+                                startTimeMs = origTimes.getOrNull(result.size)
+                            )
+                        )
+                    }
+                    if (pIdx < origParas.lastIndex) {
+                        result.add(
+                            BilingualLyricLine(
+                                lineNumber = globalLineNum++,
+                                original = "",
+                                translation = "",
+                                isStanzaBreak = true,
+                                startTimeMs = null
+                            )
+                        )
+                    }
+                }
             }
         }
 
         return result
+    }
+
+    private fun splitIntoParagraphs(lines: List<String>): List<List<String>> {
+        val result = mutableListOf<List<String>>()
+        var current = mutableListOf<String>()
+        for (line in lines) {
+            if (line.isBlank()) {
+                if (current.isNotEmpty()) {
+                    result.add(current)
+                    current = mutableListOf()
+                }
+            } else {
+                current.add(line)
+            }
+        }
+        if (current.isNotEmpty()) {
+            result.add(current)
+        }
+        return if (result.isEmpty()) listOf(emptyList()) else result
     }
 
     data class TimedLyric(val ms: Long, val text: String)
@@ -236,7 +303,7 @@ object LyricAligner {
     private val TIMESTAMP_PARSER_REGEX = Regex("""\[(\d{1,2}):(\d{2})(?:\.(\d{2,3}))?\]""")
 
     private val CREDIT_FILTER_REGEX = Regex(
-        """(作词|作曲|编曲|制作人|监制|混音|母带|录音|吉他|贝斯|鼓|键盘|和音|弦乐|OP|SP|Producer|Writers|Written\s*by|Lyrics\s*by|Composed\s*by|Arranged\s*by|Mixed\s*by|Mastered\s*by|Sample)""",
+        """(作词|作曲|编曲|制作人|监制|混音|母带|录音|吉他|贝斯|鼓|键盘|和音|弦乐|OP|SP|Producer|Writers|Written\s*by|Lyrics\s*by|Composed\s*by|Arranged\s*by|Mixed\s*by|Mastered\s*by|Sample|by:)""",
         RegexOption.IGNORE_CASE
     )
 
@@ -248,8 +315,11 @@ object LyricAligner {
         val origTimed = parseTimedLines(origLrc)
         val transTimed = if (!transLrc.isNullOrBlank()) parseTimedLines(transLrc) else emptyList()
 
-        // 过滤开头的制作信息行（前 3.5 秒内包含制作人、作词作曲等纯制作信息）
+        // 过滤开头的制作信息行与翻译者信息（前 3.5 秒内包含制作人、作词作曲等纯制作信息）
         val filteredOrig = origTimed.filterNot { item ->
+            item.ms < 3500 && item.text.contains(CREDIT_FILTER_REGEX)
+        }
+        val filteredTrans = transTimed.filterNot { item ->
             item.ms < 3500 && item.text.contains(CREDIT_FILTER_REGEX)
         }
 
@@ -258,7 +328,7 @@ object LyricAligner {
             return Pair(fallbackClean, "")
         }
 
-        if (transTimed.isEmpty()) {
+        if (filteredTrans.isEmpty()) {
             val origResult = StringBuilder()
             for (i in filteredOrig.indices) {
                 val current = filteredOrig[i]
@@ -273,6 +343,7 @@ object LyricAligner {
 
         val origResult = StringBuilder()
         val transResult = StringBuilder()
+        var lastUsedTransIndex = -1
 
         for (i in filteredOrig.indices) {
             val current = filteredOrig[i]
@@ -285,10 +356,26 @@ object LyricAligner {
                 }
             }
 
-            // 查找时间戳最匹配且偏差在 500ms 内的对应译文行
-            val matchedTrans = transTimed
-                .filter { Math.abs(it.ms - current.ms) <= 500 }
-                .minByOrNull { Math.abs(it.ms - current.ms) }
+            // 查找时间戳最匹配且偏差在 600ms 内的对应译文行（单调递增匹配，防止时间跳回）
+            var matchedTrans: TimedLyric? = null
+            var matchedIndex = -1
+            var bestDiff = 600L
+
+            for (j in filteredTrans.indices) {
+                if (j <= lastUsedTransIndex) continue
+                val cand = filteredTrans[j]
+                val diff = kotlin.math.abs(cand.ms - current.ms)
+                if (diff <= bestDiff) {
+                    bestDiff = diff
+                    matchedTrans = cand
+                    matchedIndex = j
+                }
+            }
+
+            if (matchedIndex != -1) {
+                lastUsedTransIndex = matchedIndex
+            }
+
             val transText = matchedTrans?.text?.trim() ?: ""
 
             val tag = formatTimestamp(current.ms)

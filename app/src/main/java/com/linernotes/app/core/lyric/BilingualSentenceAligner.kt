@@ -61,7 +61,31 @@ object BilingualSentenceAligner {
             }
         }
 
-        // 4. 兜底策略：按段落索引配对
+        // 4. 容错策略：若译文被切分为多行或单长段，合并整篇按句子拆分后按比例均匀配对
+        val allTransSentences = splitZhSentences(translation)
+        if (allTransSentences.isNotEmpty() && transParas.size < origParas.size) {
+            // 将全部译文句子根据原文各段的句子数比例进行平滑分配，绝不留白或使后半段缺失
+            val origSentencesPerPara = origParas.map { splitEnSentences(it) }
+            val totalOrigSentences = origSentencesPerPara.sumOf { it.size }.coerceAtLeast(1)
+            var zhSentIdx = 0
+            val result = mutableListOf<AlignedBilingualParagraph>()
+
+            for (oSentList in origSentencesPerPara) {
+                val needZhCount = ((oSentList.size.toFloat() / totalOrigSentences) * allTransSentences.size).toInt().coerceAtLeast(1)
+                val allocatedZh = mutableListOf<String>()
+                repeat(needZhCount) {
+                    if (zhSentIdx < allTransSentences.size) {
+                        allocatedZh.add(allTransSentences[zhSentIdx++])
+                    }
+                }
+                val oParaText = oSentList.joinToString(" ")
+                val tParaText = allocatedZh.joinToString(" ")
+                result.add(alignSingleParagraph(oParaText, tParaText))
+            }
+            return result
+        }
+
+        // 5. 最终保底：按段落索引配对
         return origParas.mapIndexed { idx, oPara ->
             val tPara = transParas.getOrNull(idx) ?: ""
             alignSingleParagraph(oPara, tPara)

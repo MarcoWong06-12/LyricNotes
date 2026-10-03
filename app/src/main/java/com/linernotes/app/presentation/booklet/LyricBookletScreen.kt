@@ -1229,12 +1229,14 @@ fun LyricBookletScreen(
                         verticalAlignment = Alignment.CenterVertically,
                         horizontalArrangement = Arrangement.spacedBy(8.dp)
                     ) {
-                        IconButton(
+                        BouncyIconButton(
                             onClick = {
-                                haptic.performHapticFeedback(HapticFeedbackType.LongPress)
                                 viewModel.toggleCompanionPlay()
                             },
-                            modifier = Modifier.size(28.dp)
+                            modifier = Modifier.size(28.dp),
+                            colors = IconButtonDefaults.filledIconButtonColors(
+                                containerColor = Color.Transparent
+                            )
                         ) {
                             Icon(
                                 imageVector = if (state.isCompanionPlaying) Icons.Default.Pause else Icons.Default.PlayArrow,

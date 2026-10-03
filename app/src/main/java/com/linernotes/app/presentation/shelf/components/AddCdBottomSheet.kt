@@ -32,6 +32,8 @@ import com.linernotes.app.data.local.entity.AlbumEntity
 import com.linernotes.app.data.local.entity.TrackEntity
 import com.linernotes.app.data.remote.MetadataService
 import com.linernotes.app.data.remote.OnlineAlbumInfo
+import com.linernotes.app.presentation.common.BouncyButton
+import com.linernotes.app.presentation.common.BouncyIconButton
 import kotlinx.coroutines.launch
 import java.util.UUID
 
@@ -138,9 +140,12 @@ fun AddCdBottomSheet(
                     keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search),
                     keyboardActions = KeyboardActions(onSearch = { performSearch() }),
                     trailingIcon = {
-                        IconButton(
+                        BouncyIconButton(
                             onClick = performSearch,
-                            enabled = searchQuery.isNotBlank() && !isSearching
+                            enabled = searchQuery.isNotBlank() && !isSearching,
+                            colors = IconButtonDefaults.filledIconButtonColors(
+                                containerColor = Color.Transparent
+                            )
                         ) {
                             Icon(Icons.Default.Search, contentDescription = "Search")
                         }
@@ -391,7 +396,7 @@ fun AddCdBottomSheet(
             )
             Spacer(modifier = Modifier.height(20.dp))
 
-            Button(
+            BouncyButton(
                 onClick = {
                     if (title.isNotBlank() && artist.isNotBlank()) {
                         isSearching = true
