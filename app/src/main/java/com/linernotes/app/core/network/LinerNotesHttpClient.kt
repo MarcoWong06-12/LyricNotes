@@ -111,42 +111,58 @@ object LinerNotesHttpClient {
      */
     suspend fun getAsync(url: String, headers: Map<String, String> = emptyMap()): String? =
         suspendCancellableCoroutine { continuation ->
-            val reqBuilder = Request.Builder()
-                .url(url)
-                .header("User-Agent", headers["User-Agent"] ?: DEFAULT_USER_AGENT)
-                .header("Accept-Language", headers["Accept-Language"] ?: "en-US,en;q=0.9,zh-CN;q=0.8,zh;q=0.7")
+            try {
+                val reqBuilder = Request.Builder()
+                    .url(url)
+                    .header("User-Agent", headers["User-Agent"] ?: DEFAULT_USER_AGENT)
+                    .header("Accept-Language", headers["Accept-Language"] ?: "en-US,en;q=0.9,zh-CN;q=0.8,zh;q=0.7")
 
-            headers.forEach { (k, v) ->
-                if (!k.equals("User-Agent", ignoreCase = true) && !k.equals("Accept-Language", ignoreCase = true)) {
-                    reqBuilder.header(k, v)
-                }
-            }
-
-            val call = client.newCall(reqBuilder.build())
-            continuation.invokeOnCancellation {
-                call.cancel()
-            }
-
-            call.enqueue(object : Callback {
-                override fun onResponse(call: Call, response: Response) {
-                    try {
-                        response.use { res ->
-                            if (res.isSuccessful) {
-                                continuation.resume(res.body?.string())
-                            } else {
-                                continuation.resume(null)
-                            }
-                        }
-                    } catch (e: Exception) {
-                        continuation.resume(null)
+                headers.forEach { (k, v) ->
+                    if (!k.equals("User-Agent", ignoreCase = true) && !k.equals("Accept-Language", ignoreCase = true)) {
+                        reqBuilder.header(k, v)
                     }
                 }
 
-                override fun onFailure(call: Call, e: IOException) {
-                    if (continuation.isCancelled) return
+                val call = client.newCall(reqBuilder.build())
+                continuation.invokeOnCancellation {
+                    try {
+                        call.cancel()
+                    } catch (e: Throwable) {
+                        // 忽略底层 Socket 取消异常
+                    }
+                }
+
+                call.enqueue(object : Callback {
+                    override fun onResponse(call: Call, response: Response) {
+                        if (!continuation.isActive) return
+                        try {
+                            response.use { res ->
+                                val body = if (res.isSuccessful) res.body?.string() else null
+                                if (continuation.isActive) {
+                                    continuation.resume(body)
+                                }
+                            }
+                        } catch (e: Throwable) {
+                            if (continuation.isActive) {
+                                continuation.resume(null)
+                            }
+                        }
+                    }
+
+                    override fun onFailure(call: Call, e: IOException) {
+                        if (continuation.isActive) {
+                            try {
+                                continuation.resume(null)
+                            } catch (ignored: Throwable) {}
+                        }
+                    }
+                })
+            } catch (e: Throwable) {
+                // 防御非法 URL 解析或构建崩溃
+                if (continuation.isActive) {
                     continuation.resume(null)
                 }
-            })
+            }
         }
 
     /**
@@ -157,45 +173,61 @@ object LinerNotesHttpClient {
         formParams: Map<String, String>,
         headers: Map<String, String> = emptyMap()
     ): String? = suspendCancellableCoroutine { continuation ->
-        val formBuilder = FormBody.Builder()
-        formParams.forEach { (k, v) -> formBuilder.add(k, v) }
+        try {
+            val formBuilder = FormBody.Builder()
+            formParams.forEach { (k, v) -> formBuilder.add(k, v) }
 
-        val reqBuilder = Request.Builder()
-            .url(url)
-            .post(formBuilder.build())
-            .header("User-Agent", headers["User-Agent"] ?: DEFAULT_USER_AGENT)
+            val reqBuilder = Request.Builder()
+                .url(url)
+                .post(formBuilder.build())
+                .header("User-Agent", headers["User-Agent"] ?: DEFAULT_USER_AGENT)
 
-        headers.forEach { (k, v) ->
-            if (!k.equals("User-Agent", ignoreCase = true)) {
-                reqBuilder.header(k, v)
-            }
-        }
-
-        val call = client.newCall(reqBuilder.build())
-        continuation.invokeOnCancellation {
-            call.cancel()
-        }
-
-        call.enqueue(object : Callback {
-            override fun onResponse(call: Call, response: Response) {
-                try {
-                    response.use { res ->
-                        if (res.isSuccessful) {
-                            continuation.resume(res.body?.string())
-                        } else {
-                            continuation.resume(null)
-                        }
-                    }
-                } catch (e: Exception) {
-                    continuation.resume(null)
+            headers.forEach { (k, v) ->
+                if (!k.equals("User-Agent", ignoreCase = true)) {
+                    reqBuilder.header(k, v)
                 }
             }
 
-            override fun onFailure(call: Call, e: IOException) {
-                if (continuation.isCancelled) return
+            val call = client.newCall(reqBuilder.build())
+            continuation.invokeOnCancellation {
+                try {
+                    call.cancel()
+                } catch (e: Throwable) {
+                    // 忽略底层 Socket 取消异常
+                }
+            }
+
+            call.enqueue(object : Callback {
+                override fun onResponse(call: Call, response: Response) {
+                    if (!continuation.isActive) return
+                    try {
+                        response.use { res ->
+                            val body = if (res.isSuccessful) res.body?.string() else null
+                            if (continuation.isActive) {
+                                continuation.resume(body)
+                            }
+                        }
+                    } catch (e: Throwable) {
+                        if (continuation.isActive) {
+                            continuation.resume(null)
+                        }
+                    }
+                }
+
+                override fun onFailure(call: Call, e: IOException) {
+                    if (continuation.isActive) {
+                        try {
+                            continuation.resume(null)
+                        } catch (ignored: Throwable) {}
+                    }
+                }
+            })
+        } catch (e: Throwable) {
+            // 防御非法 URL 解析或构建崩溃
+            if (continuation.isActive) {
                 continuation.resume(null)
             }
-        })
+        }
     }
 
     fun postJson(
