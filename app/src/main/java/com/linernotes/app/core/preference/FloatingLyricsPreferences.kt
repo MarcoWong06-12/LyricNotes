@@ -60,8 +60,8 @@ class FloatingLyricsPreferences @Inject constructor(
             _isBilingualFlow.value = value
         }
 
-    // 4. 背景不透明度 (0.20f ~ 1.0f，默认 0.55f 清透毛玻璃质感)
-    private val _backgroundAlphaFlow = MutableStateFlow(prefs.getFloat(KEY_BG_ALPHA, 0.55f))
+    // 4. 背景不透明度 (0.50f ~ 1.0f，默认 0.92f 高质感深色防穿透背板)
+    private val _backgroundAlphaFlow = MutableStateFlow(prefs.getFloat(KEY_BG_ALPHA, 0.92f))
     val backgroundAlphaFlow: StateFlow<Float> = _backgroundAlphaFlow.asStateFlow()
 
     var backgroundAlpha: Float
@@ -104,13 +104,13 @@ class FloatingLyricsPreferences @Inject constructor(
             _lyricOffsetMsFlow.value = value
         }
 
-    // 8. 记忆屏幕坐标 X / Y
+    // 8. 记忆屏幕坐标 X / Y (-1 表示初次由系统计算安全居中与下移避让挖孔)
     var lastPositionX: Int
         get() = prefs.getInt(KEY_POS_X, -1)
         set(value) = prefs.edit().putInt(KEY_POS_X, value).apply()
 
     var lastPositionY: Int
-        get() = prefs.getInt(KEY_POS_Y, 220)
+        get() = prefs.getInt(KEY_POS_Y, -1)
         set(value) = prefs.edit().putInt(KEY_POS_Y, value).apply()
 
     companion object {

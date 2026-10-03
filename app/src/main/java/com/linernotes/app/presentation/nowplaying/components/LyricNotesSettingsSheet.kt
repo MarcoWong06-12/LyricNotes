@@ -445,20 +445,28 @@ fun LyricNotesSettingsSheet(
                         modifier = Modifier.padding(vertical = 12.dp)
                     )
 
-                    // 4.1 视窗背景透明度调节 (35%, 55%, 75%, 90%)
+                    // 4.1 视窗背景不透明度调节 (70%, 85%, 92%, 100%)
                     Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                         Row(
                             modifier = Modifier.fillMaxWidth(),
                             horizontalArrangement = Arrangement.SpaceBetween,
                             verticalAlignment = Alignment.CenterVertically
                         ) {
-                            Text(
-                                text = "视窗背景透明度",
-                                color = Color.White.copy(alpha = 0.85f),
-                                fontSize = 13.5.sp,
-                                fontWeight = FontWeight.SemiBold,
-                                fontFamily = FontFamily.SansSerif
-                            )
+                            Column {
+                                Text(
+                                    text = "视窗背景不透明度",
+                                    color = Color.White.copy(alpha = 0.85f),
+                                    fontSize = 13.5.sp,
+                                    fontWeight = FontWeight.SemiBold,
+                                    fontFamily = FontFamily.SansSerif
+                                )
+                                Text(
+                                    text = "高不透明度可彻底阻断桌面图标与文字透光重叠",
+                                    color = Color.White.copy(alpha = 0.45f),
+                                    fontSize = 11.5.sp,
+                                    fontFamily = FontFamily.SansSerif
+                                )
+                            }
                             Text(
                                 text = "${(currentBgAlpha * 100).toInt()}%",
                                 color = Color(0xFF81D4FA),
@@ -473,13 +481,13 @@ fun LyricNotesSettingsSheet(
                             horizontalArrangement = Arrangement.spacedBy(6.dp)
                         ) {
                             val alphaOptions = listOf(
-                                0.35f to "35% 极透",
-                                0.55f to "55% 推荐",
-                                0.75f to "75% 磨砂",
-                                0.90f to "90% 深色"
+                                0.70f to "70% 半透",
+                                0.85f to "85% 磨砂",
+                                0.92f to "92% 推荐",
+                                1.00f to "100% 实黑"
                             )
                             alphaOptions.forEach { (alphaVal, label) ->
-                                val isSelected = kotlin.math.abs(currentBgAlpha - alphaVal) < 0.08f
+                                val isSelected = kotlin.math.abs(currentBgAlpha - alphaVal) < 0.06f
                                 Surface(
                                     color = if (isSelected) Color(0xFF03A9F4).copy(alpha = 0.30f) else Color.White.copy(alpha = 0.08f),
                                     shape = RoundedCornerShape(10.dp),

@@ -112,12 +112,17 @@ class FloatingLyricsService : Service() {
         windowManager = getSystemService(Context.WINDOW_SERVICE) as WindowManager
 
         val displayMetrics = resources.displayMetrics
+        val density = displayMetrics.density
         val initialX = if (floatingPreferences.lastPositionX >= 0) {
             floatingPreferences.lastPositionX
         } else {
-            (displayMetrics.widthPixels - 700) / 2
+            ((displayMetrics.widthPixels - (320 * density).toInt()) / 2).coerceAtLeast(0)
         }
-        val initialY = floatingPreferences.lastPositionY.coerceIn(80, displayMetrics.heightPixels - 200)
+        val initialY = if (floatingPreferences.lastPositionY >= 0) {
+            floatingPreferences.lastPositionY.coerceIn((56 * density).toInt(), displayMetrics.heightPixels - (140 * density).toInt())
+        } else {
+            (105 * density).toInt() // 默认安全避让 48dp 状态栏与居中打孔摄像头
+        }
 
         val windowType = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
             WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY
@@ -174,12 +179,15 @@ class FloatingLyricsService : Service() {
                         cancelSnapAnimation()
                         windowLayoutParams?.let { params ->
                             val metrics = resources.displayMetrics
-                            val density = metrics.density
-                            val minY = (36 * density).toInt()
-                            val viewHeight = composeView?.height ?: (48 * density).toInt()
-                            val maxY = (metrics.heightPixels - viewHeight - (48 * density).toInt()).coerceAtLeast(minY)
+                            val densityVal = metrics.density
+                            val minY = (56 * densityVal).toInt()
+                            val viewHeight = composeView?.height ?: (52 * densityVal).toInt()
+                            val viewWidth = composeView?.width ?: (300 * densityVal).toInt()
+                            val maxY = (metrics.heightPixels - viewHeight - (48 * densityVal).toInt()).coerceAtLeast(minY)
+                            val minX = (10 * densityVal).toInt()
+                            val maxX = (metrics.widthPixels - viewWidth - (10 * densityVal).toInt()).coerceAtLeast(minX)
 
-                            params.x += dx.toInt()
+                            params.x = (params.x + dx.toInt()).coerceIn(minX, maxX)
                             params.y = (params.y + dy.toInt()).coerceIn(minY, maxY)
                             windowManager?.updateViewLayout(this@apply, params)
                         }
@@ -223,22 +231,23 @@ class FloatingLyricsService : Service() {
         windowLayoutParams?.let { params ->
             val metrics = resources.displayMetrics
             val density = metrics.density
-            val marginPx = (16 * density).toInt()
-            val expandedWidthPx = (340 * density).toInt()
+            val marginPx = (14 * density).toInt()
+            val expandedWidthPx = (360 * density).toInt()
+            val expandedHeightPx = (270 * density).toInt()
+            val minY = (56 * density).toInt()
 
-            // 判断胶囊当前是否位于屏幕右侧半区
-            val isAnchoredRight = params.x + (composeView?.width ?: 0) / 2 > metrics.widthPixels / 2
-            if (isAnchoredRight) {
-                cancelSnapAnimation()
-                if (isExpanded) {
-                    // 向左平移避免卡片右边缘按钮被裁切
-                    params.x = (metrics.widthPixels - expandedWidthPx - marginPx).coerceAtLeast(marginPx)
-                    try {
-                        windowManager?.updateViewLayout(composeView, params)
-                    } catch (e: Exception) {}
-                } else {
-                    snapToNearestEdge(params)
-                }
+            cancelSnapAnimation()
+            if (isExpanded) {
+                // 展开时双轴安全视口钳制，确保右侧与底端播控栏 100% 完整显示在屏幕可视区域内
+                val maxX = (metrics.widthPixels - expandedWidthPx - marginPx).coerceAtLeast(marginPx)
+                val maxY = (metrics.heightPixels - expandedHeightPx - (48 * density).toInt()).coerceAtLeast(minY)
+                params.x = params.x.coerceIn(marginPx, maxX)
+                params.y = params.y.coerceIn(minY, maxY)
+                try {
+                    windowManager?.updateViewLayout(composeView, params)
+                } catch (e: Exception) {}
+            } else {
+                snapToNearestEdge(params)
             }
         }
     }
