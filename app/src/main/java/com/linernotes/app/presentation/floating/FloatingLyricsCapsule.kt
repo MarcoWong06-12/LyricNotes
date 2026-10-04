@@ -217,8 +217,8 @@ fun FloatingLyricsCapsule(
                                 style = TextStyle(shadow = textShadow),
                                 modifier = Modifier.basicMarquee(
                                     iterations = Int.MAX_VALUE,
-                                    delayMillis = 1500,
                                     initialDelayMillis = 1200,
+                                    repeatDelayMillis = 1500,
                                     velocity = 32.dp
                                 )
                             )
@@ -236,8 +236,8 @@ fun FloatingLyricsCapsule(
                                     style = TextStyle(shadow = textShadow),
                                     modifier = Modifier.basicMarquee(
                                         iterations = Int.MAX_VALUE,
-                                        delayMillis = 1500,
                                         initialDelayMillis = 1200,
+                                        repeatDelayMillis = 1500,
                                         velocity = 28.dp
                                     )
                                 )
