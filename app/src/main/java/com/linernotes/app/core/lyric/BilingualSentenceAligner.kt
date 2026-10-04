@@ -70,11 +70,22 @@ object BilingualSentenceAligner {
             var zhSentIdx = 0
             val result = mutableListOf<AlignedBilingualParagraph>()
 
-            for (oSentList in origSentencesPerPara) {
-                val needZhCount = ((oSentList.size.toFloat() / totalOrigSentences) * allTransSentences.size).toInt().coerceAtLeast(1)
+            for ((pIdx, oSentList) in origSentencesPerPara.withIndex()) {
+                val isLastPara = (pIdx == origSentencesPerPara.lastIndex)
+                val needZhCount = if (isLastPara) {
+                    (allTransSentences.size - zhSentIdx).coerceAtLeast(1)
+                } else {
+                    ((oSentList.size.toFloat() / totalOrigSentences) * allTransSentences.size).toInt().coerceAtLeast(1)
+                }
                 val allocatedZh = mutableListOf<String>()
                 repeat(needZhCount) {
                     if (zhSentIdx < allTransSentences.size) {
+                        allocatedZh.add(allTransSentences[zhSentIdx++])
+                    }
+                }
+                // 保障最后一段收容全部剩余译文，杜绝末尾丢句
+                if (isLastPara && zhSentIdx < allTransSentences.size) {
+                    while (zhSentIdx < allTransSentences.size) {
                         allocatedZh.add(allTransSentences[zhSentIdx++])
                     }
                 }
@@ -85,9 +96,13 @@ object BilingualSentenceAligner {
             return result
         }
 
-        // 5. 最终保底：按段落索引配对
+        // 5. 最终保底：按段落索引配对（若译文段落多于原文，末尾段落完整拼接所有剩余译文）
         return origParas.mapIndexed { idx, oPara ->
-            val tPara = transParas.getOrNull(idx) ?: ""
+            val tPara = if (idx == origParas.lastIndex && transParas.size > origParas.size) {
+                transParas.subList(idx, transParas.size).joinToString("\n\n")
+            } else {
+                transParas.getOrNull(idx) ?: ""
+            }
             alignSingleParagraph(oPara, tPara)
         }
     }

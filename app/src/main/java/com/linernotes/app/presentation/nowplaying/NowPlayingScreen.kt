@@ -150,6 +150,7 @@ fun NowPlayingScreen(
                     lyrics = nowData.lyrics,
                     currentLineIndex = nowData.currentLineIndex,
                     annotatedLines = nowData.annotatedLines,
+                    isPlaying = trackState.isPlaying,
                     isTraditional = state.isTraditionalChinese,
                     isLoadingLyrics = nowData.isLoadingLyrics,
                     isDark = isDark,
@@ -598,6 +599,7 @@ private fun NowPlayingLyricsContent(
     lyrics: List<BilingualLyricLine>,
     currentLineIndex: Int,
     annotatedLines: Map<Int, LyricAnnotationEntity>,
+    isPlaying: Boolean,
     isTraditional: Boolean,
     isLoadingLyrics: Boolean,
     isDark: Boolean,
@@ -675,26 +677,40 @@ private fun NowPlayingLyricsContent(
 
     val listState = rememberLazyListState()
     var lastUserInteractionTime by remember { mutableLongStateOf(0L) }
+    var isUserBrowsing by remember { mutableStateOf(false) }
 
-    // 监听用户主动滑动浏览，防止自动对齐与用户手势发生拉扯
+    // 监听用户主动滑动浏览，松手后持续保留浏览模式 3.5 秒以便阅读
     LaunchedEffect(listState.isScrollInProgress) {
         if (listState.isScrollInProgress) {
             lastUserInteractionTime = System.currentTimeMillis()
+            isUserBrowsing = true
+        } else if (isUserBrowsing) {
+            kotlinx.coroutines.delay(3500L)
+            if (!listState.isScrollInProgress) {
+                isUserBrowsing = false
+            }
         }
     }
 
+    // 当用户手动浏览翻阅或处于暂停播放状态时，激活全屏歌词高对比度阅读增强模式
+    val isBrowsingOrPaused = isUserBrowsing || listState.isScrollInProgress || !isPlaying
+
     // 物理级黄金视线重心对齐动力学 (对标 Spotify 与 Apple Music 顶级流体顺滑吸附)
     // 监听当前歌词改变以及滑动状态切换：当用户停止滑动后经过 2 秒空闲，自动且平滑回归焦点
-    LaunchedEffect(currentLineIndex, listState.isScrollInProgress) {
+    LaunchedEffect(currentLineIndex, listState.isScrollInProgress, isPlaying) {
+        // 当暂停播放时，绝对不强制自动回滚，完全保障用户自由沉浸式翻阅浏览
+        if (!isPlaying) {
+            return@LaunchedEffect
+        }
         if (currentLineIndex in lyrics.indices) {
             if (listState.isScrollInProgress) {
                 return@LaunchedEffect
             }
             val timeSinceInteraction = System.currentTimeMillis() - lastUserInteractionTime
-            if (timeSinceInteraction < 2000L) {
-                kotlinx.coroutines.delay(2000L - timeSinceInteraction)
+            if (timeSinceInteraction < 2200L) {
+                kotlinx.coroutines.delay(2200L - timeSinceInteraction)
             }
-            if (listState.isScrollInProgress) {
+            if (listState.isScrollInProgress || !isPlaying) {
                 return@LaunchedEffect
             }
 
@@ -738,15 +754,14 @@ private fun NowPlayingLyricsContent(
                 .graphicsLayer(compositingStrategy = CompositingStrategy.Offscreen)
                 .drawWithContent {
                     drawContent()
-                    // 硬件级上下边缘羽化蒙版：
-                    // 顶部 7% 完全透明，7%~17% 渐变过渡；底部 80%~93% 柔和淡出融入悬浮底栏
+                    // 硬件级上下边缘羽化蒙版：收紧顶部过渡（仅在最顶端 3%~8% 微羽化），杜绝上划浏览时上方文字被蒙版冲淡看不清
                     drawRect(
                         brush = Brush.verticalGradient(
                             0.0f to Color.Transparent,
-                            0.07f to Color.Transparent,
-                            0.17f to Color.Black,
-                            0.80f to Color.Black,
-                            0.93f to Color.Transparent,
+                            0.03f to Color.Transparent,
+                            0.08f to Color.Black,
+                            0.86f to Color.Black,
+                            0.96f to Color.Transparent,
                             1.0f to Color.Transparent
                         ),
                         blendMode = BlendMode.DstIn
@@ -765,6 +780,7 @@ private fun NowPlayingLyricsContent(
                     line = line,
                     isActive = isActive,
                     distance = distance,
+                    isBrowsingOrPaused = isBrowsingOrPaused,
                     annotation = annotation,
                     isTraditional = isTraditional,
                     isDark = isDark,
@@ -791,27 +807,70 @@ private fun LyricLineRow(
     line: BilingualLyricLine,
     isActive: Boolean,
     distance: Int,
+    isBrowsingOrPaused: Boolean,
     annotation: LyricAnnotationEntity?,
     isTraditional: Boolean,
     isDark: Boolean,
     onClick: () -> Unit,
     onAnnotationClick: () -> Unit
 ) {
-    // 严格遵循 Spotify & Apple Music 空间景深动力学：距离活跃行越远，字阶与透明度平滑向深空沉底
+    // 空间景深动力学与自由阅读增强：
+    // 1. 当用户暂停或手动翻阅浏览时，大幅提升对比度（非焦点行提升至 0.62f~0.82f），确保上划下翻皆清晰锐利；
+    // 2. 常规播放自动跟随状态下，大幅提高基础对比度下限（浅色模式 >= 0.40f，暗色模式 >= 0.30f），彻底根除 0.06f 发灰发虚看不清
     val targetOriginalAlpha = when {
         isActive -> 1.0f
-        distance == 1 -> 0.46f
-        distance == 2 -> 0.28f
-        distance == 3 -> 0.18f
-        else -> (0.14f - (distance * 0.015f)).coerceAtLeast(0.06f)
+        isBrowsingOrPaused -> {
+            when {
+                distance == 1 -> if (isDark) 0.82f else 0.80f
+                distance == 2 -> if (isDark) 0.72f else 0.70f
+                else -> if (isDark) 0.65f else 0.62f
+            }
+        }
+        else -> {
+            if (isDark) {
+                when {
+                    distance == 1 -> 0.58f
+                    distance == 2 -> 0.42f
+                    distance == 3 -> 0.34f
+                    else -> 0.30f
+                }
+            } else {
+                when {
+                    distance == 1 -> 0.66f
+                    distance == 2 -> 0.52f
+                    distance == 3 -> 0.44f
+                    else -> 0.40f
+                }
+            }
+        }
     }
 
     val targetTransAlpha = when {
-        isActive -> 0.86f
-        distance == 1 -> 0.36f
-        distance == 2 -> 0.20f
-        distance == 3 -> 0.12f
-        else -> (0.10f - (distance * 0.012f)).coerceAtLeast(0.04f)
+        isActive -> 0.90f
+        isBrowsingOrPaused -> {
+            when {
+                distance == 1 -> if (isDark) 0.72f else 0.70f
+                distance == 2 -> if (isDark) 0.60f else 0.58f
+                else -> if (isDark) 0.52f else 0.50f
+            }
+        }
+        else -> {
+            if (isDark) {
+                when {
+                    distance == 1 -> 0.46f
+                    distance == 2 -> 0.34f
+                    distance == 3 -> 0.26f
+                    else -> 0.22f
+                }
+            } else {
+                when {
+                    distance == 1 -> 0.56f
+                    distance == 2 -> 0.44f
+                    distance == 3 -> 0.36f
+                    else -> 0.32f
+                }
+            }
+        }
     }
 
     val targetScale = when {

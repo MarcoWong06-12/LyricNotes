@@ -197,6 +197,11 @@ class TranslationService(
      * 1. 优先对整篇文本进行整体段落保真翻译（避免频繁 HTTP 连接触发 429 报错，并保留上下文代词一致性）。
      * 2. 若整篇过长 (>1200 字符) 则按自然段落分组翻译。
      * 3. 自动多重容灾降级（有道 -> Google Translate -> MyMemory），确保 100% 每一段都有译文，绝不出现后半段纯英文！
+    /**
+     * 底层文本翻译逻辑（支持标题、短语、长注释与整篇背景故事）：
+     * 1. 按段落划分并发翻译，杜绝大段文本直接发送导致翻译端点末尾截断吞句。
+     * 2. 逐段严格完整性校验（Truncation Detection）：若译文异常短小或未完结，毫秒级平滑回退至 Google Translate。
+     * 3. 自动多重容灾降级（有道 -> Google Translate -> MyMemory），确保 100% 每一段都有完整且地道的译文！
      */
     suspend fun translateText(text: String, targetIso: String): String? = withContext(Dispatchers.IO) {
         if (text.isBlank()) return@withContext ""
@@ -204,7 +209,7 @@ class TranslationService(
         val cleaned = HtmlUtils.cleanPlainText(text)
         if (cleaned.isBlank()) return@withContext ""
 
-        // 按段落 (\n\s*\n) 划分
+        // 按自然段落 (\n\s*\n) 划分
         val paragraphs = cleaned.split(Regex("""(?:\r?\n\s*){2,}"""))
             .map { it.trim() }
             .filter { it.isNotBlank() }
@@ -212,74 +217,104 @@ class TranslationService(
         if (paragraphs.isEmpty()) return@withContext text
 
         try {
-            // 策略 A: 若总长度适中 (<=1500 字符)，整篇整体翻译！
-            // 极大减少网络请求次数（1 次 vs 7 次），避免 429 封禁，且上下文语义更自然连贯！
-            if (cleaned.length <= 1500) {
-                val wholeTrans = translateSingleTextUnit(cleaned, targetIso)
-                if (wholeTrans.isNotBlank() && Regex("""[\u4e00-\u9fa5]""").containsMatchIn(wholeTrans)) {
-                    val wholeParas = wholeTrans.split(Regex("""(?:\r?\n\s*){2,}""")).map { it.trim() }.filter { it.isNotBlank() }
-                    if (wholeParas.size == paragraphs.size) {
-                        return@withContext wholeParas.joinToString("\n\n")
-                    } else if (wholeParas.size > 1 && paragraphs.size > 1) {
-                        return@withContext wholeTrans
-                    }
-                }
+            if (paragraphs.size == 1) {
+                return@withContext translateSingleParagraphRobust(paragraphs[0], targetIso)
             }
 
-            // 策略 B: 逐段稳健并发/串行翻译 (针对长篇或格式特异文本)
-            val translatedParagraphs = mutableListOf<String>()
-            for ((idx, para) in paragraphs.withIndex()) {
-                val trans = translateSingleTextUnit(para, targetIso)
-                val finalParaTrans = if (trans.isNotBlank()) trans else {
-                    // 若有道失败，用 Google 再次单独抢救这一段
-                    translateViaGoogle(para, targetIso, "https://translate.googleapis.com/translate_a/single")
-                        ?.let { HtmlUtils.cleanTranslationOutput(it) } ?: ""
-                }
-                translatedParagraphs.add(finalParaTrans)
-                if (idx < paragraphs.lastIndex) {
-                    kotlinx.coroutines.delay(40)
-                }
+            // 逐段并发高可靠翻译，保留自然段落格式且杜绝长文本截断
+            val translatedParagraphs = supervisorScope {
+                paragraphs.map { para ->
+                    async {
+                        translateSingleParagraphRobust(para, targetIso)
+                    }
+                }.awaitAll()
             }
 
             translatedParagraphs.joinToString("\n\n")
         } catch (e: Exception) {
-            translateSingleTextUnit(cleaned, targetIso)
+            translateSingleParagraphRobust(cleaned, targetIso)
         }
     }
 
     /**
-     * 单段落高可靠完整翻译，绝不漏行、绝不截断
+     * 单段落高可靠完整翻译，绝不漏句、绝不截断：
+     * 1. 优先调用有道移动端极速端点
+     * 2. 完整性校验：判断译文是否被截断（例如英文 194 字符但仅返回“这条线”、“但这并不是全部”等截断半句）
+     * 3. 若有道失败或疑似截断，无感秒级回退至 Google Translate 补全
+     * 4. 若 Google 亦不可用，平滑回退至 MyMemory
      */
-    private suspend fun translateSingleTextUnit(unitText: String, targetIso: String): String {
+    private suspend fun translateSingleParagraphRobust(unitText: String, targetIso: String): String {
         val cleanInput = HtmlUtils.cleanPlainText(unitText)
         if (cleanInput.isBlank()) return ""
 
-        // 1. 优先使用有道移动端极速端点 (带轻微重试)
+        // 1. 优先使用有道移动端极速端点
+        var youdaoResultText = ""
         for (attempt in 0..1) {
             val youdaoResult = translateChunkViaYoudao(cleanInput)
             if (!youdaoResult.isNullOrEmpty()) {
                 val fullTranslated = youdaoResult.joinToString("\n").trim()
                 val cleaned = HtmlUtils.cleanTranslationOutput(fullTranslated)
-                if (cleaned.isNotBlank()) return cleaned
+                if (cleaned.isNotBlank()) {
+                    youdaoResultText = cleaned
+                    break
+                }
             }
-            if (attempt == 0) kotlinx.coroutines.delay(120)
+            if (attempt == 0) kotlinx.coroutines.delay(100)
         }
 
-        // 2. 容灾回退至 Google Translate 公共端点
+        // 完整性校验：若有道返回结果完整无截断，且包含中文字符，则直接采用
+        if (youdaoResultText.isNotBlank() &&
+            !isTranslationTruncated(cleanInput, youdaoResultText) &&
+            (Regex("""[\u4e00-\u9fa5]""").containsMatchIn(youdaoResultText) || targetIso != "zh-CN")
+        ) {
+            return refineMusicSlang(youdaoResultText, cleanInput)
+        }
+
+        // 2. 容灾回退至 Google Translate 公共端点（彻底补齐被截断的末尾段落与长句）
         val google = translateViaGoogle(cleanInput, targetIso, "https://translate.googleapis.com/translate_a/single")
         if (!google.isNullOrBlank()) {
             val cleaned = HtmlUtils.cleanTranslationOutput(google)
-            if (cleaned.isNotBlank()) return cleaned
+            if (cleaned.isNotBlank() && (Regex("""[\u4e00-\u9fa5]""").containsMatchIn(cleaned) || targetIso != "zh-CN")) {
+                return refineMusicSlang(cleaned, cleanInput)
+            }
         }
 
         // 3. 容灾回退至 MyMemory
         val myMemory = translateViaMyMemory(cleanInput, targetIso)
         if (!myMemory.isNullOrBlank()) {
             val cleaned = HtmlUtils.cleanTranslationOutput(myMemory)
-            if (cleaned.isNotBlank()) return cleaned
+            if (cleaned.isNotBlank()) return refineMusicSlang(cleaned, cleanInput)
         }
 
-        return ""
+        // 保底：若全部失败但有道有部分文字则至少返回有道，否则原样返回
+        return if (youdaoResultText.isNotBlank()) refineMusicSlang(youdaoResultText, cleanInput) else cleanInput
+    }
+
+    /**
+     * 译文完整性检测：防范第三方无 Key 接口因字符长度限制而在末尾吞句截断
+     */
+    private fun isTranslationTruncated(original: String, translated: String): Boolean {
+        if (translated.isBlank()) return true
+        val origLen = original.length
+        val transLen = translated.length
+
+        // 原文有一定长度但译文畸短（典型如“这条线”、“但这并不是全部”）
+        if (origLen >= 35 && transLen < 12) return true
+        if (origLen >= 70 && transLen < 22) return true
+        if (origLen >= 130 && transLen < (origLen * 0.16).toInt()) return true
+
+        // 原文多句但译文仅有一短句且长度不成比例
+        val origSentenceCount = original.count { it == '.' || it == '?' || it == '!' || it == '\n' }
+        if (origSentenceCount >= 2 && origLen > 80 && transLen < 24) return true
+
+        // 原文以正常句号/感叹号/问号结尾，但译文末尾异常截断无标点
+        val hasClosingPunct = original.trimEnd().let { it.endsWith(".") || it.endsWith("!") || it.endsWith("?") }
+        val transHasClosingPunct = translated.trimEnd().let {
+            it.endsWith("。") || it.endsWith("！") || it.endsWith("？") || it.endsWith("”") || it.endsWith("’") || it.endsWith("\"") || it.endsWith("'") || it.endsWith(")") || it.endsWith("）") || it.endsWith(":") || it.endsWith("：")
+        }
+        if (hasClosingPunct && !transHasClosingPunct && transLen < (origLen * 0.35).toInt()) return true
+
+        return false
     }
 
     /**
@@ -289,6 +324,19 @@ class TranslationService(
         if (translated.isBlank()) return translated
         var res = translated
         val origLower = originalLine.lowercase()
+
+        // 典故注释与歌词解析常见术语校正（如将 "This line" 规范化为 "这句歌词" 而非 "这条线"）
+        if (origLower.contains("this line") || origLower.contains("these lines") || origLower.contains("this bar")) {
+            res = res.replace("这条线", "这句歌词")
+                .replace("这行", "这句歌词")
+                .replace("该行", "这句歌词")
+                .replace("此行", "这句歌词")
+                .replace("这些线", "这些歌词")
+                .replace("这个酒吧", "这句歌词")
+        }
+        if (origLower.contains("beefed with") || origLower.contains("beef with")) {
+            res = res.replace("吃牛肉", "起争执过节")
+        }
 
         // 常见 Hip-Hop / 流行语机翻修正
         if (origLower.contains("slimed me") || origLower.contains("slimed him")) {

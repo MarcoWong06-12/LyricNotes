@@ -207,6 +207,14 @@ class NowPlayingViewModel @Inject constructor(
         val origParas = cleanOrig.split(Regex("""(?:\r?\n\s*){2,}""")).filter { it.isNotBlank() }
         val transParas = cleanTrans.split(Regex("""(?:\r?\n\s*){2,}""")).filter { it.isNotBlank() }
         if (origParas.size > 1 && transParas.size < origParas.size) return true
+
+        // 检查末尾段落是否疑似被截断吞句 (例如原文长段但译文畸短如“这条线”、“但这并不是全部”)
+        val lastOrig = origParas.lastOrNull() ?: ""
+        val lastTrans = transParas.lastOrNull() ?: ""
+        if (lastOrig.length >= 35 && lastTrans.length < 12) return true
+        if (lastOrig.length >= 70 && lastTrans.length < 22) return true
+        if (lastOrig.length >= 120 && lastTrans.length < (lastOrig.length * 0.16).toInt()) return true
+
         return false
     }
 
