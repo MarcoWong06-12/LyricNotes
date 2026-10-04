@@ -49,13 +49,14 @@ fun FloatingLyricsCapsule(
     textColor: Int = -1,
     onDragStart: () -> Unit = {},
     onDrag: (deltaX: Float, deltaY: Float) -> Unit,
-    onDragEnd: () -> Unit,
+    onDragEnd: (isExpanded: Boolean) -> Unit,
     onExpandChanged: (isExpanded: Boolean) -> Unit = {},
     onToggleLock: () -> Unit,
     onToggleBilingual: () -> Unit,
     onPrevious: () -> Unit,
     onPlayPause: () -> Unit,
     onNext: () -> Unit,
+    onOpenApp: () -> Unit = {},
     onClose: () -> Unit
 ) {
     val haptic = LocalHapticFeedback.current
@@ -67,14 +68,12 @@ fun FloatingLyricsCapsule(
     val isLoadingLyrics = nowPlayingData.isLoadingLyrics
     val currentLine = if (activeIndex in lyrics.indices) lyrics[activeIndex] else null
 
-    // 稳定视觉骨架：副行优雅展示双语译文或艺人/状态信息，绝不出现空行抖动
+    // 稳定视觉骨架：副行仅在开启双语且有译文时优雅展示译文；无译文时单行居中展示，杜绝重复出现歌手名副标题
     val (originalText, secondaryText) = remember(currentLine, state.title, state.artist, state.hasValidTrack, isBilingual, isLoadingLyrics) {
         if (currentLine != null) {
             val orig = currentLine.original.ifBlank { state.title.ifBlank { "LyricNotes 桌面歌词" } }
             val trans = if (isBilingual && !currentLine.translation.isNullOrBlank()) {
                 currentLine.translation
-            } else if (state.artist.isNotBlank()) {
-                state.artist
             } else null
             orig to trans
         } else {
@@ -95,19 +94,27 @@ fun FloatingLyricsCapsule(
     val hasCover = !state.coverUrl.isNullOrBlank()
 
     val lyricColor = if (textColor != -1) Color(textColor) else Color.White
-    val secondaryColor = if (textColor != -1) Color(textColor).copy(alpha = 0.85f) else Color.White.copy(alpha = 0.80f)
+    val isLightColor = lyricColor.luminance() > 0.35f
+    val secondaryColor = if (textColor != -1) {
+        Color(textColor).copy(alpha = if (isLightColor) 0.85f else 0.75f)
+    } else {
+        Color.White.copy(alpha = 0.80f)
+    }
 
     // 智能高对比度投影：根据前景色亮度自动选择深黑或雪白立体投影，绝不与壁纸或桌面图标混色
-    val isLightColor = lyricColor.luminance() > 0.40f
     val textShadow = Shadow(
-        color = if (isLightColor) Color.Black.copy(alpha = 0.95f) else Color.White.copy(alpha = 0.90f),
+        color = if (isLightColor) Color.Black.copy(alpha = 0.95f) else Color.White.copy(alpha = 0.85f),
         offset = Offset(0f, 1.5f),
         blurRadius = 4f
     )
 
-    // 双重防穿透深色底板：锁定状态下保留微透，常规状态下保障高对比度遮蔽下层图标
+    // 双重防穿透底板：深色模式使用深黑 (0xFF12141C)，浅色文字自适应磨砂白 (0xFFF2F4F7)
     val effectiveBgAlpha = if (isLocked) (backgroundAlpha * 0.90f).coerceAtLeast(0.65f) else backgroundAlpha
-    val capsuleBackground = Color(0xFF12141C).copy(alpha = effectiveBgAlpha)
+    val baseBgColor = if (isLightColor) Color(0xFF12141C) else Color(0xFFF2F4F7)
+    val capsuleBackground = baseBgColor.copy(alpha = effectiveBgAlpha)
+    val primaryUiColor = if (isLightColor) Color.White else Color(0xFF1A1C24)
+
+    val capsuleWidth = if (isExpanded) 346.dp else 300.dp
 
     Surface(
         color = capsuleBackground,
@@ -115,11 +122,11 @@ fun FloatingLyricsCapsule(
         border = BorderStroke(
             width = if (isLocked) 0.5.dp else 0.8.dp,
             color = if (isLightColor) Color.White.copy(alpha = if (isLocked) 0.15f else 0.28f)
-                    else Color.Black.copy(alpha = if (isLocked) 0.25f else 0.40f)
+                    else Color.Black.copy(alpha = if (isLocked) 0.15f else 0.25f)
         ),
         shadowElevation = if (isLocked) 2.dp else 10.dp,
         modifier = Modifier
-            .widthIn(min = 280.dp, max = if (isExpanded) 380.dp else 340.dp)
+            .width(capsuleWidth)
             .then(
                 if (!isLocked) {
                     Modifier.pointerInput(Unit) {
@@ -129,8 +136,8 @@ fun FloatingLyricsCapsule(
                                 change.consume()
                                 onDrag(dragAmount.x, dragAmount.y)
                             },
-                            onDragEnd = onDragEnd,
-                            onDragCancel = onDragEnd
+                            onDragEnd = { onDragEnd(isExpanded) },
+                            onDragCancel = { onDragEnd(isExpanded) }
                         )
                     }
                 } else Modifier
@@ -150,6 +157,7 @@ fun FloatingLyricsCapsule(
                         .then(
                             if (!isLocked) {
                                 Modifier.clickable {
+                                    haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
                                     isExpanded = true
                                     onExpandChanged(true)
                                 }
@@ -162,7 +170,7 @@ fun FloatingLyricsCapsule(
                         modifier = Modifier
                             .size(34.dp)
                             .clip(CircleShape)
-                            .background(Color(0xFF22242B))
+                            .background(if (isLightColor) Color(0xFF22242B) else Color(0xFFE0E0E0))
                     ) {
                         if (hasCover) {
                             AsyncImage(
@@ -234,72 +242,86 @@ fun FloatingLyricsCapsule(
                 Column(
                     modifier = Modifier.padding(14.dp)
                 ) {
-                    // 1. 顶栏：专辑封面 + 歌曲标题与歌手 + 快捷操作按钮群
+                    // 1. 顶栏：专辑封面 + 歌曲标题与歌手 (点击可直接唤醒主程序) + 快捷操作按钮群
                     Row(
                         verticalAlignment = Alignment.CenterVertically,
                         modifier = Modifier.fillMaxWidth()
                     ) {
-                        // 封面图 (40.dp 圆角矩形)
-                        Box(
-                            contentAlignment = Alignment.Center,
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
                             modifier = Modifier
-                                .size(40.dp)
+                                .weight(1f)
                                 .clip(RoundedCornerShape(8.dp))
-                                .background(Color(0xFF22242B))
+                                .clickable(onClick = {
+                                    haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                                    onOpenApp()
+                                })
                         ) {
-                            if (hasCover) {
-                                AsyncImage(
-                                    model = state.coverUrl,
-                                    contentDescription = "Cover",
-                                    contentScale = ContentScale.Crop,
-                                    modifier = Modifier.fillMaxSize()
-                                )
-                            } else {
-                                Icon(
-                                    imageVector = Icons.Default.MusicNote,
-                                    contentDescription = "Music",
-                                    tint = Color.White.copy(alpha = 0.85f),
-                                    modifier = Modifier.size(20.dp)
-                                )
+                            // 封面图 (40.dp 圆角矩形)
+                            Box(
+                                contentAlignment = Alignment.Center,
+                                modifier = Modifier
+                                    .size(40.dp)
+                                    .clip(RoundedCornerShape(8.dp))
+                                    .background(if (isLightColor) Color(0xFF22242B) else Color(0xFFE0E0E0))
+                            ) {
+                                if (hasCover) {
+                                    AsyncImage(
+                                        model = state.coverUrl,
+                                        contentDescription = "Cover",
+                                        contentScale = ContentScale.Crop,
+                                        modifier = Modifier.fillMaxSize()
+                                    )
+                                } else {
+                                    Icon(
+                                        imageVector = Icons.Default.MusicNote,
+                                        contentDescription = "Music",
+                                        tint = primaryUiColor.copy(alpha = 0.85f),
+                                        modifier = Modifier.size(20.dp)
+                                    )
+                                }
                             }
-                        }
 
-                        Spacer(modifier = Modifier.width(10.dp))
+                            Spacer(modifier = Modifier.width(10.dp))
 
-                        // 歌曲标题与艺人
-                        Column(modifier = Modifier.weight(1f)) {
-                            Text(
-                                text = if (state.hasValidTrack) state.title else "LyricNotes",
-                                color = Color.White,
-                                fontSize = 13.5.sp,
-                                fontWeight = FontWeight.Bold,
-                                maxLines = 1,
-                                overflow = TextOverflow.Ellipsis
-                            )
-                            if (state.hasValidTrack && state.artist.isNotBlank()) {
+                            // 歌曲标题与艺人
+                            Column(modifier = Modifier.weight(1f)) {
                                 Text(
-                                    text = state.artist,
-                                    color = Color.White.copy(alpha = 0.65f),
-                                    fontSize = 11.sp,
+                                    text = if (state.hasValidTrack) state.title else "LyricNotes",
+                                    color = primaryUiColor,
+                                    fontSize = 13.5.sp,
+                                    fontWeight = FontWeight.Bold,
                                     maxLines = 1,
                                     overflow = TextOverflow.Ellipsis
                                 )
+                                if (state.hasValidTrack && state.artist.isNotBlank()) {
+                                    Text(
+                                        text = state.artist,
+                                        color = primaryUiColor.copy(alpha = 0.65f),
+                                        fontSize = 11.sp,
+                                        maxLines = 1,
+                                        overflow = TextOverflow.Ellipsis
+                                    )
+                                }
                             }
                         }
 
                         // 双语对照切换
                         Surface(
-                            color = if (isBilingual) Color(0xFF2E3345) else Color.Transparent,
+                            color = if (isBilingual) (if (isLightColor) Color(0xFF2E3345) else Color(0xFFD6E4F0)) else Color.Transparent,
                             shape = CircleShape,
                             modifier = Modifier
                                 .size(28.dp)
-                                .bouncyIconClickable(onClick = onToggleBilingual)
+                                .bouncyIconClickable(onClick = {
+                                    haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                                    onToggleBilingual()
+                                })
                         ) {
                             Box(contentAlignment = Alignment.Center) {
                                 Icon(
                                     imageVector = Icons.Default.Translate,
                                     contentDescription = "Bilingual",
-                                    tint = if (isBilingual) Color(0xFF81D4FA) else Color.White.copy(alpha = 0.60f),
+                                    tint = if (isBilingual) Color(0xFF03A9F4) else primaryUiColor.copy(alpha = 0.60f),
                                     modifier = Modifier.size(15.dp)
                                 )
                             }
@@ -324,7 +346,7 @@ fun FloatingLyricsCapsule(
                                 Icon(
                                     imageVector = Icons.Default.Lock,
                                     contentDescription = "Lock",
-                                    tint = Color.White.copy(alpha = 0.75f),
+                                    tint = primaryUiColor.copy(alpha = 0.75f),
                                     modifier = Modifier.size(16.dp)
                                 )
                             }
@@ -339,6 +361,7 @@ fun FloatingLyricsCapsule(
                             modifier = Modifier
                                 .size(28.dp)
                                 .bouncyIconClickable(onClick = {
+                                    haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
                                     isExpanded = false
                                     onExpandChanged(false)
                                 })
@@ -347,7 +370,7 @@ fun FloatingLyricsCapsule(
                                 Icon(
                                     imageVector = Icons.Default.KeyboardArrowUp,
                                     contentDescription = "Collapse",
-                                    tint = Color.White.copy(alpha = 0.75f),
+                                    tint = primaryUiColor.copy(alpha = 0.75f),
                                     modifier = Modifier.size(18.dp)
                                 )
                             }
@@ -361,7 +384,10 @@ fun FloatingLyricsCapsule(
                             shape = CircleShape,
                             modifier = Modifier
                                 .size(28.dp)
-                                .bouncyIconClickable(onClick = onClose)
+                                .bouncyIconClickable(onClick = {
+                                    haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                                    onClose()
+                                })
                         ) {
                             Box(contentAlignment = Alignment.Center) {
                                 Icon(
@@ -424,7 +450,7 @@ fun FloatingLyricsCapsule(
                             .height(2.5.dp)
                             .clip(RoundedCornerShape(2.dp)),
                         color = Color(0xFF1ED760),
-                        trackColor = Color.White.copy(alpha = 0.15f)
+                        trackColor = primaryUiColor.copy(alpha = 0.15f)
                     )
 
                     Spacer(modifier = Modifier.height(10.dp))
@@ -440,13 +466,16 @@ fun FloatingLyricsCapsule(
                             shape = CircleShape,
                             modifier = Modifier
                                 .size(36.dp)
-                                .bouncyIconClickable(onClick = onPrevious)
+                                .bouncyIconClickable(onClick = {
+                                    haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                                    onPrevious()
+                                })
                         ) {
                             Box(contentAlignment = Alignment.Center) {
                                 Icon(
                                     imageVector = Icons.Default.SkipPrevious,
                                     contentDescription = "Previous",
-                                    tint = Color.White,
+                                    tint = primaryUiColor,
                                     modifier = Modifier.size(22.dp)
                                 )
                             }
@@ -455,17 +484,20 @@ fun FloatingLyricsCapsule(
                         Spacer(modifier = Modifier.width(20.dp))
 
                         Surface(
-                            color = Color.White,
+                            color = if (isLightColor) Color.White else Color(0xFF1E2028),
                             shape = CircleShape,
                             modifier = Modifier
                                 .size(42.dp)
-                                .bouncyIconClickable(onClick = onPlayPause)
+                                .bouncyIconClickable(onClick = {
+                                    haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                                    onPlayPause()
+                                })
                         ) {
                             Box(contentAlignment = Alignment.Center) {
                                 Icon(
                                     imageVector = if (state.isPlaying) Icons.Default.Pause else Icons.Default.PlayArrow,
                                     contentDescription = "Play/Pause",
-                                    tint = Color.Black,
+                                    tint = if (isLightColor) Color.Black else Color.White,
                                     modifier = Modifier.size(24.dp)
                                 )
                             }
@@ -478,13 +510,16 @@ fun FloatingLyricsCapsule(
                             shape = CircleShape,
                             modifier = Modifier
                                 .size(36.dp)
-                                .bouncyIconClickable(onClick = onNext)
+                                .bouncyIconClickable(onClick = {
+                                    haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                                    onNext()
+                                })
                         ) {
                             Box(contentAlignment = Alignment.Center) {
                                 Icon(
                                     imageVector = Icons.Default.SkipNext,
                                     contentDescription = "Next",
-                                    tint = Color.White,
+                                    tint = primaryUiColor,
                                     modifier = Modifier.size(22.dp)
                                 )
                             }

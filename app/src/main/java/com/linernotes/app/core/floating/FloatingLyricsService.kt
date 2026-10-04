@@ -10,6 +10,7 @@ import android.content.Context
 import android.content.Intent
 import android.content.res.Configuration
 import android.graphics.PixelFormat
+import android.graphics.Rect
 import android.net.Uri
 import android.os.Build
 import android.os.IBinder
@@ -20,6 +21,7 @@ import android.view.animation.DecelerateInterpolator
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.platform.ComposeView
+import kotlin.math.roundToInt
 import androidx.core.app.NotificationCompat
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleOwner
@@ -65,6 +67,8 @@ class FloatingLyricsService : Service() {
     private var composeView: ComposeView? = null
     private var windowLayoutParams: WindowManager.LayoutParams? = null
     private var snapAnimator: ValueAnimator? = null
+    private var dragCurrentX: Float = 0f
+    private var dragCurrentY: Float = 0f
 
     private val serviceScope = CoroutineScope(SupervisorJob() + Dispatchers.Main)
     private val overlayLifecycleOwner = OverlayLifecycleOwner()
@@ -103,6 +107,16 @@ class FloatingLyricsService : Service() {
         return START_STICKY
     }
 
+    private fun getScreenBounds(): Rect {
+        val wm = windowManager ?: (getSystemService(Context.WINDOW_SERVICE) as WindowManager)
+        return if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+            wm.currentWindowMetrics.bounds
+        } else {
+            val dm = resources.displayMetrics
+            Rect(0, 0, dm.widthPixels, dm.heightPixels)
+        }
+    }
+
     private fun initOverlayWindow() {
         if (!Settings.canDrawOverlays(this)) {
             stopSelf()
@@ -111,15 +125,15 @@ class FloatingLyricsService : Service() {
 
         windowManager = getSystemService(Context.WINDOW_SERVICE) as WindowManager
 
-        val displayMetrics = resources.displayMetrics
-        val density = displayMetrics.density
+        val screenBounds = getScreenBounds()
+        val density = resources.displayMetrics.density
         val initialX = if (floatingPreferences.lastPositionX >= 0) {
             floatingPreferences.lastPositionX
         } else {
-            ((displayMetrics.widthPixels - (320 * density).toInt()) / 2).coerceAtLeast(0)
+            ((screenBounds.width() - (COMPACT_WIDTH_DP * density).toInt()) / 2).coerceAtLeast(0)
         }
         val initialY = if (floatingPreferences.lastPositionY >= 0) {
-            floatingPreferences.lastPositionY.coerceIn((56 * density).toInt(), displayMetrics.heightPixels - (140 * density).toInt())
+            floatingPreferences.lastPositionY.coerceIn((56 * density).toInt(), screenBounds.height() - (140 * density).toInt())
         } else {
             (105 * density).toInt() // 默认安全避让 48dp 状态栏与居中打孔摄像头
         }
@@ -174,27 +188,47 @@ class FloatingLyricsService : Service() {
                     textColor = textColor,
                     onDragStart = {
                         cancelSnapAnimation()
+                        windowLayoutParams?.let { params ->
+                            dragCurrentX = params.x.toFloat()
+                            dragCurrentY = params.y.toFloat()
+                        }
                     },
                     onDrag = { dx, dy ->
                         cancelSnapAnimation()
                         windowLayoutParams?.let { params ->
-                            val metrics = resources.displayMetrics
-                            val densityVal = metrics.density
+                            val screenBounds = getScreenBounds()
+                            val densityVal = resources.displayMetrics.density
                             val minY = (56 * densityVal).toInt()
-                            val viewHeight = composeView?.height ?: (52 * densityVal).toInt()
-                            val viewWidth = composeView?.width ?: (300 * densityVal).toInt()
-                            val maxY = (metrics.heightPixels - viewHeight - (48 * densityVal).toInt()).coerceAtLeast(minY)
+                            val viewHeight = composeView?.height?.takeIf { it > 0 } ?: (52 * densityVal).toInt()
+                            val viewWidth = composeView?.width?.takeIf { it > 0 } ?: (COMPACT_WIDTH_DP * densityVal).toInt()
+                            val maxY = (screenBounds.height() - viewHeight - (48 * densityVal).toInt()).coerceAtLeast(minY)
                             val minX = (10 * densityVal).toInt()
-                            val maxX = (metrics.widthPixels - viewWidth - (10 * densityVal).toInt()).coerceAtLeast(minX)
+                            val maxX = (screenBounds.width() - viewWidth - (10 * densityVal).toInt()).coerceAtLeast(minX)
 
-                            params.x = (params.x + dx.toInt()).coerceIn(minX, maxX)
-                            params.y = (params.y + dy.toInt()).coerceIn(minY, maxY)
-                            windowManager?.updateViewLayout(this@apply, params)
+                            // 采用高精度浮点累积，彻底消除 90/120Hz 刷新率下的慢速拖拽丢帧与卡滞
+                            dragCurrentX = (dragCurrentX + dx).coerceIn(minX.toFloat(), maxX.toFloat())
+                            dragCurrentY = (dragCurrentY + dy).coerceIn(minY.toFloat(), maxY.toFloat())
+
+                            val newX = dragCurrentX.roundToInt()
+                            val newY = dragCurrentY.roundToInt()
+                            if (newX != params.x || newY != params.y) {
+                                params.x = newX
+                                params.y = newY
+                                try {
+                                    windowManager?.updateViewLayout(this@apply, params)
+                                } catch (e: Exception) {}
+                            }
                         }
                     },
-                    onDragEnd = {
+                    onDragEnd = { isExpanded ->
                         windowLayoutParams?.let { params ->
-                            snapToNearestEdge(params)
+                            if (isExpanded) {
+                                // 展开大卡片态不粗暴吸附到边框，保持用户放置的视觉位置并保存坐标
+                                floatingPreferences.lastPositionX = params.x
+                                floatingPreferences.lastPositionY = params.y
+                            } else {
+                                snapToNearestEdge(params)
+                            }
                         }
                     },
                     onExpandChanged = { isExpanded ->
@@ -209,6 +243,12 @@ class FloatingLyricsService : Service() {
                     onPrevious = { playbackStateManager.skipToPrevious() },
                     onPlayPause = { playbackStateManager.togglePlayPause() },
                     onNext = { playbackStateManager.skipToNext() },
+                    onOpenApp = {
+                        val intent = Intent(this@FloatingLyricsService, MainActivity::class.java).apply {
+                            flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_SINGLE_TOP
+                        }
+                        startActivity(intent)
+                    },
                     onClose = { stopSelf() }
                 )
             }
@@ -229,18 +269,18 @@ class FloatingLyricsService : Service() {
 
     private fun handleExpandChanged(isExpanded: Boolean) {
         windowLayoutParams?.let { params ->
-            val metrics = resources.displayMetrics
-            val density = metrics.density
+            val screenBounds = getScreenBounds()
+            val density = resources.displayMetrics.density
             val marginPx = (14 * density).toInt()
-            val expandedWidthPx = (360 * density).toInt()
+            val expandedWidthPx = (EXPANDED_WIDTH_DP * density).toInt()
             val expandedHeightPx = (270 * density).toInt()
             val minY = (56 * density).toInt()
 
             cancelSnapAnimation()
             if (isExpanded) {
                 // 展开时双轴安全视口钳制，确保右侧与底端播控栏 100% 完整显示在屏幕可视区域内
-                val maxX = (metrics.widthPixels - expandedWidthPx - marginPx).coerceAtLeast(marginPx)
-                val maxY = (metrics.heightPixels - expandedHeightPx - (48 * density).toInt()).coerceAtLeast(minY)
+                val maxX = (screenBounds.width() - expandedWidthPx - marginPx).coerceAtLeast(marginPx)
+                val maxY = (screenBounds.height() - expandedHeightPx - (48 * density).toInt()).coerceAtLeast(minY)
                 params.x = params.x.coerceIn(marginPx, maxX)
                 params.y = params.y.coerceIn(minY, maxY)
                 try {
@@ -254,15 +294,15 @@ class FloatingLyricsService : Service() {
 
     private fun snapToNearestEdge(params: WindowManager.LayoutParams) {
         cancelSnapAnimation()
-        val metrics = resources.displayMetrics
-        val density = metrics.density
+        val screenBounds = getScreenBounds()
+        val density = resources.displayMetrics.density
         val marginPx = (16 * density).toInt()
-        val viewWidth = composeView?.width ?: (260 * density).toInt()
+        val viewWidth = composeView?.width?.takeIf { it > 0 } ?: (COMPACT_WIDTH_DP * density).toInt()
         val currentX = params.x
-        val targetX = if (currentX + (viewWidth / 2) < metrics.widthPixels / 2) {
+        val targetX = if (currentX + (viewWidth / 2) < screenBounds.width() / 2) {
             marginPx // 吸附至左侧安全边距
         } else {
-            (metrics.widthPixels - viewWidth - marginPx).coerceAtLeast(marginPx) // 吸附至右侧安全边距
+            (screenBounds.width() - viewWidth - marginPx).coerceAtLeast(marginPx) // 吸附至右侧安全边距
         }
 
         val startX = currentX
@@ -352,15 +392,15 @@ class FloatingLyricsService : Service() {
     override fun onConfigurationChanged(newConfig: Configuration) {
         super.onConfigurationChanged(newConfig)
         windowLayoutParams?.let { params ->
-            val metrics = resources.displayMetrics
-            val density = metrics.density
+            val screenBounds = getScreenBounds()
+            val density = resources.displayMetrics.density
             val marginPx = (16 * density).toInt()
-            val currentViewWidth = composeView?.width ?: (260 * density).toInt()
-            val currentViewHeight = composeView?.height ?: (48 * density).toInt()
+            val currentViewWidth = composeView?.width?.takeIf { it > 0 } ?: (COMPACT_WIDTH_DP * density).toInt()
+            val currentViewHeight = composeView?.height?.takeIf { it > 0 } ?: (48 * density).toInt()
 
-            params.x = params.x.coerceIn(marginPx, (metrics.widthPixels - currentViewWidth - marginPx).coerceAtLeast(marginPx))
-            val minY = (36 * density).toInt()
-            val maxY = (metrics.heightPixels - currentViewHeight - (48 * density).toInt()).coerceAtLeast(minY)
+            params.x = params.x.coerceIn(marginPx, (screenBounds.width() - currentViewWidth - marginPx).coerceAtLeast(marginPx))
+            val minY = (48 * density).toInt()
+            val maxY = (screenBounds.height() - currentViewHeight - (48 * density).toInt()).coerceAtLeast(minY)
             params.y = params.y.coerceIn(minY, maxY)
 
             try {
@@ -419,6 +459,9 @@ class FloatingLyricsService : Service() {
     }
 
     companion object {
+        const val EXPANDED_WIDTH_DP = 346
+        const val COMPACT_WIDTH_DP = 300
+
         const val CHANNEL_ID = "floating_lyrics_channel"
         const val NOTIFICATION_ID = 20001
 

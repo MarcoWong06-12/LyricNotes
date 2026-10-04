@@ -534,7 +534,7 @@ fun LyricNotesSettingsSheet(
                                     fontFamily = FontFamily.SansSerif
                                 )
                                 Text(
-                                    text = "智能反差描边阴影，杜绝与壁纸及图标重叠",
+                                    text = "智能反差描边阴影，选择深色文字自动切换浅色磨砂白底板",
                                     color = Color.White.copy(alpha = 0.45f),
                                     fontSize = 11.5.sp,
                                     fontFamily = FontFamily.SansSerif
