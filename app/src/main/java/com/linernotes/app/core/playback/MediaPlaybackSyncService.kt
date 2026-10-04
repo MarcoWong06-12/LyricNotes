@@ -131,10 +131,16 @@ class MediaPlaybackSyncService : NotificationListenerService(), MediaControlActi
                 val notifBitmap = (extras?.getParcelable(Notification.EXTRA_PICTURE) as? Bitmap)
                     ?: (extras?.getParcelable(Notification.EXTRA_LARGE_ICON) as? Bitmap)
                 if (notifBitmap != null) {
-                    val localCoverPath = saveBitmapToLocalFile(notifBitmap)
-                    if (localCoverPath != null) {
-                        val current = playbackStateManager.playbackState.value
-                        playbackStateManager.updateState(current.copy(coverUrl = localCoverPath))
+                    val current = playbackStateManager.playbackState.value
+                    // 仅当当前未获取到有效封面时，才写入兜底封面；绝不频繁覆盖已有封面，杜绝暂停/播放时由于 URL 变动引起重组闪烁
+                    val hasValidCover = !current.coverUrl.isNullOrBlank() &&
+                        (!current.coverUrl.startsWith("/") || File(current.coverUrl).exists())
+                    if (!hasValidCover && current.hasValidTrack) {
+                        val trackKey = "${current.artist}_${current.title}"
+                        val localCoverPath = saveBitmapToLocalFile(notifBitmap, trackKey)
+                        if (localCoverPath != null) {
+                            playbackStateManager.updateState(current.copy(coverUrl = localCoverPath))
+                        }
                     }
                 }
             } catch (e: Exception) {
@@ -145,12 +151,19 @@ class MediaPlaybackSyncService : NotificationListenerService(), MediaControlActi
 
     private val coverSequence = java.util.concurrent.atomic.AtomicInteger(0)
 
-    private fun saveBitmapToLocalFile(bitmap: Bitmap): String? {
+    private fun saveBitmapToLocalFile(bitmap: Bitmap, trackKey: String = ""): String? {
         return try {
-            val seq = coverSequence.incrementAndGet()
-            val artFile = File(cacheDir, "media_art_${System.currentTimeMillis()}_$seq.png")
-            FileOutputStream(artFile).use { out ->
-                bitmap.compress(Bitmap.CompressFormat.PNG, 95, out)
+            val keyHash = if (trackKey.isNotBlank()) {
+                trackKey.hashCode().toUInt().toString(16)
+            } else {
+                coverSequence.incrementAndGet().toString()
+            }
+            val artFile = File(cacheDir, "media_art_${keyHash}.png")
+            // 若同一曲目的封面文件已存在且有效，直接返回其稳定路径，杜绝重复 IO 与文件覆盖
+            if (!artFile.exists() || artFile.length() == 0L) {
+                FileOutputStream(artFile).use { out ->
+                    bitmap.compress(Bitmap.CompressFormat.PNG, 95, out)
+                }
             }
             cleanupOldArtFiles(artFile.name)
             artFile.absolutePath
@@ -245,38 +258,46 @@ class MediaPlaybackSyncService : NotificationListenerService(), MediaControlActi
             ?: metadata.getString(MediaMetadata.METADATA_KEY_ALBUM_ARTIST)
             ?: metadata.getString(MediaMetadata.METADATA_KEY_AUTHOR)
             ?: ""
-        val album = metadata.getString(MediaMetadata.METADATA_KEY_ALBUM) ?: ""
         val duration = metadata.getLong(MediaMetadata.METADATA_KEY_DURATION)
 
-        // 1. 优先提取系统跨进程解包的专辑封面 Bitmap (Spotify 原生以 Bitmap 传递)
-        val rawBitmap = metadata.getBitmap(MediaMetadata.METADATA_KEY_ALBUM_ART)
-            ?: metadata.getBitmap(MediaMetadata.METADATA_KEY_ART)
-            ?: metadata.description?.iconBitmap
-            ?: activeCompatController?.metadata?.getBitmap(MediaMetadataCompat.METADATA_KEY_ALBUM_ART)
-            ?: activeCompatController?.metadata?.getBitmap(MediaMetadataCompat.METADATA_KEY_ART)
-            ?: activeCompatController?.metadata?.description?.iconBitmap
+        val current = playbackStateManager.playbackState.value
+        val isSameTrack = (title == current.title && artist == current.artist)
+        val hasExistingValidCover = isSameTrack && !current.coverUrl.isNullOrBlank() &&
+            (!current.coverUrl.startsWith("/") || File(current.coverUrl).exists())
 
-        var coverUri = rawBitmap?.let { saveBitmapToLocalFile(it) }
+        // 1. 若同曲目已有稳定有效封面，直接复用，杜绝多次写盘与 URL 抖动触发的界面闪烁
+        val coverUri = if (hasExistingValidCover) {
+            current.coverUrl
+        } else {
+            val trackKey = "${artist}_${title}"
+            val rawBitmap = metadata.getBitmap(MediaMetadata.METADATA_KEY_ALBUM_ART)
+                ?: metadata.getBitmap(MediaMetadata.METADATA_KEY_ART)
+                ?: metadata.description?.iconBitmap
+                ?: activeCompatController?.metadata?.getBitmap(MediaMetadataCompat.METADATA_KEY_ALBUM_ART)
+                ?: activeCompatController?.metadata?.getBitmap(MediaMetadataCompat.METADATA_KEY_ART)
+                ?: activeCompatController?.metadata?.description?.iconBitmap
 
-        // 2. 若没有 Bitmap，过滤掉无法跨进程读取的 content:// 协议，仅保留可直接下载的 HTTP/HTTPS 或本地文件
-        if (coverUri == null) {
-            val candidateUri = metadata.getString(MediaMetadata.METADATA_KEY_ALBUM_ART_URI)
-                ?: metadata.getString(MediaMetadata.METADATA_KEY_ART_URI)
-                ?: metadata.getString(MediaMetadata.METADATA_KEY_DISPLAY_ICON_URI)
-                ?: metadata.description?.iconUri?.toString()
-            if (!candidateUri.isNullOrBlank() && (candidateUri.startsWith("http://") || candidateUri.startsWith("https://") || candidateUri.startsWith("file://"))) {
-                coverUri = candidateUri
+            var uri = rawBitmap?.let { saveBitmapToLocalFile(it, trackKey) }
+
+            // 2. 若没有 Bitmap，过滤掉无法跨进程读取的 content:// 协议，仅保留可直接下载的 HTTP/HTTPS 或本地文件
+            if (uri == null) {
+                val candidateUri = metadata.getString(MediaMetadata.METADATA_KEY_ALBUM_ART_URI)
+                    ?: metadata.getString(MediaMetadata.METADATA_KEY_ART_URI)
+                    ?: metadata.getString(MediaMetadata.METADATA_KEY_DISPLAY_ICON_URI)
+                    ?: metadata.description?.iconUri?.toString()
+                if (!candidateUri.isNullOrBlank() && (candidateUri.startsWith("http://") || candidateUri.startsWith("https://") || candidateUri.startsWith("file://"))) {
+                    uri = candidateUri
+                }
             }
+            uri
         }
 
         val pkg = activeController?.packageName ?: ""
         val sourceApp = MediaSourceApp.fromPackageName(pkg)
 
         if (title.isNotBlank()) {
-            val current = playbackStateManager.playbackState.value
-            val isSameTrack = (title == current.title && artist == current.artist)
             // 切歌时绝不沿用上一首的旧封面与旧播放进度！若新封面暂未获取，重置为 null 待歌词源、iTunes 或通知栏回填
-            val resolvedCover = if (coverUri != null) coverUri else if (isSameTrack) current.coverUrl else null
+            val resolvedCover = if (!coverUri.isNullOrBlank()) coverUri else if (isSameTrack) current.coverUrl else null
             val resolvedPosition = if (isSameTrack) current.currentPositionMs else 0L
 
             playbackStateManager.updateState(

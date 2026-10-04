@@ -150,23 +150,30 @@ object LyricSearchCleaner {
             normCandTitle.startsWith(normTargetTitle) || normTargetTitle.startsWith(normCandTitle) -> score += 90
             normCandTitle.contains(normTargetTitle) || normTargetTitle.contains(normCandTitle) -> score += 75
             else -> {
-                val candWords = normCandTitle.split(" ").filter { it.length >= 2 }.toSet()
-                val targetWords = normTargetTitle.split(" ").filter { it.length >= 2 }.toSet()
-                val overlap = candWords.intersect(targetWords).size
-                if (overlap > 0 && targetWords.isNotEmpty()) {
-                    val ratio = overlap.toFloat() / targetWords.size
-                    if (ratio >= 0.5f) {
-                        score += (60 * ratio).toInt()
-                    } else {
-                        return -200 // 标题有效单词重合度过低，拒绝
-                    }
+                // 东亚文字（中文/日文通常不以空格分隔单词）：直接检查连续字符包含度
+                val candCJK = normCandTitle.replace(" ", "")
+                val targetCJK = normTargetTitle.replace(" ", "")
+                if (candCJK.isNotEmpty() && targetCJK.isNotEmpty() && (candCJK.contains(targetCJK) || targetCJK.contains(candCJK))) {
+                    score += 70
                 } else {
-                    return -500 // 标题零单词重合，绝对是错误歌曲，直接排除！
+                    val candWords = normCandTitle.split(" ").filter { it.length >= 2 }.toSet()
+                    val targetWords = normTargetTitle.split(" ").filter { it.length >= 2 }.toSet()
+                    val overlap = candWords.intersect(targetWords).size
+                    if (overlap > 0 && targetWords.isNotEmpty()) {
+                        val ratio = overlap.toFloat() / targetWords.size
+                        if (ratio >= 0.5f) {
+                            score += (60 * ratio).toInt()
+                        } else {
+                            return -200 // 标题有效单词重合度过低，拒绝
+                        }
+                    } else {
+                        return -500 // 标题零单词重合，绝对是错误歌曲，直接排除！
+                    }
                 }
             }
         }
 
-        // 2. 歌手匹配度判定
+        // 2. 歌手匹配度判定 (针对多语言别名如 Sheena Ringo vs 椎名林檎，温和容错)
         if (normTargetArtist.isNotBlank() && normCandArtist.isNotBlank()) {
             when {
                 normCandArtist == normTargetArtist -> score += 70
@@ -177,7 +184,15 @@ object LyricSearchCleaner {
                     if (candArtWords.intersect(targetArtWords).isNotEmpty()) {
                         score += 40
                     } else {
-                        score -= 90 // 歌手完全不匹配
+                        // 跨语言艺人名差异（如 Spotify 传递罗马音 Sheena Ringo，国内平台为汉字/假名 椎名林檎）：
+                        // 若标题高度吻合且物理时长极度接近（误差 <= 6s），仅轻微扣分（-10），坚决不误杀正解
+                        val titleStrongMatched = (normCandTitle == normTargetTitle || normCandTitle.startsWith(normTargetTitle) || normTargetTitle.startsWith(normCandTitle))
+                        val durationMatched = (targetDurationMs > 0L && candidateDurationMs > 0L && Math.abs(targetDurationMs - candidateDurationMs) <= 6000L)
+                        if (titleStrongMatched && durationMatched) {
+                            score -= 10
+                        } else {
+                            score -= 90 // 歌手完全不匹配
+                        }
                     }
                 }
             }
@@ -206,9 +221,12 @@ object LyricSearchCleaner {
     }
 
     fun normalizeForMatching(text: String): String {
-        var s = text.lowercase()
+        // 先统一将繁体转为简体，打通繁简通用匹配 (如 "幸福論" 与 "幸福论")
+        val simplified = com.linernotes.app.core.util.ChineseConverter.toSimplified(text)
+        var s = simplified.lowercase()
         s = s.replace(Regex("""[\(\[\{（【［].*?[\)\]\}）】］]"""), " ")
-        s = s.replace(Regex("""[^a-z0-9\u4e00-\u9fa5\s]"""), " ")
+        // 允许拉丁字符、数字、中文字符(\u4e00-\u9fa5)、日文平假名(\u3040-\u309f)与片假名(\u30a0-\u30ff)
+        s = s.replace(Regex("""[^a-z0-9\u4e00-\u9fa5\u3040-\u309f\u30a0-\u30ff\s]"""), " ")
         return s.replace(Regex("""\s+"""), " ").trim()
     }
 
@@ -217,8 +235,13 @@ object LyricSearchCleaner {
      */
     fun extractSignificantTitleKeywords(title: String): List<String> {
         val norm = normalizeForMatching(title)
-        val words = norm.split(" ").filter { it.length >= 2 && !TITLE_STOP_WORDS.contains(it) }
-        return words.distinct()
+        val spaceWords = norm.split(" ").filter { it.length >= 2 && !TITLE_STOP_WORDS.contains(it) }
+        if (spaceWords.isNotEmpty()) {
+            return spaceWords.distinct()
+        }
+        // 如果是没有空格分词的东亚字符（如 "幸福论"），按整体提取
+        val compact = norm.replace(" ", "")
+        return if (compact.length >= 2) listOf(compact) else emptyList()
     }
 
     /**
@@ -226,10 +249,11 @@ object LyricSearchCleaner {
      */
     fun calculateTitleKeywordRelevance(lyric: String, keywords: List<String>): Float {
         if (keywords.isEmpty() || lyric.isBlank()) return 0.5f
-        val lyricLower = lyric.lowercase()
+        val lyricNorm = normalizeForMatching(lyric)
         var hits = 0
         for (kw in keywords) {
-            if (lyricLower.contains(kw)) {
+            val kwNorm = normalizeForMatching(kw)
+            if (kwNorm.isNotEmpty() && lyricNorm.contains(kwNorm)) {
                 hits++
             }
         }
@@ -263,7 +287,8 @@ object LyricSearchCleaner {
             if (textOnly.length < 3) continue
             val lower = textOnly.lowercase()
             if (META_LINE_TAGS.any { lower.contains(it) }) continue
-            val cleanNorm = lower.replace(Regex("""[^a-z0-9\u4e00-\u9fa5]"""), "")
+            val simplified = com.linernotes.app.core.util.ChineseConverter.toSimplified(lower)
+            val cleanNorm = simplified.replace(Regex("""[^a-z0-9\u4e00-\u9fa5\u3040-\u309f\u30a0-\u30ff]"""), "")
             if (cleanNorm.length >= 3) {
                 results.add(cleanNorm)
                 if (results.size >= 5) break

@@ -140,11 +140,15 @@ fun AmbientGlowBackground(
     Box(modifier = modifier.fillMaxSize()) {
         // 1. 底层：唱片封面大半径高斯模糊 (放大 1.45 倍杜绝边缘白边)
         if (!coverUrl.isNullOrBlank()) {
-            AsyncImage(
-                model = ImageRequest.Builder(LocalContext.current)
+            val context = LocalContext.current
+            val imageRequest = remember(coverUrl) {
+                ImageRequest.Builder(context)
                     .data(coverUrl)
-                    .crossfade(800)
-                    .build(),
+                    .crossfade(400)
+                    .build()
+            }
+            AsyncImage(
+                model = imageRequest,
                 contentDescription = null,
                 contentScale = ContentScale.Crop,
                 modifier = Modifier

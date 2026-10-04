@@ -176,6 +176,7 @@ fun NowPlayingScreen(
             NowPlayingTopBar(
                 trackState = trackState,
                 hasSongStory = nowData.songStory != null,
+                isTraditional = state.isTraditionalChinese,
                 isDark = isDark,
                 onOpenSongStory = onOpenSongStory,
                 onOpenQueue = onOpenQueue,
@@ -382,6 +383,7 @@ fun NowPlayingScreen(
 private fun NowPlayingTopBar(
     trackState: TrackPlaybackState,
     hasSongStory: Boolean,
+    isTraditional: Boolean,
     isDark: Boolean,
     onOpenSongStory: () -> Unit,
     onOpenQueue: () -> Unit,
@@ -429,22 +431,29 @@ private fun NowPlayingTopBar(
             }
         }
 
-        // 中间：极简优雅来源/状态信息
+        // 中间：极简优雅来源/状态信息 (Apple Music 规范：明确展示专辑来源与曲目归属，杜绝将专辑名误当歌名)
         Column(
             horizontalAlignment = Alignment.CenterHorizontally,
             modifier = Modifier.padding(horizontal = 8.dp)
         ) {
+            val topHeader = when {
+                !trackState.hasValidTrack -> "LyricNotes"
+                !trackState.album.isNullOrBlank() -> if (isTraditional) "來自專輯" else "来自专辑"
+                else -> if (isTraditional) "正在播放" else "正在播放"
+            }
             Text(
-                text = if (trackState.hasValidTrack) "正在播放" else "LyricNotes",
+                text = topHeader,
                 color = if (isDark) Color.White.copy(alpha = 0.55f) else MaterialTheme.colorScheme.onBackground.copy(alpha = 0.60f),
                 fontSize = 11.sp,
                 fontFamily = FontFamily.SansSerif,
                 fontWeight = FontWeight.Medium,
                 letterSpacing = 0.6.sp
             )
-            if (trackState.hasValidTrack && !trackState.album.isNullOrBlank()) {
+            if (trackState.hasValidTrack) {
+                val subText = if (!trackState.album.isNullOrBlank()) trackState.album else trackState.title
+                val displaySub = if (isTraditional) ChineseConverter.toTraditional(subText) else subText
                 Text(
-                    text = trackState.album,
+                    text = displaySub,
                     color = if (isDark) Color.White.copy(alpha = 0.90f) else MaterialTheme.colorScheme.onBackground,
                     fontSize = 12.sp,
                     fontWeight = FontWeight.SemiBold,
@@ -692,8 +701,8 @@ private fun NowPlayingLyricsContent(
         }
     }
 
-    // 当用户手动浏览翻阅或处于暂停播放状态时，激活全屏歌词高对比度阅读增强模式
-    val isBrowsingOrPaused = isUserBrowsing || listState.isScrollInProgress || !isPlaying
+    // 当用户手动浏览翻阅时，激活全屏歌词高对比度阅读增强模式
+    val isBrowsing = isUserBrowsing || listState.isScrollInProgress
 
     // 物理级黄金视线重心对齐动力学 (对标 Spotify 与 Apple Music 顶级流体顺滑吸附)
     // 监听当前歌词改变以及滑动状态切换：当用户停止滑动后经过 2 秒空闲，自动且平滑回归焦点
@@ -780,7 +789,7 @@ private fun NowPlayingLyricsContent(
                     line = line,
                     isActive = isActive,
                     distance = distance,
-                    isBrowsingOrPaused = isBrowsingOrPaused,
+                    isBrowsing = isBrowsing,
                     annotation = annotation,
                     isTraditional = isTraditional,
                     isDark = isDark,
@@ -807,7 +816,7 @@ private fun LyricLineRow(
     line: BilingualLyricLine,
     isActive: Boolean,
     distance: Int,
-    isBrowsingOrPaused: Boolean,
+    isBrowsing: Boolean,
     annotation: LyricAnnotationEntity?,
     isTraditional: Boolean,
     isDark: Boolean,
@@ -815,11 +824,11 @@ private fun LyricLineRow(
     onAnnotationClick: () -> Unit
 ) {
     // 空间景深动力学与自由阅读增强：
-    // 1. 当用户暂停或手动翻阅浏览时，大幅提升对比度（非焦点行提升至 0.62f~0.82f），确保上划下翻皆清晰锐利；
+    // 1. 当用户手动滑动翻阅浏览时，大幅提升对比度（非焦点行提升至 0.62f~0.82f），确保上划下翻皆清晰锐利；
     // 2. 常规播放自动跟随状态下，大幅提高基础对比度下限（浅色模式 >= 0.40f，暗色模式 >= 0.30f），彻底根除 0.06f 发灰发虚看不清
     val targetOriginalAlpha = when {
         isActive -> 1.0f
-        isBrowsingOrPaused -> {
+        isBrowsing -> {
             when {
                 distance == 1 -> if (isDark) 0.82f else 0.80f
                 distance == 2 -> if (isDark) 0.72f else 0.70f
@@ -847,7 +856,7 @@ private fun LyricLineRow(
 
     val targetTransAlpha = when {
         isActive -> 0.90f
-        isBrowsingOrPaused -> {
+        isBrowsing -> {
             when {
                 distance == 1 -> if (isDark) 0.72f else 0.70f
                 distance == 2 -> if (isDark) 0.60f else 0.58f
@@ -1171,11 +1180,15 @@ private fun NowPlayingFloatingGlassPlayer(
                                 )
                         ) {
                             if (!trackState.coverUrl.isNullOrBlank()) {
-                                AsyncImage(
-                                    model = ImageRequest.Builder(LocalContext.current)
+                                val context = LocalContext.current
+                                val coverRequest = remember(trackState.coverUrl) {
+                                    ImageRequest.Builder(context)
                                         .data(trackState.coverUrl)
-                                        .crossfade(true)
-                                        .build(),
+                                        .crossfade(false)
+                                        .build()
+                                }
+                                AsyncImage(
+                                    model = coverRequest,
                                     contentDescription = "Cover",
                                     contentScale = ContentScale.Crop,
                                     modifier = Modifier.fillMaxSize()

@@ -244,19 +244,22 @@ object UnifiedLyricsService {
         if (!res.originalLyrics.contains(TIMESTAMP_REGEX)) return false
         // 2. 必须具备双语翻译
         if (!res.isBilingual || res.translatedLyrics.isNullOrBlank()) return false
-        // 3. 歌曲物理时长对齐验证 (误差 <= 8s)
+        // 3. 歌曲物理时长对齐验证 (误差 <= 6s)
         if (targetDurationMs > 0L) {
             val lyricLastTs = LyricSearchCleaner.extractLastTimestampMs(res.originalLyrics)
             val effectiveDuration = if (lyricLastTs > 0L) lyricLastTs else res.durationMs
             if (effectiveDuration > 0L) {
                 val diffSec = Math.abs(targetDurationMs - effectiveDuration) / 1000L
-                if (diffSec > 8L) return false
+                if (diffSec > 6L) return false
             }
         }
         // 4. 标题实质关键词核验（如果有提取到显著关键词，标题或歌词至少部分命中）
         if (keywords.isNotEmpty()) {
             val relevance = LyricSearchCleaner.calculateTitleKeywordRelevance(res.originalLyrics, keywords)
-            val titleMatches = keywords.any { kw -> res.title.contains(kw, ignoreCase = true) }
+            val normResTitle = LyricSearchCleaner.normalizeForMatching(res.title)
+            val titleMatches = keywords.any { kw ->
+                normResTitle.contains(LyricSearchCleaner.normalizeForMatching(kw))
+            }
             if (relevance <= 0f && !titleMatches) return false
         }
         return true
