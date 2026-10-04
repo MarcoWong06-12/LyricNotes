@@ -177,7 +177,9 @@ class NowPlayingViewModel @Inject constructor(
     }
 
     fun openGeniusAnnotation(annotation: LyricAnnotationEntity) {
-        val needsTrans = isTranslationNeeded(annotation.explanationText, annotation.explanationTranslation)
+        val needsExplanationTrans = isTranslationNeeded(annotation.explanationText, annotation.explanationTranslation)
+        val needsLyricTrans = annotation.lyricTranslation.isNullOrBlank() && !AiAnnotationCurator.isAlreadyChinese(annotation.lyricFragment)
+        val needsTrans = needsExplanationTrans || needsLyricTrans
 
         _uiState.update {
             it.copy(

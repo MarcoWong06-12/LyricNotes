@@ -82,7 +82,11 @@ object LyricFragmentMatcher {
                 val existingScore = lineScores[bestIdx] ?: 0f
                 val existing = result[bestIdx]
                 if (existing == null || isHigherPriority(annotation, bestScore, existing, existingScore)) {
-                    result[bestIdx] = annotation
+                    val matchedTrans = lines[bestIdx].translation.takeIf { it.isNotBlank() } ?: annotation.lyricTranslation
+                    val enriched = if (matchedTrans != null && annotation.lyricTranslation.isNullOrBlank()) {
+                        annotation.copy(lyricTranslation = matchedTrans)
+                    } else annotation
+                    result[bestIdx] = enriched
                     lineScores[bestIdx] = bestScore
                 }
             }
@@ -140,7 +144,16 @@ object LyricFragmentMatcher {
                 }
 
                 if (anchorIdx >= 0 && !result.containsKey(anchorIdx)) {
-                    result[anchorIdx] = annotation
+                    val matchedTrans = lines.subList(bestStartIdx, (bestStartIdx + numFragLines).coerceAtMost(lines.size))
+                        .mapNotNull { it.translation.takeIf { t -> t.isNotBlank() } }
+                        .joinToString("\n")
+                        .takeIf { it.isNotBlank() } ?: lines[anchorIdx].translation.takeIf { it.isNotBlank() } ?: annotation.lyricTranslation
+
+                    val enriched = if (matchedTrans != null && annotation.lyricTranslation.isNullOrBlank()) {
+                        annotation.copy(lyricTranslation = matchedTrans)
+                    } else annotation
+
+                    result[anchorIdx] = enriched
                     lineScores[anchorIdx] = bestAvgScore
                 }
             }

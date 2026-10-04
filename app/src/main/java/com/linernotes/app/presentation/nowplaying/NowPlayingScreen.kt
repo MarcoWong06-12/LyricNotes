@@ -290,8 +290,26 @@ fun NowPlayingScreen(
 
         // Genius Behind The Lyrics 底部抽屉
         if (state.isGeniusSheetOpen) {
+            val matchedLyricTranslation = remember(state.selectedAnnotation, nowData.lyrics) {
+                val annot = state.selectedAnnotation ?: return@remember null
+                if (!annot.lyricTranslation.isNullOrBlank()) {
+                    return@remember annot.lyricTranslation
+                }
+                val frag = annot.lyricFragment.trim().lowercase()
+                if (frag.isNotBlank()) {
+                    val matched = nowData.lyrics.filter { line ->
+                        val orig = line.original.trim().lowercase()
+                        orig.isNotBlank() && (frag.contains(orig) || orig.contains(frag)) && line.translation.isNotBlank()
+                    }
+                    if (matched.isNotEmpty()) {
+                        matched.joinToString("\n") { it.translation }
+                    } else null
+                } else null
+            }
+
             NowPlayingGeniusSheet(
                 annotation = state.selectedAnnotation,
+                lyricTranslation = matchedLyricTranslation,
                 isTranslating = state.isAnnotationTranslating,
                 isTraditional = state.isTraditionalChinese,
                 onRetryTranslation = { viewModel.retryAnnotationTranslation() },
@@ -693,7 +711,14 @@ private fun NowPlayingLyricsContent(
                     annotation = annotation,
                     isTraditional = isTraditional,
                     onClick = { onLineClicked(line) },
-                    onAnnotationClick = { annotation?.let(onAnnotationClicked) }
+                    onAnnotationClick = {
+                        if (annotation != null) {
+                            val enriched = if (annotation.lyricTranslation.isNullOrBlank() && line.translation.isNotBlank()) {
+                                annotation.copy(lyricTranslation = line.translation)
+                            } else annotation
+                            onAnnotationClicked(enriched)
+                        }
+                    }
                 )
             }
         }

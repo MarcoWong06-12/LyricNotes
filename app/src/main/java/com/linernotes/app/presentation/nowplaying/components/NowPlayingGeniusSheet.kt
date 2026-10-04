@@ -23,6 +23,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import coil.compose.AsyncImage
+import com.linernotes.app.core.util.ChineseConverter
 import com.linernotes.app.data.local.entity.LyricAnnotationEntity
 import com.linernotes.app.presentation.booklet.components.BilingualContentView
 import com.linernotes.app.presentation.common.*
@@ -31,6 +32,7 @@ import com.linernotes.app.presentation.common.*
 @Composable
 fun NowPlayingGeniusSheet(
     annotation: LyricAnnotationEntity?,
+    lyricTranslation: String? = null,
     isTranslating: Boolean = false,
     isTraditional: Boolean = false,
     onRetryTranslation: () -> Unit = {},
@@ -111,14 +113,17 @@ fun NowPlayingGeniusSheet(
 
             Spacer(modifier = Modifier.height(16.dp))
 
-            // 被引用的歌词原句卡片
+            // 被引用的歌词原句卡片 (Quoted Lyric Card: 原文下紧随中文翻译)
             Surface(
                 color = Color.White.copy(alpha = 0.05f),
                 shape = RoundedCornerShape(16.dp),
                 border = BorderStroke(0.5.dp, Color(0xFFFFD54F).copy(alpha = 0.25f)),
                 modifier = Modifier.fillMaxWidth()
             ) {
-                Column(modifier = Modifier.padding(14.dp)) {
+                Column(
+                    modifier = Modifier.padding(14.dp),
+                    verticalArrangement = Arrangement.spacedBy(6.dp)
+                ) {
                     Text(
                         text = "❝ ${annotation.lyricFragment} ❞",
                         color = Color(0xFFFFE082),
@@ -126,12 +131,15 @@ fun NowPlayingGeniusSheet(
                         fontWeight = FontWeight.SemiBold,
                         lineHeight = 22.sp
                     )
-                    if (!annotation.lyricTranslation.isNullOrBlank()) {
-                        Spacer(modifier = Modifier.height(4.dp))
+
+                    val displayLyricTrans = lyricTranslation?.takeIf { it.isNotBlank() } ?: annotation.lyricTranslation
+                    if (!displayLyricTrans.isNullOrBlank()) {
+                        val finalTrans = if (isTraditional) ChineseConverter.toTraditional(displayLyricTrans) else displayLyricTrans
                         Text(
-                            text = "❝ ${annotation.lyricTranslation} ❞",
-                            color = Color.White.copy(alpha = 0.70f),
-                            fontSize = 13.sp
+                            text = finalTrans,
+                            color = Color.White.copy(alpha = 0.85f),
+                            fontSize = 13.5.sp,
+                            lineHeight = 20.sp
                         )
                     }
                 }
