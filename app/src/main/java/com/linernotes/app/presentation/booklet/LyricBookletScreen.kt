@@ -8,6 +8,7 @@ import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.gestures.animateScrollBy
 import androidx.compose.foundation.gestures.detectHorizontalDragGestures
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
@@ -184,14 +185,31 @@ fun LyricBookletScreen(
         }
     }
 
-    // 当伴侣播放器推进歌词时间轴时，平滑自动滚动居中聚焦当前活动行
+    // 当伴侣播放器推进歌词时间轴时，平滑自动滚动居中聚焦当前活动行 (对标 Spotify 顶级流体顺滑吸附)
     LaunchedEffect(state.activeLineIndex, state.songStory != null) {
         if (state.activeLineIndex in state.alignedLyrics.indices) {
             val targetIndex = if (state.songStory != null) state.activeLineIndex + 1 else state.activeLineIndex
-            listState.animateScrollToItem(
-                index = targetIndex,
-                scrollOffset = -220
-            )
+            val viewportHeight = listState.layoutInfo.viewportSize.height.toFloat()
+            val targetFocalY = if (viewportHeight > 0f) viewportHeight * 0.38f else 320f
+            val visibleItem = listState.layoutInfo.visibleItemsInfo.find { it.index == targetIndex }
+            if (visibleItem != null && viewportHeight > 0f) {
+                val itemCenterY = visibleItem.offset.toFloat() + (visibleItem.size.toFloat() / 2f)
+                val scrollDelta = itemCenterY - targetFocalY
+                if (kotlin.math.abs(scrollDelta) > 2.0f) {
+                    listState.animateScrollBy(
+                        value = scrollDelta,
+                        animationSpec = spring(
+                            dampingRatio = 0.85f,
+                            stiffness = 175f
+                        )
+                    )
+                }
+            } else {
+                listState.scrollToItem(
+                    index = (targetIndex - 2).coerceAtLeast(0),
+                    scrollOffset = 0
+                )
+            }
         }
     }
 
@@ -2016,14 +2034,14 @@ private fun LyricLineItem(
     val isLinePressed by lineInteractionSource.collectIsPressedAsState()
 
     val alphaAnim by animateFloatAsState(
-        targetValue = if (isLinePressed) 0.65f else if (isActive) 1.0f else if (isCompanionPlaying) 0.38f else 0.85f,
-        animationSpec = spring(stiffness = Spring.StiffnessLow),
+        targetValue = if (isLinePressed) 0.65f else if (isActive) 1.0f else if (isCompanionPlaying) 0.44f else 0.85f,
+        animationSpec = spring(dampingRatio = 0.85f, stiffness = 175f),
         label = "lyricAlpha"
     )
 
     val scaleAnim by animateFloatAsState(
-        targetValue = if (isLinePressed) 0.97f else if (isActive) (if (isImmersive) 1.04f else 1.025f) else 1.0f,
-        animationSpec = spring(dampingRatio = Spring.DampingRatioLowBouncy, stiffness = Spring.StiffnessLow),
+        targetValue = if (isLinePressed) 0.97f else if (isActive) (if (isImmersive) 1.04f else 1.03f) else 0.985f,
+        animationSpec = spring(dampingRatio = 0.84f, stiffness = 185f),
         label = "lyricScale"
     )
 

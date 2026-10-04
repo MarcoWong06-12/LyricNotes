@@ -600,7 +600,7 @@ private fun NowPlayingLyricsContent(
         }
     }
 
-    // 物理级黄金视线重心对齐动力学 (对标 Apple Music 与 Lyricify 流体顺滑吸附)
+    // 物理级黄金视线重心对齐动力学 (对标 Spotify 与 Apple Music 顶级流体顺滑吸附)
     LaunchedEffect(currentLineIndex) {
         if (currentLineIndex in lyrics.indices) {
             val isInteracting = (System.currentTimeMillis() - lastUserInteractionTime) < 2500L && listState.isScrollInProgress
@@ -609,8 +609,8 @@ private fun NowPlayingLyricsContent(
             }
 
             val viewportHeight = listState.layoutInfo.viewportSize.height.toFloat()
-            // 黄金视线重心：视口高度的 36%（Optical Center 黄金视觉阅读带）
-            val targetFocalY = if (viewportHeight > 0f) viewportHeight * 0.36f else 320f
+            // 黄金视线重心：视口高度的 38%（Spotify 经典视觉阅读带）
+            val targetFocalY = if (viewportHeight > 0f) viewportHeight * 0.38f else 320f
             val visibleItem = listState.layoutInfo.visibleItemsInfo.find { it.index == currentLineIndex }
 
             if (visibleItem != null && viewportHeight > 0f) {
@@ -618,21 +618,21 @@ private fun NowPlayingLyricsContent(
                 val itemCenterY = visibleItem.offset.toFloat() + (visibleItem.size.toFloat() / 2f)
                 val scrollDelta = itemCenterY - targetFocalY
 
-                if (kotlin.math.abs(scrollDelta) > 3.5f) {
+                if (kotlin.math.abs(scrollDelta) > 2.0f) {
                     listState.animateScrollBy(
                         value = scrollDelta,
                         animationSpec = spring(
-                            dampingRatio = 0.88f, // 次临界有机阻尼：消除机械回弹，具备磁滞吸附的平稳悬停感
-                            stiffness = 280f      // 流体柔和刚度：耗时约 450ms，完美匹配音乐律动
+                            dampingRatio = 0.85f, // 次临界柔和阻尼：零回弹超临界平稳悬停，消除机械顿挫
+                            stiffness = 175f      // 柔和流体刚度：~550ms 连续平滑位移，如轨道摄影机般平滑推进
                         )
                     )
                 }
             } else {
-                // 当条目离开视口时，带 offset 滚动吸附到 36% 视线重心，绝不突兀闪现到顶部！
-                val offsetPx = (targetFocalY * 0.7f).toInt()
-                listState.animateScrollToItem(
-                    index = currentLineIndex.coerceAtLeast(0),
-                    scrollOffset = -offsetPx
+                // 当条目因跳转或切歌脱离视口时，先快速平滑粗定位到视口内部，随后下一帧精确微调
+                val approxPrecedingItems = (targetFocalY / 220f).toInt().coerceIn(1, 3)
+                listState.scrollToItem(
+                    index = (currentLineIndex - approxPrecedingItems).coerceAtLeast(0),
+                    scrollOffset = 0
                 )
             }
         }
@@ -698,42 +698,43 @@ private fun LyricLineRow(
     onClick: () -> Unit,
     onAnnotationClick: () -> Unit
 ) {
-    // 严格遵循 Apple Music & Lyricify 空间景深动力学：距离活跃行越远，字阶与透明度平滑向深空沉底
+    // 严格遵循 Spotify & Apple Music 空间景深动力学：距离活跃行越远，字阶与透明度平滑向深空沉底
     val targetOriginalAlpha = when {
         isActive -> 1.0f
-        distance == 1 -> 0.44f
+        distance == 1 -> 0.48f
         distance == 2 -> 0.32f
-        else -> (0.26f - (distance * 0.02f)).coerceAtLeast(0.12f)
+        else -> (0.24f - (distance * 0.02f)).coerceAtLeast(0.12f)
     }
 
     val targetTransAlpha = when {
-        isActive -> 0.88f
-        distance == 1 -> 0.36f
+        isActive -> 0.86f
+        distance == 1 -> 0.38f
         distance == 2 -> 0.24f
-        else -> (0.20f - (distance * 0.015f)).coerceAtLeast(0.08f)
+        else -> (0.18f - (distance * 0.015f)).coerceAtLeast(0.08f)
     }
 
     val targetScale = when {
-        isActive -> 1.02f
-        distance == 1 -> 0.99f
-        else -> 0.98f
+        isActive -> 1.04f
+        distance == 1 -> 0.985f
+        else -> 0.97f
     }
 
+    // 与视口滚动动效（stiffness 175f）完全同频同步，消除“文字先变亮变大、再慢吞吞移动”的时间错位
     val animatedOriginalAlpha by animateFloatAsState(
         targetValue = targetOriginalAlpha,
-        animationSpec = spring(dampingRatio = 0.88f, stiffness = 420f),
+        animationSpec = spring(dampingRatio = 0.85f, stiffness = 175f),
         label = "origAlpha"
     )
 
     val animatedTransAlpha by animateFloatAsState(
         targetValue = targetTransAlpha,
-        animationSpec = spring(dampingRatio = 0.88f, stiffness = 420f),
+        animationSpec = spring(dampingRatio = 0.85f, stiffness = 175f),
         label = "transAlpha"
     )
 
     val animatedScale by animateFloatAsState(
         targetValue = targetScale,
-        animationSpec = spring(dampingRatio = 0.86f, stiffness = 440f),
+        animationSpec = spring(dampingRatio = 0.84f, stiffness = 185f),
         label = "lineScale"
     )
 
@@ -751,26 +752,26 @@ private fun LyricLineRow(
             }
             .bouncyItemClickable(pressedScale = 0.985f, onClick = onClick)
     ) {
-        // 原文歌词：统一固定字号与行高，通过 graphicsLayer alpha 驱动渲染，杜绝 Recomposition 抖动
+        // 原文歌词：统一使用坚实一致的 FontWeight.Bold，杜绝因 Medium/Bold 突变导致的字宽重排与抽搐
         Text(
             text = line.original,
             color = Color.White,
             fontSize = 24.5.sp,
-            fontWeight = if (isActive) FontWeight.Bold else FontWeight.Medium,
+            fontWeight = FontWeight.Bold,
             fontFamily = FontFamily.SansSerif,
             lineHeight = 33.sp,
             letterSpacing = (-0.3).sp,
             modifier = Modifier.graphicsLayer { alpha = animatedOriginalAlpha }
         )
 
-        // 中文翻译：统一固定字号与清晰行高
+        // 中文翻译：统一固定字号与字重，通过 graphicsLayer alpha 驱动渲染
         if (displayTranslation.isNotBlank()) {
             Spacer(modifier = Modifier.height(4.dp))
             Text(
                 text = displayTranslation,
                 color = Color.White,
                 fontSize = 15.sp,
-                fontWeight = if (isActive) FontWeight.Medium else FontWeight.Normal,
+                fontWeight = FontWeight.SemiBold,
                 fontFamily = FontFamily.SansSerif,
                 lineHeight = 22.sp,
                 modifier = Modifier.graphicsLayer { alpha = animatedTransAlpha }
