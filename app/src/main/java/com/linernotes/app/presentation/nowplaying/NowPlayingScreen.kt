@@ -4,6 +4,7 @@ import android.content.Intent
 import android.net.Uri
 import android.provider.Settings
 import com.linernotes.app.core.floating.FloatingLyricsService
+import com.linernotes.app.core.util.SpotifyLauncher
 import androidx.compose.animation.*
 import androidx.compose.animation.core.*
 import androidx.compose.foundation.BorderStroke
@@ -139,13 +140,7 @@ fun NowPlayingScreen(
                         isGranted.value = MediaPlaybackSyncService.isNotificationAccessGranted(context)
                     },
                     onLaunchSpotify = {
-                        val launchIntent = context.packageManager.getLaunchIntentForPackage("com.spotify.music")
-                        if (launchIntent != null) {
-                            context.startActivity(launchIntent)
-                        } else {
-                            val webIntent = Intent(Intent.ACTION_VIEW, Uri.parse("https://open.spotify.com"))
-                            context.startActivity(webIntent)
-                        }
+                        SpotifyLauncher.launchSpotify(context)
                     }
                 )
             }

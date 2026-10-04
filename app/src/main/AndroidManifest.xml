@@ -16,6 +16,24 @@
     <uses-permission android:name="android.permission.BLUETOOTH_CONNECT" />
     <uses-permission android:name="android.permission.BLUETOOTH_SCAN" android:usesPermissionFlags="neverForLocation" />
 
+    <!-- Package Visibility for Android 11+ (API 30+) -->
+    <queries>
+        <!-- Spotify 标准版与 Lite 版 -->
+        <package android:name="com.spotify.music" />
+        <package android:name="com.spotify.lite" />
+        <!-- Spotify 原生 App-Link / URI 协议 -->
+        <intent>
+            <action android:name="android.intent.action.VIEW" />
+            <data android:scheme="spotify" />
+        </intent>
+        <!-- 其它支持的音乐应用包名可见性声明 -->
+        <package android:name="com.apple.android.music" />
+        <package android:name="com.netease.cloudmusic" />
+        <package android:name="com.tencent.qqmusic" />
+        <package android:name="com.kugou.android" />
+        <package android:name="com.google.android.apps.youtube.music" />
+    </queries>
+
     <application
         android:name=".LinerNotesApp"
         android:allowBackup="true"

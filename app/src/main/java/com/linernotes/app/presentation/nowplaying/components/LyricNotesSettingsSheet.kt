@@ -3,6 +3,7 @@ package com.linernotes.app.presentation.nowplaying.components
 import android.content.Intent
 import android.net.Uri
 import android.provider.Settings
+import com.linernotes.app.core.util.SpotifyLauncher
 import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.*
 import androidx.compose.foundation.BorderStroke
@@ -151,13 +152,7 @@ fun LyricNotesSettingsSheet(
                         shape = CircleShape,
                         border = BorderStroke(0.5.dp, if (trackState.isSpotify) Color(0xFF1ED760).copy(alpha = 0.35f) else Color.White.copy(alpha = 0.15f)),
                         modifier = Modifier.bouncyClickable(pressedScale = 0.92f) {
-                            val launchIntent = context.packageManager.getLaunchIntentForPackage("com.spotify.music")
-                            if (launchIntent != null) {
-                                context.startActivity(launchIntent)
-                            } else {
-                                val webIntent = Intent(Intent.ACTION_VIEW, Uri.parse("https://open.spotify.com"))
-                                context.startActivity(webIntent)
-                            }
+                            SpotifyLauncher.launchSpotify(context)
                         }
                     ) {
                         Text(
@@ -848,13 +843,7 @@ fun LyricNotesSettingsSheet(
                         .bouncyClickable(
                             pressedScale = 0.95f,
                             onClick = {
-                                val launchIntent = context.packageManager.getLaunchIntentForPackage("com.spotify.music")
-                                if (launchIntent != null) {
-                                    context.startActivity(launchIntent)
-                                } else {
-                                    val webIntent = Intent(Intent.ACTION_VIEW, Uri.parse("https://open.spotify.com"))
-                                    context.startActivity(webIntent)
-                                }
+                                SpotifyLauncher.launchSpotify(context)
                             }
                         )
                 ) {

@@ -2,6 +2,7 @@ package com.linernotes.app.presentation.nowplaying.components
 
 import android.content.Intent
 import android.net.Uri
+import com.linernotes.app.core.util.SpotifyLauncher
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
@@ -279,13 +280,7 @@ fun NowPlayingQueueSheet(
                                 .bouncyClickable(
                                     pressedScale = 0.96f,
                                     onClick = {
-                                        val launchIntent = context.packageManager.getLaunchIntentForPackage("com.spotify.music")
-                                        if (launchIntent != null) {
-                                            context.startActivity(launchIntent)
-                                        } else {
-                                            val webIntent = Intent(Intent.ACTION_VIEW, Uri.parse("https://open.spotify.com"))
-                                            context.startActivity(webIntent)
-                                        }
+                                        SpotifyLauncher.launchSpotify(context)
                                     }
                                 )
                         ) {
