@@ -258,6 +258,7 @@ class MediaPlaybackSyncService : NotificationListenerService(), MediaControlActi
             ?: metadata.getString(MediaMetadata.METADATA_KEY_ALBUM_ARTIST)
             ?: metadata.getString(MediaMetadata.METADATA_KEY_AUTHOR)
             ?: ""
+        val album = metadata.getString(MediaMetadata.METADATA_KEY_ALBUM) ?: ""
         val duration = metadata.getLong(MediaMetadata.METADATA_KEY_DURATION)
 
         val current = playbackStateManager.playbackState.value
