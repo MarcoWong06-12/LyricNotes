@@ -35,6 +35,7 @@ import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.graphics.CompositingStrategy
 import androidx.compose.ui.graphics.TransformOrigin
 import androidx.compose.ui.graphics.graphicsLayer
@@ -105,15 +106,17 @@ fun NowPlayingScreen(
     val onSeekTo: (Long) -> Unit = remember(viewModel) { { posMs: Long -> viewModel.seekTo(posMs) } }
     val onCloseQueue: () -> Unit = remember(viewModel) { { viewModel.closeQueueSheet() } }
 
+    val isDark = MaterialTheme.colorScheme.background.luminance() < 0.5f
+
     Box(
         modifier = Modifier
             .fillMaxSize()
-            .background(Color(0xFF090A0E))
+            .background(if (isDark) Color(0xFF090A0E) else MaterialTheme.colorScheme.background)
     ) {
         // 1. 灵动流体弥散背景 (Apple Music / Lyricify 风格，纯净温润呼吸)
         AmbientGlowBackground(
             coverUrl = trackState.coverUrl,
-            isDark = true,
+            isDark = isDark,
             modifier = Modifier.fillMaxSize()
         )
 
@@ -128,12 +131,14 @@ fun NowPlayingScreen(
                     annotatedLines = nowData.annotatedLines,
                     isTraditional = state.isTraditionalChinese,
                     isLoadingLyrics = nowData.isLoadingLyrics,
+                    isDark = isDark,
                     onLineClicked = onLineClicked,
                     onAnnotationClicked = onAnnotationClicked,
                     onRetryLyrics = onRetryLyrics
                 )
             } else {
                 NowPlayingIdleContent(
+                    isDark = isDark,
                     isNotificationGranted = isGranted.value,
                     onGrantPermission = {
                         MediaPlaybackSyncService.openNotificationAccessSettings(context)
@@ -149,6 +154,7 @@ fun NowPlayingScreen(
             NowPlayingTopBar(
                 trackState = trackState,
                 hasSongStory = nowData.songStory != null,
+                isDark = isDark,
                 onOpenSongStory = onOpenSongStory,
                 onOpenQueue = onOpenQueue,
                 onOpenSettings = onOpenSettings,
@@ -166,9 +172,9 @@ fun NowPlayingScreen(
                     .padding(top = 56.dp, start = 16.dp, end = 16.dp)
             ) {
                 Surface(
-                    color = Color(0xFF1E202B).copy(alpha = 0.94f),
+                    color = if (isDark) Color(0xFF1E202B).copy(alpha = 0.94f) else MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.95f),
                     shape = RoundedCornerShape(20.dp),
-                    border = BorderStroke(1.dp, Color.White.copy(alpha = 0.12f)),
+                    border = BorderStroke(1.dp, if (isDark) Color.White.copy(alpha = 0.12f) else Color.Black.copy(alpha = 0.08f)),
                     shadowElevation = 8.dp
                 ) {
                     Row(
@@ -177,9 +183,15 @@ fun NowPlayingScreen(
                         horizontalArrangement = Arrangement.spacedBy(8.dp)
                     ) {
                         Text(if (nowData.isLoadingGenius) "⏳" else "💡", fontSize = 12.sp)
+                        val noticeMsg = if (nowData.isLoadingGenius) {
+                            if (state.isTraditionalChinese) "正在檢索 Genius 典故與背景故事..." else "正在检索 Genius 典故与背景故事..."
+                        } else {
+                            val raw = nowData.geniusNoticeMessage ?: ""
+                            if (state.isTraditionalChinese) ChineseConverter.toTraditional(raw) else raw
+                        }
                         Text(
-                            text = if (nowData.isLoadingGenius) "正在检索 Genius 典故与背景故事..." else (nowData.geniusNoticeMessage ?: ""),
-                            color = Color.White.copy(alpha = 0.85f),
+                            text = noticeMsg,
+                            color = if (isDark) Color.White.copy(alpha = 0.85f) else MaterialTheme.colorScheme.onSurface,
                             fontSize = 12.sp,
                             fontFamily = FontFamily.SansSerif,
                             maxLines = 1,
@@ -199,7 +211,7 @@ fun NowPlayingScreen(
                                     color = Color(0xFF1ED760)
                                 )
                                 Text(
-                                    text = "检索中",
+                                    text = if (state.isTraditionalChinese) "檢索中" else "检索中",
                                     color = Color(0xFF1ED760),
                                     fontSize = 11.5.sp,
                                     fontWeight = FontWeight.Bold,
@@ -208,7 +220,7 @@ fun NowPlayingScreen(
                             }
                         } else {
                             Text(
-                                text = "重试",
+                                text = if (state.isTraditionalChinese) "重試" else "重试",
                                 color = Color(0xFF1ED760),
                                 fontSize = 12.sp,
                                 fontWeight = FontWeight.Bold,
@@ -222,7 +234,7 @@ fun NowPlayingScreen(
                         Icon(
                             imageVector = Icons.Default.Close,
                             contentDescription = "关闭",
-                            tint = Color.White.copy(alpha = 0.5f),
+                            tint = if (isDark) Color.White.copy(alpha = 0.5f) else MaterialTheme.colorScheme.onSurface.copy(alpha = 0.5f),
                             modifier = Modifier
                                 .size(16.dp)
                                 .clip(CircleShape)
@@ -241,6 +253,8 @@ fun NowPlayingScreen(
             ) {
                 NowPlayingFloatingGlassPlayer(
                     trackState = trackState,
+                    isTraditional = state.isTraditionalChinese,
+                    isDark = isDark,
                     onPlayPause = onPlayPause,
                     onNext = onNext,
                     onPrevious = onPrevious,
@@ -263,7 +277,7 @@ fun NowPlayingScreen(
             )
         }
 
-        // 统一设置抽屉 (包含时间轴微调、繁简、假名、控制栏开关等)
+        // 统一设置抽屉 (包含时间轴微调、繁简、假名、外观主题、语言、控制栏开关等)
         if (state.isSettingsSheetOpen) {
             LyricNotesSettingsSheet(
                 trackState = trackState,
@@ -272,6 +286,8 @@ fun NowPlayingScreen(
                 isLoadingGenius = nowData.isLoadingGenius,
                 furiganaMode = state.furiganaMode,
                 isTraditionalChinese = state.isTraditionalChinese,
+                themeMode = state.themeMode,
+                appLanguage = state.appLanguage,
                 isDeCensorEnabled = state.isDeCensorEnabled,
                 showPlaybackControls = state.showPlaybackControls,
                 lyricOffsetMs = state.lyricOffsetMs,
@@ -281,6 +297,8 @@ fun NowPlayingScreen(
                 onResetOffset = { viewModel.resetLyricOffset() },
                 onSetFuriganaMode = { mode -> viewModel.setFuriganaMode(mode) },
                 onToggleTraditionalChinese = { viewModel.toggleTraditionalChinese() },
+                onSetThemeMode = { viewModel.setThemeMode(it) },
+                onSetAppLanguage = { viewModel.setAppLanguage(it) },
                 onToggleDeCensor = { viewModel.toggleDeCensor() },
                 onTogglePlaybackControls = { viewModel.togglePlaybackControls() },
                 onReloadLyrics = { viewModel.reloadLyrics() },
@@ -340,18 +358,24 @@ fun NowPlayingScreen(
 private fun NowPlayingTopBar(
     trackState: TrackPlaybackState,
     hasSongStory: Boolean,
+    isDark: Boolean,
     onOpenSongStory: () -> Unit,
     onOpenQueue: () -> Unit,
     onOpenSettings: () -> Unit,
     modifier: Modifier = Modifier
 ) {
+    val topGradBase = if (isDark) Color(0xFF090A10) else MaterialTheme.colorScheme.background
+    val pillBg = if (isDark) Color(0xFF1E2230).copy(alpha = 0.92f) else MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.85f)
+    val pillBorder = if (isDark) Color.White.copy(alpha = 0.22f) else Color.Black.copy(alpha = 0.10f)
+    val pillIconTint = if (isDark) Color.White else MaterialTheme.colorScheme.onSurface
+
     Row(
         modifier = modifier
             .fillMaxWidth()
             .background(
                 Brush.verticalGradient(
-                    0.0f to Color(0xFF090A10).copy(alpha = 0.98f),
-                    0.65f to Color(0xFF090A10).copy(alpha = 0.90f),
+                    0.0f to topGradBase.copy(alpha = 0.98f),
+                    0.65f to topGradBase.copy(alpha = 0.90f),
                     1.0f to Color.Transparent
                 )
             )
@@ -362,9 +386,9 @@ private fun NowPlayingTopBar(
     ) {
         // 左侧：优雅收起/设置图标按钮 (Apple Music 标准顶部收起图标，高对比磨砂底色)
         Surface(
-            color = Color(0xFF1E2230).copy(alpha = 0.92f),
+            color = pillBg,
             shape = CircleShape,
-            border = BorderStroke(0.5.dp, Color.White.copy(alpha = 0.22f)),
+            border = BorderStroke(0.5.dp, pillBorder),
             modifier = Modifier
                 .size(38.dp)
                 .bouncyIconClickable(
@@ -375,7 +399,7 @@ private fun NowPlayingTopBar(
                 Icon(
                     imageVector = Icons.Default.KeyboardArrowDown,
                     contentDescription = "收起/设置",
-                    tint = Color.White,
+                    tint = pillIconTint,
                     modifier = Modifier.size(22.dp)
                 )
             }
@@ -388,7 +412,7 @@ private fun NowPlayingTopBar(
         ) {
             Text(
                 text = if (trackState.hasValidTrack) "正在播放" else "LyricNotes",
-                color = Color.White.copy(alpha = 0.55f),
+                color = if (isDark) Color.White.copy(alpha = 0.55f) else MaterialTheme.colorScheme.onBackground.copy(alpha = 0.60f),
                 fontSize = 11.sp,
                 fontFamily = FontFamily.SansSerif,
                 fontWeight = FontWeight.Medium,
@@ -397,7 +421,7 @@ private fun NowPlayingTopBar(
             if (trackState.hasValidTrack && !trackState.album.isNullOrBlank()) {
                 Text(
                     text = trackState.album,
-                    color = Color.White.copy(alpha = 0.90f),
+                    color = if (isDark) Color.White.copy(alpha = 0.90f) else MaterialTheme.colorScheme.onBackground,
                     fontSize = 12.sp,
                     fontWeight = FontWeight.SemiBold,
                     fontFamily = FontFamily.SansSerif,
@@ -425,12 +449,14 @@ private fun NowPlayingTopBar(
         ) {
             // 歌曲背景故事外层高频入口（当有故事时呈现柔和微光，1 步直达）
             if (hasSongStory) {
+                val storyBg = if (isDark) Color(0xFF281E10).copy(alpha = 0.94f) else Color(0xFFFFF8E1).copy(alpha = 0.95f)
+                val storyColor = if (isDark) Color(0xFFFFD54F) else Color(0xFFF57C00)
                 Surface(
-                    color = Color(0xFF281E10).copy(alpha = 0.94f),
+                    color = storyBg,
                     shape = RoundedCornerShape(18.dp),
                     border = BorderStroke(
                         0.5.dp,
-                        Color(0xFFFFD54F).copy(alpha = storyGlowAlpha)
+                        storyColor.copy(alpha = storyGlowAlpha)
                     ),
                     modifier = Modifier
                         .height(36.dp)
@@ -447,12 +473,12 @@ private fun NowPlayingTopBar(
                         Icon(
                             imageVector = Icons.Default.AutoAwesome,
                             contentDescription = "歌曲故事",
-                            tint = Color(0xFFFFD54F),
+                            tint = storyColor,
                             modifier = Modifier.size(13.dp)
                         )
                         Text(
                             text = "故事",
-                            color = Color(0xFFFFD54F),
+                            color = storyColor,
                             fontSize = 11.5.sp,
                             fontWeight = FontWeight.Bold,
                             fontFamily = FontFamily.SansSerif
@@ -462,9 +488,9 @@ private fun NowPlayingTopBar(
             }
 
             Surface(
-                color = Color(0xFF1E2230).copy(alpha = 0.92f),
+                color = pillBg,
                 shape = CircleShape,
-                border = BorderStroke(0.5.dp, Color.White.copy(alpha = 0.20f)),
+                border = BorderStroke(0.5.dp, pillBorder),
                 modifier = Modifier
                     .size(38.dp)
                     .bouncyIconClickable(
@@ -475,7 +501,7 @@ private fun NowPlayingTopBar(
                     Icon(
                         imageVector = Icons.Default.QueueMusic,
                         contentDescription = "待播队列",
-                        tint = Color.White.copy(alpha = 0.90f),
+                        tint = pillIconTint,
                         modifier = Modifier.size(19.dp)
                     )
                 }
@@ -486,9 +512,9 @@ private fun NowPlayingTopBar(
             val isFloatingActive by FloatingLyricsService.isRunningFlow.collectAsState()
 
             Surface(
-                color = if (isFloatingActive) Color(0xFF0288D1).copy(alpha = 0.85f) else Color(0xFF1E2230).copy(alpha = 0.92f),
+                color = if (isFloatingActive) Color(0xFF0288D1).copy(alpha = 0.85f) else pillBg,
                 shape = CircleShape,
-                border = BorderStroke(0.5.dp, if (isFloatingActive) Color(0xFF81D4FA) else Color.White.copy(alpha = 0.20f)),
+                border = BorderStroke(0.5.dp, if (isFloatingActive) Color(0xFF81D4FA) else pillBorder),
                 modifier = Modifier
                     .size(38.dp)
                     .bouncyIconClickable(
@@ -509,16 +535,16 @@ private fun NowPlayingTopBar(
                     Icon(
                         imageVector = Icons.Default.PictureInPictureAlt,
                         contentDescription = "桌面悬浮歌词",
-                        tint = if (isFloatingActive) Color.White else Color.White.copy(alpha = 0.90f),
+                        tint = if (isFloatingActive) Color.White else pillIconTint,
                         modifier = Modifier.size(18.dp)
                     )
                 }
             }
 
             Surface(
-                color = Color(0xFF1E2230).copy(alpha = 0.92f),
+                color = pillBg,
                 shape = CircleShape,
-                border = BorderStroke(0.5.dp, Color.White.copy(alpha = 0.20f)),
+                border = BorderStroke(0.5.dp, pillBorder),
                 modifier = Modifier
                     .size(38.dp)
                     .bouncyIconClickable(
@@ -529,7 +555,7 @@ private fun NowPlayingTopBar(
                     Icon(
                         imageVector = Icons.Default.MoreHoriz,
                         contentDescription = "设置",
-                        tint = Color.White.copy(alpha = 0.90f),
+                        tint = pillIconTint,
                         modifier = Modifier.size(19.dp)
                     )
                 }
@@ -551,6 +577,7 @@ private fun NowPlayingLyricsContent(
     annotatedLines: Map<Int, LyricAnnotationEntity>,
     isTraditional: Boolean,
     isLoadingLyrics: Boolean,
+    isDark: Boolean,
     onLineClicked: (BilingualLyricLine) -> Unit,
     onAnnotationClicked: (LyricAnnotationEntity) -> Unit,
     onRetryLyrics: () -> Unit = {}
@@ -562,13 +589,13 @@ private fun NowPlayingLyricsContent(
                 verticalArrangement = Arrangement.spacedBy(14.dp)
             ) {
                 CircularProgressIndicator(
-                    color = Color.White.copy(alpha = 0.9f),
+                    color = if (isDark) Color.White.copy(alpha = 0.9f) else MaterialTheme.colorScheme.primary,
                     strokeWidth = 2.5.dp,
                     modifier = Modifier.size(28.dp)
                 )
                 Text(
-                    text = "正在同步多源歌词...",
-                    color = Color.White.copy(alpha = 0.75f),
+                    text = if (isTraditional) "正在同步多源歌詞..." else "正在同步多源歌词...",
+                    color = if (isDark) Color.White.copy(alpha = 0.75f) else MaterialTheme.colorScheme.onBackground.copy(alpha = 0.75f),
                     fontSize = 13.5.sp,
                     fontFamily = FontFamily.SansSerif,
                     fontWeight = FontWeight.Medium
@@ -586,15 +613,15 @@ private fun NowPlayingLyricsContent(
                 modifier = Modifier.padding(horizontal = 32.dp)
             ) {
                 Text(
-                    text = "暂无带时间轴的歌词",
-                    color = Color.White.copy(alpha = 0.55f),
+                    text = if (isTraditional) "暫無帶時間軸的歌詞" else "暂无带时间轴的歌词",
+                    color = if (isDark) Color.White.copy(alpha = 0.55f) else MaterialTheme.colorScheme.onBackground.copy(alpha = 0.60f),
                     fontSize = 15.sp,
                     fontFamily = FontFamily.SansSerif
                 )
                 Surface(
-                    color = Color.White.copy(alpha = 0.12f),
+                    color = if (isDark) Color.White.copy(alpha = 0.12f) else MaterialTheme.colorScheme.surfaceVariant,
                     shape = RoundedCornerShape(20.dp),
-                    border = BorderStroke(1.dp, Color.White.copy(alpha = 0.18f)),
+                    border = BorderStroke(1.dp, if (isDark) Color.White.copy(alpha = 0.18f) else Color.Black.copy(alpha = 0.10f)),
                     modifier = Modifier
                         .bouncyClickable(pressedScale = 0.94f) { onRetryLyrics() }
                 ) {
@@ -606,12 +633,12 @@ private fun NowPlayingLyricsContent(
                         Icon(
                             imageVector = Icons.Default.Refresh,
                             contentDescription = "重新检索",
-                            tint = Color.White,
+                            tint = if (isDark) Color.White else MaterialTheme.colorScheme.onSurface,
                             modifier = Modifier.size(16.dp)
                         )
                         Text(
-                            text = "重新检索歌词",
-                            color = Color.White,
+                            text = if (isTraditional) "重新檢索歌詞" else "重新检索歌词",
+                            color = if (isDark) Color.White else MaterialTheme.colorScheme.onSurface,
                             fontSize = 13.sp,
                             fontWeight = FontWeight.SemiBold,
                             fontFamily = FontFamily.SansSerif
@@ -710,6 +737,7 @@ private fun NowPlayingLyricsContent(
                     distance = distance,
                     annotation = annotation,
                     isTraditional = isTraditional,
+                    isDark = isDark,
                     onClick = { onLineClicked(line) },
                     onAnnotationClick = {
                         if (annotation != null) {
@@ -735,6 +763,7 @@ private fun LyricLineRow(
     distance: Int,
     annotation: LyricAnnotationEntity?,
     isTraditional: Boolean,
+    isDark: Boolean,
     onClick: () -> Unit,
     onAnnotationClick: () -> Unit
 ) {
@@ -778,9 +807,15 @@ private fun LyricLineRow(
         label = "lineScale"
     )
 
+    val displayOriginal = remember(line.original, isTraditional) {
+        if (isTraditional) ChineseConverter.toTraditional(line.original) else line.original
+    }
+
     val displayTranslation = remember(line.translation, isTraditional) {
         if (isTraditional) ChineseConverter.toTraditional(line.translation) else line.translation
     }
+
+    val lyricColor = if (isDark) Color.White else MaterialTheme.colorScheme.onBackground
 
     Column(
         modifier = Modifier
@@ -794,8 +829,8 @@ private fun LyricLineRow(
     ) {
         // 原文歌词：统一使用坚实一致的 FontWeight.Bold，杜绝因 Medium/Bold 突变导致的字宽重排与抽搐
         Text(
-            text = line.original,
-            color = Color.White,
+            text = displayOriginal,
+            color = lyricColor,
             fontSize = 24.5.sp,
             fontWeight = FontWeight.Bold,
             fontFamily = FontFamily.SansSerif,
@@ -809,7 +844,7 @@ private fun LyricLineRow(
             Spacer(modifier = Modifier.height(4.dp))
             Text(
                 text = displayTranslation,
-                color = Color.White,
+                color = lyricColor,
                 fontSize = 15.sp,
                 fontWeight = FontWeight.SemiBold,
                 fontFamily = FontFamily.SansSerif,
@@ -823,6 +858,7 @@ private fun LyricLineRow(
             Spacer(modifier = Modifier.height(7.dp))
             LyricAnnotationBadge(
                 isActive = isActive,
+                isDark = isDark,
                 onClick = onAnnotationClick
             )
         }
@@ -835,6 +871,7 @@ private fun LyricLineRow(
 @Composable
 private fun LyricAnnotationBadge(
     isActive: Boolean,
+    isDark: Boolean,
     onClick: () -> Unit
 ) {
     // 活跃行柔和呼吸光晕
@@ -849,12 +886,28 @@ private fun LyricAnnotationBadge(
         label = "glowAlpha"
     )
 
+    val badgeBg = if (isActive) {
+        if (isDark) Color(0xFFFFD54F).copy(alpha = 0.16f) else Color(0xFFFFE082).copy(alpha = 0.35f)
+    } else {
+        if (isDark) Color.White.copy(alpha = 0.08f) else MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.70f)
+    }
+    val badgeBorder = if (isActive) {
+        if (isDark) Color(0xFFFFD54F).copy(alpha = glowAlpha) else Color(0xFFFFA000).copy(alpha = glowAlpha)
+    } else {
+        if (isDark) Color.White.copy(alpha = 0.14f) else Color.Black.copy(alpha = 0.10f)
+    }
+    val badgeContent = if (isActive) {
+        if (isDark) Color(0xFFFFD54F) else Color(0xFFF57F17)
+    } else {
+        if (isDark) Color.White.copy(alpha = 0.75f) else MaterialTheme.colorScheme.onSurface.copy(alpha = 0.75f)
+    }
+
     Surface(
-        color = if (isActive) Color(0xFFFFD54F).copy(alpha = 0.16f) else Color.White.copy(alpha = 0.08f),
+        color = badgeBg,
         shape = RoundedCornerShape(12.dp),
         border = BorderStroke(
             0.5.dp,
-            if (isActive) Color(0xFFFFD54F).copy(alpha = glowAlpha) else Color.White.copy(alpha = 0.14f)
+            badgeBorder
         ),
         modifier = Modifier
             .bouncyClickable(
@@ -870,12 +923,12 @@ private fun LyricAnnotationBadge(
             Icon(
                 imageVector = Icons.Default.AutoAwesome,
                 contentDescription = "典故",
-                tint = if (isActive) Color(0xFFFFD54F) else Color.White.copy(alpha = 0.70f),
+                tint = badgeContent,
                 modifier = Modifier.size(11.dp)
             )
             Text(
                 text = "典故",
-                color = if (isActive) Color(0xFFFFD54F) else Color.White.copy(alpha = 0.75f),
+                color = badgeContent,
                 fontSize = 11.sp,
                 fontWeight = FontWeight.SemiBold,
                 fontFamily = FontFamily.SansSerif,
@@ -893,6 +946,8 @@ private fun LyricAnnotationBadge(
 @Composable
 private fun NowPlayingFloatingGlassPlayer(
     trackState: TrackPlaybackState,
+    isTraditional: Boolean,
+    isDark: Boolean,
     onPlayPause: () -> Unit,
     onNext: () -> Unit,
     onPrevious: () -> Unit,
@@ -921,6 +976,18 @@ private fun NowPlayingFloatingGlassPlayer(
         return "%02d:%02d".format(m, s)
     }
 
+    val playerBg = if (isDark) Color(0xFF0F1118).copy(alpha = 0.94f) else Color.White.copy(alpha = 0.94f)
+    val playerBorder = if (isDark) Color.White.copy(alpha = 0.16f) else Color.Black.copy(alpha = 0.10f)
+    val onPlayerText = if (isDark) Color.White else Color(0xFF111218)
+    val onPlayerTextSec = if (isDark) Color.White.copy(alpha = 0.60f) else Color(0xFF656772)
+
+    val displayTitle = remember(trackState.title, isTraditional) {
+        if (isTraditional) ChineseConverter.toTraditional(trackState.title) else trackState.title
+    }
+    val displayArtist = remember(trackState.artist, isTraditional) {
+        if (isTraditional) ChineseConverter.toTraditional(trackState.artist) else trackState.artist
+    }
+
     Box(
         modifier = modifier
             .fillMaxWidth()
@@ -928,9 +995,9 @@ private fun NowPlayingFloatingGlassPlayer(
             .padding(horizontal = 16.dp, vertical = 10.dp)
     ) {
         Surface(
-            color = Color(0xFF0F1118).copy(alpha = 0.94f),
+            color = playerBg,
             shape = RoundedCornerShape(26.dp),
-            border = BorderStroke(0.5.dp, Color.White.copy(alpha = 0.16f)),
+            border = BorderStroke(0.5.dp, playerBorder),
             shadowElevation = 16.dp,
             modifier = Modifier.fillMaxWidth()
         ) {
@@ -949,7 +1016,7 @@ private fun NowPlayingFloatingGlassPlayer(
                 ) {
                     Text(
                         text = formatMs(estimatedPosition),
-                        color = Color.White.copy(alpha = 0.70f),
+                        color = onPlayerTextSec,
                         fontSize = 11.sp,
                         fontFamily = FontFamily.Monospace,
                         modifier = Modifier.width(38.dp),
@@ -958,6 +1025,7 @@ private fun NowPlayingFloatingGlassPlayer(
 
                     SleekTrackScrubber(
                         progress = progress,
+                        isDark = isDark,
                         onSeekToFraction = { frac ->
                             val targetMs = (frac * duration).toLong()
                             onSeekTo(targetMs)
@@ -969,7 +1037,7 @@ private fun NowPlayingFloatingGlassPlayer(
 
                     Text(
                         text = formatMs(duration),
-                        color = Color.White.copy(alpha = 0.50f),
+                        color = onPlayerTextSec.copy(alpha = 0.75f),
                         fontSize = 11.sp,
                         fontFamily = FontFamily.Monospace,
                         modifier = Modifier.width(38.dp),
@@ -996,7 +1064,7 @@ private fun NowPlayingFloatingGlassPlayer(
                             modifier = Modifier
                                 .size(38.dp)
                                 .clip(RoundedCornerShape(10.dp))
-                                .border(BorderStroke(0.5.dp, Color.White.copy(alpha = 0.20f)), RoundedCornerShape(10.dp))
+                                .border(BorderStroke(0.5.dp, if (isDark) Color.White.copy(alpha = 0.20f) else Color.Black.copy(alpha = 0.10f)), RoundedCornerShape(10.dp))
                                 .bouncyClickable(
                                     pressedScale = 0.90f,
                                     onClick = onOpenQueue
@@ -1014,7 +1082,7 @@ private fun NowPlayingFloatingGlassPlayer(
                                 )
                             } else {
                                 Surface(
-                                    color = Color.White.copy(alpha = 0.10f),
+                                    color = if (isDark) Color.White.copy(alpha = 0.10f) else Color.Black.copy(alpha = 0.06f),
                                     shape = RoundedCornerShape(10.dp),
                                     modifier = Modifier.fillMaxSize()
                                 ) {
@@ -1022,7 +1090,7 @@ private fun NowPlayingFloatingGlassPlayer(
                                         Icon(
                                             imageVector = Icons.Default.MusicNote,
                                             contentDescription = null,
-                                            tint = Color.White.copy(alpha = 0.70f),
+                                            tint = if (isDark) Color.White.copy(alpha = 0.70f) else Color.Black.copy(alpha = 0.50f),
                                             modifier = Modifier.size(18.dp)
                                         )
                                     }
@@ -1040,8 +1108,8 @@ private fun NowPlayingFloatingGlassPlayer(
                                 )
                         ) {
                             Text(
-                                text = if (trackState.hasValidTrack) trackState.title else "LyricNotes",
-                                color = Color.White,
+                                text = if (trackState.hasValidTrack) displayTitle else "LyricNotes",
+                                color = onPlayerText,
                                 fontSize = 13.sp,
                                 fontWeight = FontWeight.SemiBold,
                                 fontFamily = FontFamily.SansSerif,
@@ -1056,8 +1124,8 @@ private fun NowPlayingFloatingGlassPlayer(
                             )
                             Spacer(modifier = Modifier.height(1.dp))
                             Text(
-                                text = if (trackState.hasValidTrack) trackState.artist else "等待播放",
-                                color = Color.White.copy(alpha = 0.60f),
+                                text = if (trackState.hasValidTrack) displayArtist else (if (isTraditional) "等待播放" else "等待播放"),
+                                color = onPlayerTextSec,
                                 fontSize = 11.sp,
                                 fontFamily = FontFamily.SansSerif,
                                 maxLines = 1,
@@ -1083,7 +1151,7 @@ private fun NowPlayingFloatingGlassPlayer(
                             label = "shuffleBg"
                         )
                         val shuffleTint by animateColorAsState(
-                            targetValue = if (trackState.isShuffleActive) Color(0xFF1ED760) else Color.White.copy(alpha = 0.60f),
+                            targetValue = if (trackState.isShuffleActive) Color(0xFF1ED760) else onPlayerTextSec,
                             animationSpec = spring(stiffness = 600f),
                             label = "shuffleTint"
                         )
@@ -1118,14 +1186,14 @@ private fun NowPlayingFloatingGlassPlayer(
                             Icon(
                                 imageVector = Icons.Default.SkipPrevious,
                                 contentDescription = "上一首",
-                                tint = Color.White.copy(alpha = 0.92f),
+                                tint = if (isDark) Color.White.copy(alpha = 0.92f) else Color(0xFF22242B),
                                 modifier = Modifier.size(19.dp)
                             )
                         }
 
                         // 播放/暂停 Hero 圆钮 (38dp 饱满白瓷高光，带物理弹簧与丝滑形态形变)
                         Surface(
-                            color = Color.White,
+                            color = if (isDark) Color.White else Color(0xFF19191C),
                             shape = CircleShape,
                             shadowElevation = 8.dp,
                             modifier = Modifier
@@ -1147,7 +1215,7 @@ private fun NowPlayingFloatingGlassPlayer(
                                     Icon(
                                         imageVector = if (isPlaying) Icons.Default.Pause else Icons.Default.PlayArrow,
                                         contentDescription = if (isPlaying) "暂停" else "播放",
-                                        tint = Color(0xFF0F1118),
+                                        tint = if (isDark) Color(0xFF0F1118) else Color.White,
                                         modifier = Modifier.size(21.dp)
                                     )
                                 }
@@ -1166,7 +1234,7 @@ private fun NowPlayingFloatingGlassPlayer(
                             Icon(
                                 imageVector = Icons.Default.SkipNext,
                                 contentDescription = "下一首",
-                                tint = Color.White.copy(alpha = 0.92f),
+                                tint = if (isDark) Color.White.copy(alpha = 0.92f) else Color(0xFF22242B),
                                 modifier = Modifier.size(19.dp)
                             )
                         }
@@ -1183,6 +1251,7 @@ private fun NowPlayingFloatingGlassPlayer(
 @Composable
 private fun SleekTrackScrubber(
     progress: Float,
+    isDark: Boolean,
     onSeekToFraction: (Float) -> Unit,
     modifier: Modifier = Modifier
 ) {
@@ -1202,6 +1271,10 @@ private fun SleekTrackScrubber(
         animationSpec = spring(dampingRatio = 0.85f, stiffness = 400f),
         label = "scrubberThumbSize"
     )
+
+    val trackBaseColor = if (isDark) Color.White.copy(alpha = 0.20f) else Color.Black.copy(alpha = 0.14f)
+    val trackActiveColor = if (isDark) Color.White else Color(0xFF19191C)
+    val thumbColor = if (isDark) Color.White else Color(0xFF19191C)
 
     BoxWithConstraints(
         modifier = modifier
@@ -1237,22 +1310,22 @@ private fun SleekTrackScrubber(
     ) {
         val widthPx = constraints.maxWidth.toFloat()
 
-        // 槽轨底色 (20% 半透白)
+        // 槽轨底色
         Box(
             modifier = Modifier
                 .fillMaxWidth()
                 .height(trackHeight)
                 .clip(CircleShape)
-                .background(Color.White.copy(alpha = 0.20f))
+                .background(trackBaseColor)
         )
 
-        // 已播放高光槽轨 (100% 纯白)
+        // 已播放高光槽轨
         Box(
             modifier = Modifier
                 .fillMaxWidth(currentFraction)
                 .height(trackHeight)
                 .clip(CircleShape)
-                .background(Color.White)
+                .background(trackActiveColor)
         )
 
         // 极细圆形滑块指示点 (具有拖拽触感绽放与高光边框)
@@ -1265,7 +1338,7 @@ private fun SleekTrackScrubber(
                 .offset(x = thumbOffsetDp)
                 .size(thumbSize)
                 .clip(CircleShape)
-                .background(Color.White)
+                .background(thumbColor)
         )
     }
 }
@@ -1275,6 +1348,7 @@ private fun SleekTrackScrubber(
  */
 @Composable
 private fun NowPlayingIdleContent(
+    isDark: Boolean,
     isNotificationGranted: Boolean,
     onGrantPermission: () -> Unit,
     onLaunchSpotify: () -> Unit
@@ -1287,7 +1361,7 @@ private fun NowPlayingIdleContent(
         verticalArrangement = Arrangement.Center
     ) {
         Surface(
-            color = Color.White.copy(alpha = 0.06f),
+            color = if (isDark) Color.White.copy(alpha = 0.06f) else MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.70f),
             shape = CircleShape,
             border = BorderStroke(1.dp, Color(0xFF1DB954).copy(alpha = 0.35f)),
             shadowElevation = 12.dp,
@@ -1307,7 +1381,7 @@ private fun NowPlayingIdleContent(
 
         Text(
             text = "LyricNotes",
-            color = Color.White,
+            color = if (isDark) Color.White else MaterialTheme.colorScheme.onBackground,
             fontSize = 25.sp,
             fontWeight = FontWeight.Bold,
             fontFamily = FontFamily.SansSerif,
@@ -1318,7 +1392,7 @@ private fun NowPlayingIdleContent(
 
         Text(
             text = "在 Spotify 开始播放音乐，实时双语歌词与\nGenius 典故将自动呈现在屏幕上",
-            color = Color.White.copy(alpha = 0.60f),
+            color = if (isDark) Color.White.copy(alpha = 0.60f) else MaterialTheme.colorScheme.onBackground.copy(alpha = 0.65f),
             fontSize = 14.sp,
             textAlign = TextAlign.Center,
             fontFamily = FontFamily.SansSerif,
@@ -1329,9 +1403,9 @@ private fun NowPlayingIdleContent(
 
         if (!isNotificationGranted) {
             Surface(
-                color = Color.White.copy(alpha = 0.06f),
+                color = if (isDark) Color.White.copy(alpha = 0.06f) else MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.85f),
                 shape = RoundedCornerShape(18.dp),
-                border = BorderStroke(1.dp, Color(0xFF1DB954).copy(alpha = 0.30f)),
+                border = BorderStroke(1.dp, if (isDark) Color(0xFF1DB954).copy(alpha = 0.30f) else Color(0xFF1DB954).copy(alpha = 0.40f)),
                 modifier = Modifier.fillMaxWidth()
             ) {
                 Row(
@@ -1342,14 +1416,14 @@ private fun NowPlayingIdleContent(
                     Column(modifier = Modifier.weight(1f)) {
                         Text(
                             text = "开启通知使用权",
-                            color = Color.White,
+                            color = if (isDark) Color.White else MaterialTheme.colorScheme.onSurface,
                             fontSize = 14.sp,
                             fontWeight = FontWeight.Bold,
                             fontFamily = FontFamily.SansSerif
                         )
                         Text(
                             text = "用于获取 Spotify 播放进度与歌词同屏",
-                            color = Color.White.copy(alpha = 0.50f),
+                            color = if (isDark) Color.White.copy(alpha = 0.50f) else MaterialTheme.colorScheme.onSurface.copy(alpha = 0.60f),
                             fontSize = 11.5.sp,
                             fontFamily = FontFamily.SansSerif
                         )

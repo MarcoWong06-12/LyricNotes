@@ -26,16 +26,63 @@ class AiPreferences @Inject constructor(
             _themeModeFlow.value = value
         }
 
+    private fun computeDefaultTraditional(lang: String): Boolean {
+        if (prefs.contains("is_traditional_chinese")) {
+            return prefs.getBoolean("is_traditional_chinese", false)
+        }
+        if (lang == com.linernotes.app.core.i18n.AppLanguage.ZH_TW.code) return true
+        if (lang == com.linernotes.app.core.i18n.AppLanguage.SYSTEM.code) {
+            val locale = java.util.Locale.getDefault()
+            val country = locale.country.uppercase()
+            return locale.language.lowercase() == "zh" && (country == "TW" || country == "HK" || country == "MO")
+        }
+        return false
+    }
+
     private val _appLanguageFlow = kotlinx.coroutines.flow.MutableStateFlow(
         prefs.getString("app_language", com.linernotes.app.core.i18n.AppLanguage.SYSTEM.code) ?: com.linernotes.app.core.i18n.AppLanguage.SYSTEM.code
     )
     val appLanguageFlow: kotlinx.coroutines.flow.StateFlow<String> = _appLanguageFlow
+
+    private val _isTraditionalChineseFlow = kotlinx.coroutines.flow.MutableStateFlow(
+        prefs.getBoolean("is_traditional_chinese", computeDefaultTraditional(_appLanguageFlow.value))
+    )
+    val isTraditionalChineseFlow: kotlinx.coroutines.flow.StateFlow<Boolean> = _isTraditionalChineseFlow
+
+    var isTraditionalChinese: Boolean
+        get() = _isTraditionalChineseFlow.value
+        set(value) {
+            prefs.edit().putBoolean("is_traditional_chinese", value).apply()
+            _isTraditionalChineseFlow.value = value
+            if (value && targetLanguage == com.linernotes.app.core.i18n.TranslationTargetLanguage.ZH_CN.code) {
+                targetLanguage = com.linernotes.app.core.i18n.TranslationTargetLanguage.ZH_TW.code
+            } else if (!value && targetLanguage == com.linernotes.app.core.i18n.TranslationTargetLanguage.ZH_TW.code) {
+                targetLanguage = com.linernotes.app.core.i18n.TranslationTargetLanguage.ZH_CN.code
+            }
+        }
 
     var appLanguage: String
         get() = _appLanguageFlow.value
         set(value) {
             prefs.edit().putString("app_language", value).apply()
             _appLanguageFlow.value = value
+            when (value) {
+                com.linernotes.app.core.i18n.AppLanguage.ZH_TW.code -> {
+                    isTraditionalChinese = true
+                }
+                com.linernotes.app.core.i18n.AppLanguage.ZH_CN.code -> {
+                    isTraditionalChinese = false
+                }
+                com.linernotes.app.core.i18n.AppLanguage.SYSTEM.code -> {
+                    val locale = java.util.Locale.getDefault()
+                    val country = locale.country.uppercase()
+                    if (locale.language.lowercase() == "zh" && (country == "TW" || country == "HK" || country == "MO")) {
+                        isTraditionalChinese = true
+                    } else {
+                        isTraditionalChinese = false
+                    }
+                }
+            }
         }
 
     var targetLanguage: String

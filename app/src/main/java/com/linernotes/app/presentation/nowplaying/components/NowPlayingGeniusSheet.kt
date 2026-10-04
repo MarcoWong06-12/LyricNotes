@@ -40,13 +40,20 @@ fun NowPlayingGeniusSheet(
 ) {
     if (annotation == null) return
 
+    val isDark = MaterialTheme.colorScheme.background.luminance() < 0.5f
+    val sheetBg = if (isDark) Color(0xFF13141B) else MaterialTheme.colorScheme.surface
+    val sheetContent = if (isDark) Color.White else MaterialTheme.colorScheme.onSurface
+    val cardBg = if (isDark) Color.White.copy(alpha = 0.05f) else MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.70f)
+    val handleColor = if (isDark) Color.White.copy(alpha = 0.20f) else Color.Black.copy(alpha = 0.20f)
+
     ModalBottomSheet(
         onDismissRequest = onDismiss,
-        containerColor = Color(0xFF13141B),
+        containerColor = sheetBg,
+        contentColor = sheetContent,
         dragHandle = {
             Surface(
                 modifier = Modifier.padding(top = 12.dp, bottom = 8.dp),
-                color = Color.White.copy(alpha = 0.20f),
+                color = handleColor,
                 shape = CircleShape
             ) {
                 Box(modifier = Modifier.size(width = 38.dp, height = 4.5.dp))
@@ -85,7 +92,11 @@ fun NowPlayingGeniusSheet(
                             modifier = Modifier.size(14.dp)
                         )
                         Text(
-                            text = if (annotation.isVerified) "Genius 官方认证" else "Genius 乐评典故",
+                            text = if (annotation.isVerified) {
+                                if (isTraditional) "Genius 官方認證" else "Genius 官方认证"
+                            } else {
+                                if (isTraditional) "Genius 樂評典故" else "Genius 乐评典故"
+                            },
                             color = Color(0xFFFFD54F),
                             fontSize = 12.sp,
                             fontWeight = FontWeight.Bold
@@ -94,7 +105,7 @@ fun NowPlayingGeniusSheet(
                 }
 
                 Surface(
-                    color = Color.White.copy(alpha = 0.08f),
+                    color = if (isDark) Color.White.copy(alpha = 0.08f) else Color.Black.copy(alpha = 0.06f),
                     shape = CircleShape,
                     modifier = Modifier
                         .size(34.dp)
@@ -104,7 +115,7 @@ fun NowPlayingGeniusSheet(
                         Icon(
                             imageVector = Icons.Default.Close,
                             contentDescription = "关闭",
-                            tint = Color.White.copy(alpha = 0.8f),
+                            tint = if (isDark) Color.White.copy(alpha = 0.8f) else MaterialTheme.colorScheme.onSurface,
                             modifier = Modifier.size(17.dp)
                         )
                     }
@@ -114,8 +125,9 @@ fun NowPlayingGeniusSheet(
             Spacer(modifier = Modifier.height(16.dp))
 
             // 被引用的歌词原句卡片 (Quoted Lyric Card: 原文下紧随中文翻译)
+            val displayFrag = if (isTraditional) ChineseConverter.toTraditional(annotation.lyricFragment) else annotation.lyricFragment
             Surface(
-                color = Color.White.copy(alpha = 0.05f),
+                color = cardBg,
                 shape = RoundedCornerShape(16.dp),
                 border = BorderStroke(0.5.dp, Color(0xFFFFD54F).copy(alpha = 0.25f)),
                 modifier = Modifier.fillMaxWidth()
@@ -125,7 +137,7 @@ fun NowPlayingGeniusSheet(
                     verticalArrangement = Arrangement.spacedBy(6.dp)
                 ) {
                     Text(
-                        text = "❝ ${annotation.lyricFragment} ❞",
+                        text = "❝ $displayFrag ❞",
                         color = Color(0xFFFFE082),
                         fontSize = 15.sp,
                         fontWeight = FontWeight.SemiBold,
@@ -137,7 +149,7 @@ fun NowPlayingGeniusSheet(
                         val finalTrans = if (isTraditional) ChineseConverter.toTraditional(displayLyricTrans) else displayLyricTrans
                         Text(
                             text = finalTrans,
-                            color = Color.White.copy(alpha = 0.85f),
+                            color = if (isDark) Color.White.copy(alpha = 0.85f) else MaterialTheme.colorScheme.onSurface.copy(alpha = 0.85f),
                             fontSize = 13.5.sp,
                             lineHeight = 20.sp
                         )
@@ -148,8 +160,8 @@ fun NowPlayingGeniusSheet(
             Spacer(modifier = Modifier.height(18.dp))
 
             Text(
-                text = "典故与背景深度考据",
-                color = Color.White,
+                text = if (isTraditional) "典故與背景深度考據" else "典故与背景深度考据",
+                color = sheetContent,
                 fontSize = 15.sp,
                 fontWeight = FontWeight.Bold
             )
@@ -162,7 +174,7 @@ fun NowPlayingGeniusSheet(
                 translatedText = annotation.explanationTranslation,
                 isTranslating = isTranslating,
                 isTraditional = isTraditional,
-                isDark = true,
+                isDark = isDark,
                 onRetryTranslation = onRetryTranslation,
                 modifier = Modifier.fillMaxWidth()
             )
@@ -207,7 +219,7 @@ fun NowPlayingGeniusSheet(
                     }
                     Text(
                         text = annotation.authorName ?: "Genius Contributor",
-                        color = Color.White.copy(alpha = 0.70f),
+                        color = if (isDark) Color.White.copy(alpha = 0.70f) else MaterialTheme.colorScheme.onSurfaceVariant,
                         fontSize = 12.sp
                     )
                 }
@@ -224,7 +236,7 @@ fun NowPlayingGeniusSheet(
                             modifier = Modifier.size(13.dp)
                         )
                         Text(
-                            text = "${annotation.votesTotal} 赞同",
+                            text = if (isTraditional) "${annotation.votesTotal} 贊同" else "${annotation.votesTotal} 赞同",
                             color = Color(0xFFFFD54F),
                             fontSize = 12.sp,
                             fontWeight = FontWeight.Medium

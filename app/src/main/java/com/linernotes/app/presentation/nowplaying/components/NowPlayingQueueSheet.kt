@@ -50,17 +50,25 @@ fun NowPlayingQueueSheet(
     val context = LocalContext.current
     val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
 
+    val isDark = MaterialTheme.colorScheme.background.luminance() < 0.5f
+    val sheetBg = if (isDark) Color(0xFF13141B) else MaterialTheme.colorScheme.surface
+    val sheetContent = if (isDark) Color.White else MaterialTheme.colorScheme.onSurface
+    val cardBg = if (isDark) Color.White.copy(alpha = 0.05f) else MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.70f)
+    val cardBorder = if (isDark) Color.White.copy(alpha = 0.10f) else Color.Black.copy(alpha = 0.08f)
+    val textSecondary = if (isDark) Color.White.copy(alpha = 0.55f) else MaterialTheme.colorScheme.onSurfaceVariant
+    val handleColor = if (isDark) Color.White.copy(alpha = 0.20f) else Color.Black.copy(alpha = 0.20f)
+
     ModalBottomSheet(
         onDismissRequest = onDismiss,
         sheetState = sheetState,
-        containerColor = Color(0xFF13141B),
-        contentColor = Color.White,
+        containerColor = sheetBg,
+        contentColor = sheetContent,
         tonalElevation = 8.dp,
         shape = RoundedCornerShape(topStart = 28.dp, topEnd = 28.dp),
         dragHandle = {
             Surface(
                 modifier = Modifier.padding(top = 12.dp, bottom = 8.dp),
-                color = Color.White.copy(alpha = 0.20f),
+                color = handleColor,
                 shape = CircleShape
             ) {
                 Box(modifier = Modifier.size(width = 38.dp, height = 4.5.dp))
@@ -85,7 +93,7 @@ fun NowPlayingQueueSheet(
                 Column {
                     Text(
                         text = "Queue",
-                        color = Color.White,
+                        color = sheetContent,
                         fontSize = 22.sp,
                         fontWeight = FontWeight.Bold,
                         fontFamily = FontFamily.SansSerif,
@@ -93,14 +101,14 @@ fun NowPlayingQueueSheet(
                     )
                     Text(
                         text = if (trackState.isSpotify) "Spotify 同步待播队列" else "当前媒体播放队列",
-                        color = Color.White.copy(alpha = 0.5f),
+                        color = textSecondary,
                         fontSize = 12.sp,
                         fontFamily = FontFamily.SansSerif
                     )
                 }
 
                 Surface(
-                    color = Color.White.copy(alpha = 0.09f),
+                    color = if (isDark) Color.White.copy(alpha = 0.09f) else Color.Black.copy(alpha = 0.06f),
                     shape = RoundedCornerShape(14.dp),
                     modifier = Modifier.bouncyClickable(
                         pressedScale = 0.92f,
@@ -109,7 +117,7 @@ fun NowPlayingQueueSheet(
                 ) {
                     Text(
                         text = "完成",
-                        color = Color.White.copy(alpha = 0.85f),
+                        color = sheetContent,
                         fontSize = 13.sp,
                         fontWeight = FontWeight.SemiBold,
                         modifier = Modifier.padding(horizontal = 14.dp, vertical = 6.dp)
@@ -120,7 +128,7 @@ fun NowPlayingQueueSheet(
             // 2. 正在播放 (Now playing)
             Text(
                 text = "正在播放 (Now playing)",
-                color = Color.White.copy(alpha = 0.5f),
+                color = textSecondary,
                 fontSize = 12.sp,
                 fontWeight = FontWeight.SemiBold,
                 fontFamily = FontFamily.SansSerif,
@@ -128,9 +136,9 @@ fun NowPlayingQueueSheet(
             )
 
             Surface(
-                color = Color.White.copy(alpha = 0.05f),
+                color = cardBg,
                 shape = RoundedCornerShape(16.dp),
-                border = BorderStroke(0.5.dp, Color.White.copy(alpha = 0.10f)),
+                border = BorderStroke(0.5.dp, cardBorder),
                 modifier = Modifier.fillMaxWidth()
             ) {
                 Row(

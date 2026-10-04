@@ -32,6 +32,8 @@ data class NowPlayingUiState(
     val isSongStoryTranslating: Boolean = false,
     val furiganaMode: FuriganaDisplayMode = FuriganaDisplayMode.OFF,
     val isTraditionalChinese: Boolean = false,
+    val themeMode: String = AiPreferences.ThemeMode.SYSTEM.code,
+    val appLanguage: String = com.linernotes.app.core.i18n.AppLanguage.SYSTEM.code,
     val isDeCensorEnabled: Boolean = true,
     val showPlaybackControls: Boolean = true,
     val lyricOffsetMs: Long = -200L,
@@ -45,7 +47,13 @@ class NowPlayingViewModel @Inject constructor(
     private val aiPreferences: AiPreferences
 ) : ViewModel() {
 
-    private val _uiState = MutableStateFlow(NowPlayingUiState())
+    private val _uiState = MutableStateFlow(
+        NowPlayingUiState(
+            isTraditionalChinese = aiPreferences.isTraditionalChinese,
+            themeMode = aiPreferences.themeMode,
+            appLanguage = aiPreferences.appLanguage
+        )
+    )
     val uiState: StateFlow<NowPlayingUiState> = _uiState.asStateFlow()
 
     init {
@@ -70,6 +78,24 @@ class NowPlayingViewModel @Inject constructor(
         viewModelScope.launch {
             nowPlayingRepository.lyricOffsetMsFlow.collect { offset ->
                 _uiState.update { it.copy(lyricOffsetMs = offset) }
+            }
+        }
+
+        viewModelScope.launch {
+            aiPreferences.isTraditionalChineseFlow.collect { isTrad ->
+                _uiState.update { it.copy(isTraditionalChinese = isTrad) }
+            }
+        }
+
+        viewModelScope.launch {
+            aiPreferences.themeModeFlow.collect { theme ->
+                _uiState.update { it.copy(themeMode = theme) }
+            }
+        }
+
+        viewModelScope.launch {
+            aiPreferences.appLanguageFlow.collect { lang ->
+                _uiState.update { it.copy(appLanguage = lang) }
             }
         }
     }
@@ -135,7 +161,15 @@ class NowPlayingViewModel @Inject constructor(
     }
 
     fun toggleTraditionalChinese() {
-        _uiState.update { it.copy(isTraditionalChinese = !it.isTraditionalChinese) }
+        aiPreferences.isTraditionalChinese = !aiPreferences.isTraditionalChinese
+    }
+
+    fun setThemeMode(themeCode: String) {
+        aiPreferences.themeMode = themeCode
+    }
+
+    fun setAppLanguage(langCode: String) {
+        aiPreferences.appLanguage = langCode
     }
 
     fun toggleDeCensor() {

@@ -59,6 +59,7 @@ fun FloatingLyricsCapsule(
     displayMode: Int = FloatingLyricsPreferences.DISPLAY_MODE_WRAP,
     floatingStyle: Int = FloatingLyricsPreferences.STYLE_PURE_LYRICS,
     capsuleWidthDp: Int = 356,
+    isTraditional: Boolean = false,
     onDragStart: () -> Unit = {},
     onDrag: (deltaX: Float, deltaY: Float) -> Unit,
     onDragEnd: (isExpanded: Boolean) -> Unit,
@@ -101,8 +102,8 @@ fun FloatingLyricsCapsule(
     }
 
     // 稳定视觉文字数据
-    val (originalText, secondaryText) = remember(currentLine, state.title, state.artist, state.hasValidTrack, isBilingual, isLoadingLyrics) {
-        if (currentLine != null) {
+    val (originalText, secondaryText) = remember(currentLine, state.title, state.artist, state.hasValidTrack, isBilingual, isLoadingLyrics, isTraditional) {
+        val (rawOrig, rawTrans) = if (currentLine != null) {
             val orig = currentLine.original.ifBlank { state.title.ifBlank { "LyricNotes 桌面歌词" } }
             val trans = if (isBilingual && !currentLine.translation.isNullOrBlank()) {
                 currentLine.translation
@@ -121,6 +122,9 @@ fun FloatingLyricsCapsule(
                 "LyricNotes 桌面歌词" to "未在播放音乐"
             }
         }
+        val finalOrig = if (isTraditional) com.linernotes.app.core.util.ChineseConverter.toTraditional(rawOrig) else rawOrig
+        val finalTrans = if (isTraditional && rawTrans != null) com.linernotes.app.core.util.ChineseConverter.toTraditional(rawTrans) else rawTrans
+        finalOrig to finalTrans
     }
 
     val hasCover = !state.coverUrl.isNullOrBlank()
@@ -652,7 +656,9 @@ fun FloatingLyricsCapsule(
 
                                 Column(modifier = Modifier.weight(1f)) {
                                     Text(
-                                        text = if (state.hasValidTrack) state.title else "LyricNotes",
+                                        text = if (state.hasValidTrack) {
+                                            if (isTraditional) com.linernotes.app.core.util.ChineseConverter.toTraditional(state.title) else state.title
+                                        } else "LyricNotes",
                                         color = primaryUiColor,
                                         fontSize = 13.5.sp,
                                         fontWeight = FontWeight.Bold,
@@ -661,7 +667,7 @@ fun FloatingLyricsCapsule(
                                     )
                                     if (state.hasValidTrack && state.artist.isNotBlank()) {
                                         Text(
-                                            text = state.artist,
+                                            text = if (isTraditional) com.linernotes.app.core.util.ChineseConverter.toTraditional(state.artist) else state.artist,
                                             color = primaryUiColor.copy(alpha = 0.65f),
                                             fontSize = 11.sp,
                                             maxLines = 1,

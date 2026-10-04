@@ -47,6 +47,8 @@ fun LyricNotesSettingsSheet(
     isLoadingGenius: Boolean = false,
     furiganaMode: FuriganaDisplayMode,
     isTraditionalChinese: Boolean,
+    themeMode: String = com.linernotes.app.core.preference.AiPreferences.ThemeMode.SYSTEM.code,
+    appLanguage: String = com.linernotes.app.core.i18n.AppLanguage.SYSTEM.code,
     isDeCensorEnabled: Boolean,
     showPlaybackControls: Boolean,
     lyricOffsetMs: Long,
@@ -56,6 +58,8 @@ fun LyricNotesSettingsSheet(
     onResetOffset: () -> Unit,
     onSetFuriganaMode: (FuriganaDisplayMode) -> Unit,
     onToggleTraditionalChinese: () -> Unit,
+    onSetThemeMode: (String) -> Unit = {},
+    onSetAppLanguage: (String) -> Unit = {},
     onToggleDeCensor: () -> Unit,
     onTogglePlaybackControls: () -> Unit,
     onReloadLyrics: () -> Unit,
@@ -64,17 +68,27 @@ fun LyricNotesSettingsSheet(
     val context = LocalContext.current
     val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
 
+    val isDark = MaterialTheme.colorScheme.background.luminance() < 0.5f
+    val sheetBg = if (isDark) Color(0xFF13141B) else MaterialTheme.colorScheme.surface
+    val sheetContent = if (isDark) Color.White else MaterialTheme.colorScheme.onSurface
+    val cardBg = if (isDark) Color.White.copy(alpha = 0.05f) else MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.70f)
+    val cardBorder = if (isDark) Color.White.copy(alpha = 0.10f) else Color.Black.copy(alpha = 0.08f)
+    val textPrimary = if (isDark) Color.White else MaterialTheme.colorScheme.onSurface
+    val textSecondary = if (isDark) Color.White.copy(alpha = 0.60f) else MaterialTheme.colorScheme.onSurfaceVariant
+    val dividerColor = if (isDark) Color.White.copy(alpha = 0.08f) else Color.Black.copy(alpha = 0.08f)
+    val handleColor = if (isDark) Color.White.copy(alpha = 0.20f) else Color.Black.copy(alpha = 0.20f)
+
     ModalBottomSheet(
         onDismissRequest = onDismiss,
         sheetState = sheetState,
-        containerColor = Color(0xFF13141B),
-        contentColor = Color.White,
+        containerColor = sheetBg,
+        contentColor = sheetContent,
         tonalElevation = 8.dp,
         shape = RoundedCornerShape(topStart = 28.dp, topEnd = 28.dp),
         dragHandle = {
             Surface(
                 modifier = Modifier.padding(top = 12.dp, bottom = 8.dp),
-                color = Color.White.copy(alpha = 0.20f),
+                color = handleColor,
                 shape = CircleShape
             ) {
                 Box(modifier = Modifier.size(width = 38.dp, height = 4.5.dp))
@@ -91,9 +105,9 @@ fun LyricNotesSettingsSheet(
         ) {
             // 1. 顶部曲目与播放状态卡片
             Surface(
-                color = Color.White.copy(alpha = 0.05f),
+                color = cardBg,
                 shape = RoundedCornerShape(18.dp),
-                border = BorderStroke(0.5.dp, Color.White.copy(alpha = 0.10f)),
+                border = BorderStroke(0.5.dp, cardBorder),
                 modifier = Modifier.fillMaxWidth()
             ) {
                 Row(
@@ -129,7 +143,7 @@ fun LyricNotesSettingsSheet(
                     Column(modifier = Modifier.weight(1f)) {
                         Text(
                             text = if (trackState.hasValidTrack) trackState.title else "未检测到播放曲目",
-                            color = Color.White,
+                            color = textPrimary,
                             fontSize = 16.sp,
                             fontWeight = FontWeight.Bold,
                             fontFamily = FontFamily.SansSerif,
@@ -139,7 +153,7 @@ fun LyricNotesSettingsSheet(
                         Spacer(modifier = Modifier.height(2.dp))
                         Text(
                             text = if (trackState.hasValidTrack) trackState.artist else "请在 Spotify 播放音乐",
-                            color = Color.White.copy(alpha = 0.65f),
+                            color = textSecondary,
                             fontSize = 13.sp,
                             fontFamily = FontFamily.SansSerif,
                             maxLines = 1,
@@ -157,10 +171,106 @@ fun LyricNotesSettingsSheet(
                     ) {
                         Text(
                             text = trackState.sourceApp.displayName,
-                            color = if (trackState.isSpotify) Color(0xFF1ED760) else Color.White.copy(alpha = 0.8f),
+                            color = if (trackState.isSpotify) Color(0xFF1ED760) else (if (isDark) Color.White.copy(alpha = 0.8f) else MaterialTheme.colorScheme.onSurface),
                             fontSize = 11.sp,
                             fontWeight = FontWeight.Bold,
                             modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp)
+                        )
+                    }
+                }
+            }
+
+            // 外观主题选择卡片
+            Surface(
+                color = cardBg,
+                shape = RoundedCornerShape(18.dp),
+                border = BorderStroke(0.5.dp, cardBorder),
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Column(
+                    modifier = Modifier.padding(16.dp),
+                    verticalArrangement = Arrangement.spacedBy(10.dp)
+                ) {
+                    Text(
+                        text = "外观主题",
+                        color = textPrimary,
+                        fontSize = 15.sp,
+                        fontWeight = FontWeight.Bold,
+                        fontFamily = FontFamily.SansSerif
+                    )
+
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        SegmentPill(
+                            title = "跟随系统",
+                            isSelected = themeMode == com.linernotes.app.core.preference.AiPreferences.ThemeMode.SYSTEM.code,
+                            onClick = { onSetThemeMode(com.linernotes.app.core.preference.AiPreferences.ThemeMode.SYSTEM.code) },
+                            isDark = isDark,
+                            modifier = Modifier.weight(1f)
+                        )
+                        SegmentPill(
+                            title = "深色模式",
+                            isSelected = themeMode == com.linernotes.app.core.preference.AiPreferences.ThemeMode.DARK.code,
+                            onClick = { onSetThemeMode(com.linernotes.app.core.preference.AiPreferences.ThemeMode.DARK.code) },
+                            isDark = isDark,
+                            modifier = Modifier.weight(1f)
+                        )
+                        SegmentPill(
+                            title = "浅色模式",
+                            isSelected = themeMode == com.linernotes.app.core.preference.AiPreferences.ThemeMode.LIGHT.code,
+                            onClick = { onSetThemeMode(com.linernotes.app.core.preference.AiPreferences.ThemeMode.LIGHT.code) },
+                            isDark = isDark,
+                            modifier = Modifier.weight(1f)
+                        )
+                    }
+                }
+            }
+
+            // 界面语言与简繁选择卡片
+            Surface(
+                color = cardBg,
+                shape = RoundedCornerShape(18.dp),
+                border = BorderStroke(0.5.dp, cardBorder),
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Column(
+                    modifier = Modifier.padding(16.dp),
+                    verticalArrangement = Arrangement.spacedBy(10.dp)
+                ) {
+                    Text(
+                        text = "界面语言与简繁",
+                        color = textPrimary,
+                        fontSize = 15.sp,
+                        fontWeight = FontWeight.Bold,
+                        fontFamily = FontFamily.SansSerif
+                    )
+
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        SegmentPill(
+                            title = "跟随系统",
+                            isSelected = appLanguage == com.linernotes.app.core.i18n.AppLanguage.SYSTEM.code,
+                            onClick = { onSetAppLanguage(com.linernotes.app.core.i18n.AppLanguage.SYSTEM.code) },
+                            isDark = isDark,
+                            modifier = Modifier.weight(1f)
+                        )
+                        SegmentPill(
+                            title = "简体中文",
+                            isSelected = appLanguage == com.linernotes.app.core.i18n.AppLanguage.ZH_CN.code,
+                            onClick = { onSetAppLanguage(com.linernotes.app.core.i18n.AppLanguage.ZH_CN.code) },
+                            isDark = isDark,
+                            modifier = Modifier.weight(1f)
+                        )
+                        SegmentPill(
+                            title = "繁體中文",
+                            isSelected = appLanguage == com.linernotes.app.core.i18n.AppLanguage.ZH_TW.code,
+                            onClick = { onSetAppLanguage(com.linernotes.app.core.i18n.AppLanguage.ZH_TW.code) },
+                            isDark = isDark,
+                            modifier = Modifier.weight(1f)
                         )
                     }
                 }
@@ -217,11 +327,11 @@ fun LyricNotesSettingsSheet(
                 )
 
                 Surface(
-                    color = Color.White.copy(alpha = 0.05f),
+                    color = cardBg,
                     shape = RoundedCornerShape(18.dp),
                     border = BorderStroke(
                         0.5.dp,
-                        if (isLoadingGenius) Color(0xFF1ED760).copy(alpha = pulseAlpha) else Color.White.copy(alpha = 0.12f)
+                        if (isLoadingGenius) Color(0xFF1ED760).copy(alpha = pulseAlpha) else cardBorder
                     ),
                     modifier = Modifier.fillMaxWidth()
                 ) {
@@ -239,13 +349,13 @@ fun LyricNotesSettingsSheet(
                             Column {
                                 Text(
                                     text = "Genius 典故与背景故事",
-                                    color = Color.White.copy(alpha = 0.85f),
+                                    color = textPrimary,
                                     fontSize = 14.sp,
                                     fontWeight = FontWeight.SemiBold
                                 )
                                 Text(
                                     text = if (isLoadingGenius) "正在重新检索 Genius 典故与背景故事..." else (geniusNotice ?: "未检索到本曲 Genius 典故注释"),
-                                    color = if (isLoadingGenius) Color(0xFF1ED760) else Color.White.copy(alpha = 0.5f),
+                                    color = if (isLoadingGenius) Color(0xFF1ED760) else textSecondary,
                                     fontSize = 12.sp
                                 )
                             }
@@ -305,9 +415,9 @@ fun LyricNotesSettingsSheet(
 
             // 3. 歌词时间轴微调与低延迟补偿 (Lyrics Offset)
             Surface(
-                color = Color.White.copy(alpha = 0.05f),
+                color = cardBg,
                 shape = RoundedCornerShape(18.dp),
-                border = BorderStroke(0.5.dp, Color.White.copy(alpha = 0.10f)),
+                border = BorderStroke(0.5.dp, cardBorder),
                 modifier = Modifier.fillMaxWidth()
             ) {
                 Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
@@ -318,7 +428,7 @@ fun LyricNotesSettingsSheet(
                     ) {
                         Text(
                             text = "时间轴补偿",
-                            color = Color.White,
+                            color = textPrimary,
                             fontSize = 15.sp,
                             fontWeight = FontWeight.Bold,
                             fontFamily = FontFamily.SansSerif
@@ -328,7 +438,7 @@ fun LyricNotesSettingsSheet(
                                 0L -> "0 ms"
                                 else -> "${if (lyricOffsetMs > 0) "+" else ""}${lyricOffsetMs} ms"
                             },
-                            color = if (lyricOffsetMs == -200L) Color(0xFF1ED760) else Color.White.copy(alpha = 0.85f),
+                            color = if (lyricOffsetMs == -200L) Color(0xFF1ED760) else textPrimary,
                             fontSize = 13.5.sp,
                             fontWeight = FontWeight.Bold,
                             fontFamily = FontFamily.SansSerif
@@ -339,11 +449,11 @@ fun LyricNotesSettingsSheet(
                         modifier = Modifier.fillMaxWidth(),
                         horizontalArrangement = Arrangement.spacedBy(6.dp)
                     ) {
-                        OffsetButton("-100ms", onClick = { onAdjustOffset(-100) }, modifier = Modifier.weight(1f))
-                        OffsetButton("-50ms", onClick = { onAdjustOffset(-50) }, modifier = Modifier.weight(1f))
-                        OffsetButton("-200ms", onClick = onResetOffset, modifier = Modifier.weight(1.1f), isReset = true)
-                        OffsetButton("+50ms", onClick = { onAdjustOffset(50) }, modifier = Modifier.weight(1f))
-                        OffsetButton("+100ms", onClick = { onAdjustOffset(100) }, modifier = Modifier.weight(1f))
+                        OffsetButton("-100ms", onClick = { onAdjustOffset(-100) }, modifier = Modifier.weight(1f), isDark = isDark)
+                        OffsetButton("-50ms", onClick = { onAdjustOffset(-50) }, modifier = Modifier.weight(1f), isDark = isDark)
+                        OffsetButton("-200ms", onClick = onResetOffset, modifier = Modifier.weight(1.1f), isReset = true, isDark = isDark)
+                        OffsetButton("+50ms", onClick = { onAdjustOffset(50) }, modifier = Modifier.weight(1f), isDark = isDark)
+                        OffsetButton("+100ms", onClick = { onAdjustOffset(100) }, modifier = Modifier.weight(1f), isDark = isDark)
                     }
                 }
             }
@@ -360,11 +470,11 @@ fun LyricNotesSettingsSheet(
             val currentFloatingStyle by floatingPrefs.floatingStyleFlow.collectAsState(initial = floatingPrefs.floatingStyle)
 
             Surface(
-                color = if (isFloatingActive) Color(0xFF162538).copy(alpha = 0.70f) else Color.White.copy(alpha = 0.05f),
+                color = if (isFloatingActive) (if (isDark) Color(0xFF162538).copy(alpha = 0.70f) else Color(0xFFE1F5FE).copy(alpha = 0.85f)) else cardBg,
                 shape = RoundedCornerShape(18.dp),
                 border = BorderStroke(
                     0.5.dp,
-                    if (isFloatingActive) Color(0xFF81D4FA).copy(alpha = 0.50f) else Color.White.copy(alpha = 0.10f)
+                    if (isFloatingActive) Color(0xFF81D4FA).copy(alpha = 0.50f) else cardBorder
                 ),
                 modifier = Modifier.fillMaxWidth()
             ) {
@@ -732,31 +842,34 @@ fun LyricNotesSettingsSheet(
 
             // 5. 显示与排版设置
             Surface(
-                color = Color.White.copy(alpha = 0.05f),
+                color = cardBg,
                 shape = RoundedCornerShape(18.dp),
-                border = BorderStroke(0.5.dp, Color.White.copy(alpha = 0.10f)),
+                border = BorderStroke(0.5.dp, cardBorder),
                 modifier = Modifier.fillMaxWidth()
             ) {
                 Column(modifier = Modifier.padding(horizontal = 16.dp, vertical = 6.dp)) {
                     SettingsSwitchRow(
                         title = "底部播放控制栏",
                         checked = showPlaybackControls,
+                        isDark = isDark,
                         onCheckedChange = { onTogglePlaybackControls() }
                     )
 
-                    HorizontalDivider(color = Color.White.copy(alpha = 0.08f), thickness = 0.5.dp)
+                    HorizontalDivider(color = dividerColor, thickness = 0.5.dp)
 
                     SettingsSwitchRow(
                         title = "脏字审查还原",
                         checked = isDeCensorEnabled,
+                        isDark = isDark,
                         onCheckedChange = { onToggleDeCensor() }
                     )
 
-                    HorizontalDivider(color = Color.White.copy(alpha = 0.08f), thickness = 0.5.dp)
+                    HorizontalDivider(color = dividerColor, thickness = 0.5.dp)
 
                     SettingsSwitchRow(
                         title = "繁体中文显示",
                         checked = isTraditionalChinese,
+                        isDark = isDark,
                         onCheckedChange = { onToggleTraditionalChinese() }
                     )
                 }
@@ -764,15 +877,15 @@ fun LyricNotesSettingsSheet(
 
             // 6. 日语假名注音
             Surface(
-                color = Color.White.copy(alpha = 0.05f),
+                color = cardBg,
                 shape = RoundedCornerShape(18.dp),
-                border = BorderStroke(0.5.dp, Color.White.copy(alpha = 0.10f)),
+                border = BorderStroke(0.5.dp, cardBorder),
                 modifier = Modifier.fillMaxWidth()
             ) {
                 Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
                     Text(
                         text = "日语假名注音",
-                        color = Color.White,
+                        color = textPrimary,
                         fontSize = 15.sp,
                         fontWeight = FontWeight.Bold,
                         fontFamily = FontFamily.SansSerif
@@ -785,18 +898,21 @@ fun LyricNotesSettingsSheet(
                         FuriganaPill(
                             title = "关闭",
                             isSelected = furiganaMode == FuriganaDisplayMode.OFF,
+                            isDark = isDark,
                             onClick = { onSetFuriganaMode(FuriganaDisplayMode.OFF) },
                             modifier = Modifier.weight(1f)
                         )
                         FuriganaPill(
                             title = "平假名注音",
                             isSelected = furiganaMode == FuriganaDisplayMode.HIRAGANA,
+                            isDark = isDark,
                             onClick = { onSetFuriganaMode(FuriganaDisplayMode.HIRAGANA) },
                             modifier = Modifier.weight(1f)
                         )
                         FuriganaPill(
                             title = "罗马音",
                             isSelected = furiganaMode == FuriganaDisplayMode.ROMAJI,
+                            isDark = isDark,
                             onClick = { onSetFuriganaMode(FuriganaDisplayMode.ROMAJI) },
                             modifier = Modifier.weight(1f)
                         )
@@ -861,12 +977,18 @@ private fun OffsetButton(
     text: String,
     onClick: () -> Unit,
     modifier: Modifier = Modifier,
-    isReset: Boolean = false
+    isReset: Boolean = false,
+    isDark: Boolean = true
 ) {
+    val unselectedBg = if (isDark) Color.White.copy(alpha = 0.08f) else Color.Black.copy(alpha = 0.05f)
+    val resetBg = if (isDark) Color.White.copy(alpha = 0.16f) else Color.Black.copy(alpha = 0.12f)
+    val unselectedBorder = if (isDark) Color.White.copy(alpha = 0.10f) else Color.Black.copy(alpha = 0.08f)
+    val resetBorder = if (isDark) Color.White.copy(alpha = 0.25f) else Color.Black.copy(alpha = 0.18f)
+
     Surface(
-        color = if (isReset) Color.White.copy(alpha = 0.16f) else Color.White.copy(alpha = 0.08f),
+        color = if (isReset) resetBg else unselectedBg,
         shape = RoundedCornerShape(10.dp),
-        border = BorderStroke(0.5.dp, if (isReset) Color.White.copy(alpha = 0.25f) else Color.White.copy(alpha = 0.10f)),
+        border = BorderStroke(0.5.dp, if (isReset) resetBorder else unselectedBorder),
         modifier = modifier
             .height(38.dp)
             .bouncyClickable(
@@ -875,9 +997,10 @@ private fun OffsetButton(
             )
     ) {
         Box(contentAlignment = Alignment.Center) {
+            val textColor = if (isDark) Color.White else MaterialTheme.colorScheme.onSurface
             Text(
                 text = text,
-                color = if (isReset) Color.White else Color.White.copy(alpha = 0.85f),
+                color = if (isReset) textColor else textColor.copy(alpha = 0.85f),
                 fontSize = 12.sp,
                 fontWeight = if (isReset) FontWeight.Bold else FontWeight.Medium,
                 fontFamily = FontFamily.SansSerif
@@ -891,8 +1014,13 @@ private fun SettingsSwitchRow(
     title: String,
     subtitle: String? = null,
     checked: Boolean,
+    isDark: Boolean = true,
     onCheckedChange: (Boolean) -> Unit
 ) {
+    val textPrimary = if (isDark) Color.White else MaterialTheme.colorScheme.onSurface
+    val textSecondary = if (isDark) Color.White.copy(alpha = 0.5f) else MaterialTheme.colorScheme.onSurfaceVariant
+    val uncheckedTrack = if (isDark) Color.White.copy(alpha = 0.15f) else Color.Black.copy(alpha = 0.12f)
+
     Row(
         modifier = Modifier
             .fillMaxWidth()
@@ -907,7 +1035,7 @@ private fun SettingsSwitchRow(
         Column(modifier = Modifier.weight(1f).padding(end = 12.dp)) {
             Text(
                 text = title,
-                color = Color.White,
+                color = textPrimary,
                 fontSize = 15.sp,
                 fontWeight = FontWeight.SemiBold,
                 fontFamily = FontFamily.SansSerif
@@ -916,7 +1044,7 @@ private fun SettingsSwitchRow(
                 Spacer(modifier = Modifier.height(2.dp))
                 Text(
                     text = subtitle,
-                    color = Color.White.copy(alpha = 0.5f),
+                    color = textSecondary,
                     fontSize = 12.sp,
                     fontFamily = FontFamily.SansSerif
                 )
@@ -928,10 +1056,61 @@ private fun SettingsSwitchRow(
             colors = SwitchDefaults.colors(
                 checkedThumbColor = Color.White,
                 checkedTrackColor = Color(0xFF1DB954),
-                uncheckedThumbColor = Color.LightGray,
-                uncheckedTrackColor = Color.White.copy(alpha = 0.15f)
+                uncheckedThumbColor = if (isDark) Color.LightGray else Color.DarkGray,
+                uncheckedTrackColor = uncheckedTrack
             )
         )
+    }
+}
+
+@Composable
+private fun SegmentPill(
+    title: String,
+    isSelected: Boolean,
+    onClick: () -> Unit,
+    isDark: Boolean = true,
+    modifier: Modifier = Modifier
+) {
+    val unselectedBg = if (isDark) Color.White.copy(alpha = 0.08f) else Color.Black.copy(alpha = 0.05f)
+    val unselectedText = if (isDark) Color.White.copy(alpha = 0.85f) else Color.Black.copy(alpha = 0.75f)
+    val unselectedBorder = if (isDark) Color.White.copy(alpha = 0.12f) else Color.Black.copy(alpha = 0.10f)
+
+    val bgColor by animateColorAsState(
+        targetValue = if (isSelected) Color(0xFF1ED760) else unselectedBg,
+        animationSpec = spring(stiffness = 600f),
+        label = "segmentBg"
+    )
+    val textColor by animateColorAsState(
+        targetValue = if (isSelected) Color.Black else unselectedText,
+        animationSpec = spring(stiffness = 600f),
+        label = "segmentText"
+    )
+    val borderColor by animateColorAsState(
+        targetValue = if (isSelected) Color(0xFF1ED760) else unselectedBorder,
+        animationSpec = spring(stiffness = 600f),
+        label = "segmentBorder"
+    )
+
+    Surface(
+        color = bgColor,
+        shape = RoundedCornerShape(12.dp),
+        border = BorderStroke(0.5.dp, borderColor),
+        modifier = modifier
+            .height(38.dp)
+            .bouncyClickable(
+                pressedScale = 0.92f,
+                onClick = onClick
+            )
+    ) {
+        Box(contentAlignment = Alignment.Center) {
+            Text(
+                text = title,
+                color = textColor,
+                fontSize = 12.5.sp,
+                fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium,
+                fontFamily = FontFamily.SansSerif
+            )
+        }
     }
 }
 
@@ -940,20 +1119,25 @@ private fun FuriganaPill(
     title: String,
     isSelected: Boolean,
     onClick: () -> Unit,
+    isDark: Boolean = true,
     modifier: Modifier = Modifier
 ) {
+    val unselectedBg = if (isDark) Color.White.copy(alpha = 0.08f) else Color.Black.copy(alpha = 0.05f)
+    val unselectedText = if (isDark) Color.White.copy(alpha = 0.85f) else Color.Black.copy(alpha = 0.75f)
+    val unselectedBorder = if (isDark) Color.White.copy(alpha = 0.12f) else Color.Black.copy(alpha = 0.10f)
+
     val bgColor by animateColorAsState(
-        targetValue = if (isSelected) Color(0xFF1ED760) else Color.White.copy(alpha = 0.08f),
+        targetValue = if (isSelected) Color(0xFF1ED760) else unselectedBg,
         animationSpec = spring(stiffness = 600f),
         label = "furiganaBg"
     )
     val textColor by animateColorAsState(
-        targetValue = if (isSelected) Color.Black else Color.White.copy(alpha = 0.85f),
+        targetValue = if (isSelected) Color.Black else unselectedText,
         animationSpec = spring(stiffness = 600f),
         label = "furiganaText"
     )
     val borderColor by animateColorAsState(
-        targetValue = if (isSelected) Color(0xFF1ED760) else Color.White.copy(alpha = 0.12f),
+        targetValue = if (isSelected) Color(0xFF1ED760) else unselectedBorder,
         animationSpec = spring(stiffness = 600f),
         label = "furiganaBorder"
     )

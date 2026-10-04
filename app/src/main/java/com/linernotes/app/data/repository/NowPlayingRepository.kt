@@ -454,7 +454,8 @@ class NowPlayingRepository @Inject constructor(
             if (fetchedStory != null || fetchedAnnotations.isNotEmpty()) {
                 val targetIso = TranslationTargetLanguage.fromCode(aiPreferences.targetLanguage).fallbackIso
                 val isTraditionalTarget = aiPreferences.targetLanguage == "zh-TW" ||
-                    TranslationTargetLanguage.fromCode(aiPreferences.targetLanguage) == TranslationTargetLanguage.ZH_TW
+                    TranslationTargetLanguage.fromCode(aiPreferences.targetLanguage) == TranslationTargetLanguage.ZH_TW ||
+                    aiPreferences.isTraditionalChinese
                 val transSemaphore = Semaphore(4)
                 coroutineScope {
                     val storyTransDeferred = async {
@@ -670,7 +671,8 @@ class NowPlayingRepository @Inject constructor(
                 // 并发极速翻译
                 val targetIso = TranslationTargetLanguage.fromCode(aiPreferences.targetLanguage).fallbackIso
                 val isTraditionalTarget = aiPreferences.targetLanguage == "zh-TW" ||
-                    TranslationTargetLanguage.fromCode(aiPreferences.targetLanguage) == TranslationTargetLanguage.ZH_TW
+                    TranslationTargetLanguage.fromCode(aiPreferences.targetLanguage) == TranslationTargetLanguage.ZH_TW ||
+                    aiPreferences.isTraditionalChinese
                 val transSemaphore = Semaphore(4)
                 coroutineScope {
                     val storyTransDeferred = async {
@@ -791,7 +793,8 @@ class NowPlayingRepository @Inject constructor(
     suspend fun translateSingleAnnotation(annotation: LyricAnnotationEntity): LyricAnnotationEntity = withContext(Dispatchers.IO) {
         val targetIso = TranslationTargetLanguage.fromCode(aiPreferences.targetLanguage).fallbackIso
         val isTraditionalTarget = aiPreferences.targetLanguage == "zh-TW" ||
-            TranslationTargetLanguage.fromCode(aiPreferences.targetLanguage) == TranslationTargetLanguage.ZH_TW
+            TranslationTargetLanguage.fromCode(aiPreferences.targetLanguage) == TranslationTargetLanguage.ZH_TW ||
+            aiPreferences.isTraditionalChinese
 
         var updated = annotation
 
@@ -844,7 +847,8 @@ class NowPlayingRepository @Inject constructor(
         }
         val targetIso = TranslationTargetLanguage.fromCode(aiPreferences.targetLanguage).fallbackIso
         val isTraditionalTarget = aiPreferences.targetLanguage == "zh-TW" ||
-            TranslationTargetLanguage.fromCode(aiPreferences.targetLanguage) == TranslationTargetLanguage.ZH_TW
+            TranslationTargetLanguage.fromCode(aiPreferences.targetLanguage) == TranslationTargetLanguage.ZH_TW ||
+            aiPreferences.isTraditionalChinese
 
         val tr = translationService.translateText(story.descriptionPlain, targetIso)
         if (!tr.isNullOrBlank() && (AiAnnotationCurator.isAlreadyChinese(tr) || Regex("""[\u4e00-\u9fa5]""").containsMatchIn(tr))) {

@@ -64,6 +64,9 @@ class FloatingLyricsService : Service() {
     @Inject
     lateinit var playbackStateManager: PlaybackStateManager
 
+    @Inject
+    lateinit var aiPreferences: com.linernotes.app.core.preference.AiPreferences
+
     private var windowManager: WindowManager? = null
     private var composeView: ComposeView? = null
     private var windowLayoutParams: WindowManager.LayoutParams? = null
@@ -236,6 +239,7 @@ class FloatingLyricsService : Service() {
                 val displayMode by floatingPreferences.displayModeFlow.collectAsState()
                 val capsuleWidthDp by floatingPreferences.capsuleWidthDpFlow.collectAsState()
                 val floatingStyle by floatingPreferences.floatingStyleFlow.collectAsState()
+                val isTraditional by aiPreferences.isTraditionalChineseFlow.collectAsState()
 
                 FloatingLyricsCapsule(
                     nowPlayingData = nowData,
@@ -247,6 +251,7 @@ class FloatingLyricsService : Service() {
                     displayMode = displayMode,
                     floatingStyle = floatingStyle,
                     capsuleWidthDp = capsuleWidthDp,
+                    isTraditional = isTraditional,
                     onDragStart = {
                         cancelSnapAnimation()
                         windowLayoutParams?.let { params ->

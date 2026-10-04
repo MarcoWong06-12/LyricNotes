@@ -36,13 +36,27 @@ fun NowPlayingSongStorySheet(
 ) {
     if (story == null) return
 
+    val isDark = MaterialTheme.colorScheme.background.luminance() < 0.5f
+    val sheetBg = if (isDark) Color(0xFF13141B) else MaterialTheme.colorScheme.surface
+    val sheetContent = if (isDark) Color.White else MaterialTheme.colorScheme.onSurface
+    val textSecondary = if (isDark) Color.White.copy(alpha = 0.60f) else MaterialTheme.colorScheme.onSurfaceVariant
+    val handleColor = if (isDark) Color.White.copy(alpha = 0.20f) else Color.Black.copy(alpha = 0.20f)
+
+    val displayTitle = remember(story.title, isTraditional) {
+        if (isTraditional) com.linernotes.app.core.util.ChineseConverter.toTraditional(story.title) else story.title
+    }
+    val displayArtist = remember(story.artist, isTraditional) {
+        if (isTraditional) com.linernotes.app.core.util.ChineseConverter.toTraditional(story.artist) else story.artist
+    }
+
     ModalBottomSheet(
         onDismissRequest = onDismiss,
-        containerColor = Color(0xFF13141B),
+        containerColor = sheetBg,
+        contentColor = sheetContent,
         dragHandle = {
             Surface(
                 modifier = Modifier.padding(top = 12.dp, bottom = 8.dp),
-                color = Color.White.copy(alpha = 0.20f),
+                color = handleColor,
                 shape = CircleShape
             ) {
                 Box(modifier = Modifier.size(width = 38.dp, height = 4.5.dp))
@@ -74,22 +88,22 @@ fun NowPlayingSongStorySheet(
                     )
                     Spacer(modifier = Modifier.height(2.dp))
                     Text(
-                        text = story.title,
-                        color = Color.White,
+                        text = displayTitle,
+                        color = sheetContent,
                         fontSize = 18.sp,
                         fontWeight = FontWeight.Bold,
                         fontFamily = FontFamily.SansSerif
                     )
                     Text(
-                        text = story.artist,
-                        color = Color.White.copy(alpha = 0.60f),
+                        text = displayArtist,
+                        color = textSecondary,
                         fontSize = 13.sp,
                         fontFamily = FontFamily.SansSerif
                     )
                 }
 
                 Surface(
-                    color = Color.White.copy(alpha = 0.08f),
+                    color = if (isDark) Color.White.copy(alpha = 0.08f) else Color.Black.copy(alpha = 0.06f),
                     shape = CircleShape,
                     modifier = Modifier
                         .size(34.dp)
@@ -99,7 +113,7 @@ fun NowPlayingSongStorySheet(
                         Icon(
                             imageVector = Icons.Default.Close,
                             contentDescription = "关闭",
-                            tint = Color.White.copy(alpha = 0.8f),
+                            tint = if (isDark) Color.White.copy(alpha = 0.8f) else MaterialTheme.colorScheme.onSurface,
                             modifier = Modifier.size(17.dp)
                         )
                     }
@@ -116,7 +130,7 @@ fun NowPlayingSongStorySheet(
                         .fillMaxWidth()
                         .height(160.dp)
                         .clip(RoundedCornerShape(16.dp))
-                        .background(Color.White.copy(alpha = 0.05f))
+                        .background(if (isDark) Color.White.copy(alpha = 0.05f) else MaterialTheme.colorScheme.surfaceVariant)
                 )
             }
 
@@ -128,14 +142,15 @@ fun NowPlayingSongStorySheet(
                 ) {
                     story.releaseDate?.takeIf { it.isNotBlank() }?.let { date ->
                         Column {
-                            Text("发行日期", color = Color.White.copy(alpha = 0.40f), fontSize = 11.sp, fontFamily = FontFamily.SansSerif)
-                            Text(date, color = Color.White, fontSize = 12.5.sp, fontWeight = FontWeight.Medium, fontFamily = FontFamily.SansSerif)
+                            Text(if (isTraditional) "發行日期" else "发行日期", color = textSecondary, fontSize = 11.sp, fontFamily = FontFamily.SansSerif)
+                            Text(date, color = sheetContent, fontSize = 12.5.sp, fontWeight = FontWeight.Medium, fontFamily = FontFamily.SansSerif)
                         }
                     }
                     story.producerCredits?.takeIf { it.isNotBlank() }?.let { prod ->
+                        val displayProd = if (isTraditional) com.linernotes.app.core.util.ChineseConverter.toTraditional(prod) else prod
                         Column {
-                            Text("制作人", color = Color.White.copy(alpha = 0.40f), fontSize = 11.sp, fontFamily = FontFamily.SansSerif)
-                            Text(prod, color = Color.White, fontSize = 12.5.sp, fontWeight = FontWeight.Medium, fontFamily = FontFamily.SansSerif)
+                            Text(if (isTraditional) "製作人" else "制作人", color = textSecondary, fontSize = 11.sp, fontFamily = FontFamily.SansSerif)
+                            Text(displayProd, color = sheetContent, fontSize = 12.5.sp, fontWeight = FontWeight.Medium, fontFamily = FontFamily.SansSerif)
                         }
                     }
                 }
@@ -144,8 +159,8 @@ fun NowPlayingSongStorySheet(
             Spacer(modifier = Modifier.height(18.dp))
 
             Text(
-                text = "全曲背景故事与创作考据",
-                color = Color.White,
+                text = if (isTraditional) "全曲背景故事與創作考據" else "全曲背景故事与创作考据",
+                color = sheetContent,
                 fontSize = 15.sp,
                 fontWeight = FontWeight.Bold,
                 fontFamily = FontFamily.SansSerif
@@ -158,7 +173,7 @@ fun NowPlayingSongStorySheet(
                 translatedText = story.descriptionTranslation,
                 isTranslating = isTranslating,
                 isTraditional = isTraditional,
-                isDark = true,
+                isDark = isDark,
                 onRetryTranslation = onRetryTranslation,
                 modifier = Modifier.fillMaxWidth()
             )
