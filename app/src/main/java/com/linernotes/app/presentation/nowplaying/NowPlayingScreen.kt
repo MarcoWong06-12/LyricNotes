@@ -39,8 +39,10 @@ import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.graphics.CompositingStrategy
 import androidx.compose.ui.graphics.TransformOrigin
 import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
@@ -120,9 +122,28 @@ fun NowPlayingScreen(
             modifier = Modifier.fillMaxSize()
         )
 
-        // 2. 核心主内容区 (歌词区域全屏贯通至底栏下方，呈现极致通透感)
+        // 2. 核心主内容区 (歌词全屏贯通，并在呼出底部抽屉时呈现 iOS / Apple Music 规范的流体视差微下沉)
+        val isAnySheetOpen = state.isSettingsSheetOpen || state.isGeniusSheetOpen || state.isSongStorySheetOpen || state.isQueueSheetOpen
+        val contentParallaxScale by animateFloatAsState(
+            targetValue = if (isAnySheetOpen) 0.958f else 1.0f,
+            animationSpec = spring(dampingRatio = 0.86f, stiffness = 380f),
+            label = "sheetParallaxScale"
+        )
+        val contentParallaxAlpha by animateFloatAsState(
+            targetValue = if (isAnySheetOpen) 0.84f else 1.0f,
+            animationSpec = spring(dampingRatio = 0.86f, stiffness = 380f),
+            label = "sheetParallaxAlpha"
+        )
+
         Box(
-            modifier = Modifier.fillMaxSize()
+            modifier = Modifier
+                .fillMaxSize()
+                .graphicsLayer {
+                    scaleX = contentParallaxScale
+                    scaleY = contentParallaxScale
+                    alpha = contentParallaxAlpha
+                    transformOrigin = TransformOrigin(0.5f, 0.42f)
+                }
         ) {
             if (hasTrack) {
                 NowPlayingLyricsContent(
@@ -663,15 +684,22 @@ private fun NowPlayingLyricsContent(
     }
 
     // 物理级黄金视线重心对齐动力学 (对标 Spotify 与 Apple Music 顶级流体顺滑吸附)
-    LaunchedEffect(currentLineIndex) {
+    // 监听当前歌词改变以及滑动状态切换：当用户停止滑动后经过 2 秒空闲，自动且平滑回归焦点
+    LaunchedEffect(currentLineIndex, listState.isScrollInProgress) {
         if (currentLineIndex in lyrics.indices) {
-            val isInteracting = (System.currentTimeMillis() - lastUserInteractionTime) < 2500L && listState.isScrollInProgress
-            if (isInteracting) {
+            if (listState.isScrollInProgress) {
+                return@LaunchedEffect
+            }
+            val timeSinceInteraction = System.currentTimeMillis() - lastUserInteractionTime
+            if (timeSinceInteraction < 2000L) {
+                kotlinx.coroutines.delay(2000L - timeSinceInteraction)
+            }
+            if (listState.isScrollInProgress) {
                 return@LaunchedEffect
             }
 
             val viewportHeight = listState.layoutInfo.viewportSize.height.toFloat()
-            // 黄金视线重心：视口高度的 38%（Spotify 经典视觉阅读带）
+            // 黄金视线重心：视口高度的 38%（Spotify 经典视觉焦点阅读带）
             val targetFocalY = if (viewportHeight > 0f) viewportHeight * 0.38f else 320f
             val visibleItem = listState.layoutInfo.visibleItemsInfo.find { it.index == currentLineIndex }
 
@@ -680,12 +708,12 @@ private fun NowPlayingLyricsContent(
                 val itemCenterY = visibleItem.offset.toFloat() + (visibleItem.size.toFloat() / 2f)
                 val scrollDelta = itemCenterY - targetFocalY
 
-                if (kotlin.math.abs(scrollDelta) > 2.0f) {
+                if (kotlin.math.abs(scrollDelta) > 1.5f) {
                     listState.animateScrollBy(
                         value = scrollDelta,
                         animationSpec = spring(
-                            dampingRatio = 0.85f, // 次临界柔和阻尼：零回弹超临界平稳悬停，消除机械顿挫
-                            stiffness = 175f      // 柔和流体刚度：~550ms 连续平滑位移，如轨道摄影机般平滑推进
+                            dampingRatio = 0.86f, // 次临界柔和阻尼：零回弹超临界平稳悬停，消除机械顿挫
+                            stiffness = 160f      // 柔和流体刚度：~550ms 连续平滑位移，如轨道摄影机般平滑推进
                         )
                     )
                 }
@@ -711,14 +739,14 @@ private fun NowPlayingLyricsContent(
                 .drawWithContent {
                     drawContent()
                     // 硬件级上下边缘羽化蒙版：
-                    // 顶部 8% 完全透明，8%~18% 渐变过渡；底部 82%~92% 柔和淡出融入悬浮底栏
+                    // 顶部 7% 完全透明，7%~17% 渐变过渡；底部 80%~93% 柔和淡出融入悬浮底栏
                     drawRect(
                         brush = Brush.verticalGradient(
                             0.0f to Color.Transparent,
-                            0.08f to Color.Transparent,
-                            0.18f to Color.Black,
-                            0.82f to Color.Black,
-                            0.92f to Color.Transparent,
+                            0.07f to Color.Transparent,
+                            0.17f to Color.Black,
+                            0.80f to Color.Black,
+                            0.93f to Color.Transparent,
                             1.0f to Color.Transparent
                         ),
                         blendMode = BlendMode.DstIn
@@ -772,22 +800,24 @@ private fun LyricLineRow(
     // 严格遵循 Spotify & Apple Music 空间景深动力学：距离活跃行越远，字阶与透明度平滑向深空沉底
     val targetOriginalAlpha = when {
         isActive -> 1.0f
-        distance == 1 -> 0.48f
-        distance == 2 -> 0.32f
-        else -> (0.24f - (distance * 0.02f)).coerceAtLeast(0.12f)
+        distance == 1 -> 0.46f
+        distance == 2 -> 0.28f
+        distance == 3 -> 0.18f
+        else -> (0.14f - (distance * 0.015f)).coerceAtLeast(0.06f)
     }
 
     val targetTransAlpha = when {
         isActive -> 0.86f
-        distance == 1 -> 0.38f
-        distance == 2 -> 0.24f
-        else -> (0.18f - (distance * 0.015f)).coerceAtLeast(0.08f)
+        distance == 1 -> 0.36f
+        distance == 2 -> 0.20f
+        distance == 3 -> 0.12f
+        else -> (0.10f - (distance * 0.012f)).coerceAtLeast(0.04f)
     }
 
     val targetScale = when {
-        isActive -> 1.04f
+        isActive -> 1.035f
         distance == 1 -> 0.985f
-        else -> 0.97f
+        else -> 0.965f
     }
 
     // 与视口滚动动效（stiffness 175f）完全同频同步，消除“文字先变亮变大、再慢吞吞移动”的时间错位
@@ -978,8 +1008,8 @@ private fun NowPlayingFloatingGlassPlayer(
         return "%02d:%02d".format(m, s)
     }
 
-    val playerBg = if (isDark) Color(0xFF0F1118).copy(alpha = 0.94f) else Color.White.copy(alpha = 0.94f)
-    val playerBorder = if (isDark) Color.White.copy(alpha = 0.16f) else Color.Black.copy(alpha = 0.10f)
+    val playerBg = if (isDark) Color(0xFF0F1118).copy(alpha = 0.94f) else MaterialTheme.colorScheme.surface.copy(alpha = 0.94f)
+    val playerBorder = if (isDark) Color.White.copy(alpha = 0.12f) else Color.Black.copy(alpha = 0.08f)
     val onPlayerText = if (isDark) Color.White else Color(0xFF111218)
     val onPlayerTextSec = if (isDark) Color.White.copy(alpha = 0.60f) else Color(0xFF656772)
 
@@ -1000,7 +1030,7 @@ private fun NowPlayingFloatingGlassPlayer(
             color = playerBg,
             shape = RoundedCornerShape(26.dp),
             border = BorderStroke(0.5.dp, playerBorder),
-            shadowElevation = 16.dp,
+            shadowElevation = 18.dp,
             modifier = Modifier.fillMaxWidth()
         ) {
             Column(
@@ -1062,11 +1092,20 @@ private fun NowPlayingFloatingGlassPlayer(
                         horizontalArrangement = Arrangement.spacedBy(7.dp)
                     ) {
                         // 1. 歌曲封面缩略图 (38dp 黄金微胶囊，点击查看待播队列)
+                        val coverScale by animateFloatAsState(
+                            targetValue = if (trackState.hasValidTrack) 1.0f else 0.94f,
+                            animationSpec = spring(dampingRatio = 0.82f, stiffness = 450f),
+                            label = "coverScale"
+                        )
                         Box(
                             modifier = Modifier
                                 .size(38.dp)
+                                .graphicsLayer {
+                                    scaleX = coverScale
+                                    scaleY = coverScale
+                                }
                                 .clip(RoundedCornerShape(10.dp))
-                                .border(BorderStroke(0.5.dp, if (isDark) Color.White.copy(alpha = 0.20f) else Color.Black.copy(alpha = 0.10f)), RoundedCornerShape(10.dp))
+                                .border(BorderStroke(0.5.dp, if (isDark) Color.White.copy(alpha = 0.18f) else Color.Black.copy(alpha = 0.10f)), RoundedCornerShape(10.dp))
                                 .bouncyClickable(
                                     pressedScale = 0.90f,
                                     onClick = onOpenQueue
@@ -1194,12 +1233,27 @@ private fun NowPlayingFloatingGlassPlayer(
                         }
 
                         // 播放/暂停 Hero 圆钮 (38dp 饱满白瓷高光，带物理弹簧与丝滑形态形变)
+                        val heroScale by animateFloatAsState(
+                            targetValue = if (trackState.isPlaying) 1.04f else 1.0f,
+                            animationSpec = spring(dampingRatio = 0.80f, stiffness = 500f),
+                            label = "heroScale"
+                        )
+                        val heroElevation by animateDpAsState(
+                            targetValue = if (trackState.isPlaying) 10.dp else 4.dp,
+                            animationSpec = spring(dampingRatio = 0.80f, stiffness = 400f),
+                            label = "heroElevation"
+                        )
+
                         Surface(
                             color = if (isDark) Color.White else Color(0xFF19191C),
                             shape = CircleShape,
-                            shadowElevation = 8.dp,
+                            shadowElevation = heroElevation,
                             modifier = Modifier
                                 .size(38.dp)
+                                .graphicsLayer {
+                                    scaleX = heroScale
+                                    scaleY = heroScale
+                                }
                                 .bouncyIconClickable(
                                     pressedScale = 0.88f,
                                     onClick = onPlayPause
@@ -1209,8 +1263,8 @@ private fun NowPlayingFloatingGlassPlayer(
                                 AnimatedContent(
                                     targetState = trackState.isPlaying,
                                     transitionSpec = {
-                                        fadeIn(tween(140)) + scaleIn(initialScale = 0.78f) togetherWith
-                                            fadeOut(tween(120)) + scaleOut(targetScale = 0.78f)
+                                        fadeIn(tween(130, easing = LinearOutSlowInEasing)) + scaleIn(initialScale = 0.72f, animationSpec = spring(dampingRatio = 0.78f, stiffness = 600f)) togetherWith
+                                            fadeOut(tween(110)) + scaleOut(targetScale = 0.72f)
                                     },
                                     label = "playPauseMorph"
                                 ) { isPlaying ->
@@ -1257,6 +1311,7 @@ private fun SleekTrackScrubber(
     onSeekToFraction: (Float) -> Unit,
     modifier: Modifier = Modifier
 ) {
+    val haptic = LocalHapticFeedback.current
     var isDragging by remember { mutableStateOf(false) }
     var dragFraction by remember { mutableFloatStateOf(0f) }
 
@@ -1265,12 +1320,12 @@ private fun SleekTrackScrubber(
     // 触感物理绽放动力学：手指拖拽时微膨胀，松手时平滑沉降回极细流线
     val trackHeight by animateDpAsState(
         targetValue = if (isDragging) 4.5.dp else 3.dp,
-        animationSpec = spring(dampingRatio = 0.85f, stiffness = 400f),
+        animationSpec = spring(dampingRatio = 0.76f, stiffness = 420f),
         label = "scrubberTrackHeight"
     )
     val thumbSize by animateDpAsState(
-        targetValue = if (isDragging) 12.dp else 8.dp,
-        animationSpec = spring(dampingRatio = 0.85f, stiffness = 400f),
+        targetValue = if (isDragging) 13.dp else 8.dp,
+        animationSpec = spring(dampingRatio = 0.74f, stiffness = 480f),
         label = "scrubberThumbSize"
     )
 
@@ -1281,10 +1336,13 @@ private fun SleekTrackScrubber(
     BoxWithConstraints(
         modifier = modifier
             .fillMaxWidth()
-            .height(22.dp)
+            .height(24.dp)
             .pointerInput(Unit) {
                 detectTapGestures { offset ->
                     val frac = (offset.x / size.width.toFloat()).coerceIn(0f, 1f)
+                    try {
+                        haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                    } catch (e: Exception) {}
                     onSeekToFraction(frac)
                 }
             }
@@ -1293,9 +1351,15 @@ private fun SleekTrackScrubber(
                     onDragStart = { offset ->
                         isDragging = true
                         dragFraction = (offset.x / size.width.toFloat()).coerceIn(0f, 1f)
+                        try {
+                            haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                        } catch (e: Exception) {}
                     },
                     onDragEnd = {
                         isDragging = false
+                        try {
+                            haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                        } catch (e: Exception) {}
                         onSeekToFraction(dragFraction)
                     },
                     onDragCancel = {
@@ -1341,6 +1405,13 @@ private fun SleekTrackScrubber(
                 .size(thumbSize)
                 .clip(CircleShape)
                 .background(thumbColor)
+                .border(
+                    BorderStroke(
+                        0.5.dp,
+                        if (isDark) Color.White.copy(alpha = 0.35f) else Color.Black.copy(alpha = 0.20f)
+                    ),
+                    CircleShape
+                )
         )
     }
 }

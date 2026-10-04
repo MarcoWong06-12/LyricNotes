@@ -23,6 +23,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
@@ -31,6 +32,8 @@ import com.linernotes.app.core.preference.FloatingLyricsPreferences
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.Dp
+import androidx.compose.ui.unit.TextUnit
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import coil.compose.AsyncImage
@@ -564,44 +567,13 @@ fun LyricNotesSettingsSheet(
                                 FloatingLyricsPreferences.STYLE_CAPSULE_CARD to "卡片胶囊"
                             )
                             styleOptions.forEach { (styleVal, label) ->
-                                val isSelected = currentFloatingStyle == styleVal
-                                val optBg = if (isSelected) {
-                                    if (isDark) Color(0xFF03A9F4).copy(alpha = 0.30f) else Color(0xFF0288D1)
-                                } else {
-                                    if (isDark) Color.White.copy(alpha = 0.08f) else Color.Black.copy(alpha = 0.05f)
-                                }
-                                val optBorder = if (isSelected) {
-                                    if (isDark) Color(0xFF81D4FA) else Color(0xFF0288D1)
-                                } else {
-                                    if (isDark) Color.White.copy(alpha = 0.12f) else Color.Black.copy(alpha = 0.10f)
-                                }
-                                val optText = if (isSelected) {
-                                    if (isDark) Color(0xFF81D4FA) else Color.White
-                                } else {
-                                    if (isDark) Color.White.copy(alpha = 0.75f) else textSecondary
-                                }
-
-                                Surface(
-                                    color = optBg,
-                                    shape = RoundedCornerShape(10.dp),
-                                    border = BorderStroke(0.5.dp, optBorder),
-                                    modifier = Modifier
-                                        .weight(1f)
-                                        .height(34.dp)
-                                        .bouncyClickable(pressedScale = 0.92f) {
-                                            floatingPrefs.floatingStyle = styleVal
-                                        }
-                                ) {
-                                    Box(contentAlignment = Alignment.Center) {
-                                        Text(
-                                            text = label,
-                                            color = optText,
-                                            fontSize = 12.sp,
-                                            fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal,
-                                            fontFamily = FontFamily.SansSerif
-                                        )
-                                    }
-                                }
+                                FluidOptionPill(
+                                    label = label,
+                                    isSelected = currentFloatingStyle == styleVal,
+                                    isDark = isDark,
+                                    onClick = { floatingPrefs.floatingStyle = styleVal },
+                                    modifier = Modifier.weight(1f)
+                                )
                             }
                         }
                     }
@@ -643,44 +615,14 @@ fun LyricNotesSettingsSheet(
                                 1.00f to "100%"
                             )
                             alphaOptions.forEach { (alphaVal, label) ->
-                                val isSelected = kotlin.math.abs(currentBgAlpha - alphaVal) < 0.08f
-                                val optBg = if (isSelected) {
-                                    if (isDark) Color(0xFF03A9F4).copy(alpha = 0.30f) else Color(0xFF0288D1)
-                                } else {
-                                    if (isDark) Color.White.copy(alpha = 0.08f) else Color.Black.copy(alpha = 0.05f)
-                                }
-                                val optBorder = if (isSelected) {
-                                    if (isDark) Color(0xFF81D4FA) else Color(0xFF0288D1)
-                                } else {
-                                    if (isDark) Color.White.copy(alpha = 0.12f) else Color.Black.copy(alpha = 0.10f)
-                                }
-                                val optText = if (isSelected) {
-                                    if (isDark) Color(0xFF81D4FA) else Color.White
-                                } else {
-                                    if (isDark) Color.White.copy(alpha = 0.75f) else textSecondary
-                                }
-
-                                Surface(
-                                    color = optBg,
-                                    shape = RoundedCornerShape(10.dp),
-                                    border = BorderStroke(0.5.dp, optBorder),
-                                    modifier = Modifier
-                                        .weight(1f)
-                                        .height(34.dp)
-                                        .bouncyClickable(pressedScale = 0.92f) {
-                                            floatingPrefs.backgroundAlpha = alphaVal
-                                        }
-                                ) {
-                                    Box(contentAlignment = Alignment.Center) {
-                                        Text(
-                                            text = label,
-                                            color = optText,
-                                            fontSize = 11.5.sp,
-                                            fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal,
-                                            fontFamily = FontFamily.SansSerif
-                                        )
-                                    }
-                                }
+                                FluidOptionPill(
+                                    label = label,
+                                    isSelected = kotlin.math.abs(currentBgAlpha - alphaVal) < 0.08f,
+                                    isDark = isDark,
+                                    onClick = { floatingPrefs.backgroundAlpha = alphaVal },
+                                    fontSize = 11.5.sp,
+                                    modifier = Modifier.weight(1f)
+                                )
                             }
                         }
                     }
@@ -706,44 +648,13 @@ fun LyricNotesSettingsSheet(
                                 FloatingLyricsPreferences.DISPLAY_MODE_MARQUEE to "跑马灯"
                             )
                             modeOptions.forEach { (modeVal, label) ->
-                                val isSelected = currentDisplayMode == modeVal
-                                val optBg = if (isSelected) {
-                                    if (isDark) Color(0xFF03A9F4).copy(alpha = 0.30f) else Color(0xFF0288D1)
-                                } else {
-                                    if (isDark) Color.White.copy(alpha = 0.08f) else Color.Black.copy(alpha = 0.05f)
-                                }
-                                val optBorder = if (isSelected) {
-                                    if (isDark) Color(0xFF81D4FA) else Color(0xFF0288D1)
-                                } else {
-                                    if (isDark) Color.White.copy(alpha = 0.12f) else Color.Black.copy(alpha = 0.10f)
-                                }
-                                val optText = if (isSelected) {
-                                    if (isDark) Color(0xFF81D4FA) else Color.White
-                                } else {
-                                    if (isDark) Color.White.copy(alpha = 0.75f) else textSecondary
-                                }
-
-                                Surface(
-                                    color = optBg,
-                                    shape = RoundedCornerShape(10.dp),
-                                    border = BorderStroke(0.5.dp, optBorder),
-                                    modifier = Modifier
-                                        .weight(1f)
-                                        .height(34.dp)
-                                        .bouncyClickable(pressedScale = 0.92f) {
-                                            floatingPrefs.displayMode = modeVal
-                                        }
-                                ) {
-                                    Box(contentAlignment = Alignment.Center) {
-                                        Text(
-                                            text = label,
-                                            color = optText,
-                                            fontSize = 12.sp,
-                                            fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal,
-                                            fontFamily = FontFamily.SansSerif
-                                        )
-                                    }
-                                }
+                                FluidOptionPill(
+                                    label = label,
+                                    isSelected = currentDisplayMode == modeVal,
+                                    isDark = isDark,
+                                    onClick = { floatingPrefs.displayMode = modeVal },
+                                    modifier = Modifier.weight(1f)
+                                )
                             }
                         }
                     }
@@ -783,44 +694,14 @@ fun LyricNotesSettingsSheet(
                                 376 to "376 dp"
                             )
                             widthOptions.forEach { (widthVal, label) ->
-                                val isSelected = currentCapsuleWidth == widthVal
-                                val optBg = if (isSelected) {
-                                    if (isDark) Color(0xFF03A9F4).copy(alpha = 0.30f) else Color(0xFF0288D1)
-                                } else {
-                                    if (isDark) Color.White.copy(alpha = 0.08f) else Color.Black.copy(alpha = 0.05f)
-                                }
-                                val optBorder = if (isSelected) {
-                                    if (isDark) Color(0xFF81D4FA) else Color(0xFF0288D1)
-                                } else {
-                                    if (isDark) Color.White.copy(alpha = 0.12f) else Color.Black.copy(alpha = 0.10f)
-                                }
-                                val optText = if (isSelected) {
-                                    if (isDark) Color(0xFF81D4FA) else Color.White
-                                } else {
-                                    if (isDark) Color.White.copy(alpha = 0.75f) else textSecondary
-                                }
-
-                                Surface(
-                                    color = optBg,
-                                    shape = RoundedCornerShape(10.dp),
-                                    border = BorderStroke(0.5.dp, optBorder),
-                                    modifier = Modifier
-                                        .weight(1f)
-                                        .height(34.dp)
-                                        .bouncyClickable(pressedScale = 0.92f) {
-                                            floatingPrefs.capsuleWidthDp = widthVal
-                                        }
-                                ) {
-                                    Box(contentAlignment = Alignment.Center) {
-                                        Text(
-                                            text = label,
-                                            color = optText,
-                                            fontSize = 11.5.sp,
-                                            fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal,
-                                            fontFamily = FontFamily.SansSerif
-                                        )
-                                    }
-                                }
+                                FluidOptionPill(
+                                    label = label,
+                                    isSelected = currentCapsuleWidth == widthVal,
+                                    isDark = isDark,
+                                    onClick = { floatingPrefs.capsuleWidthDp = widthVal },
+                                    fontSize = 11.5.sp,
+                                    modifier = Modifier.weight(1f)
+                                )
                             }
                         }
                     }
@@ -1057,12 +938,22 @@ private fun OffsetButton(
     val unselectedBorder = if (isDark) Color.White.copy(alpha = 0.10f) else Color.Black.copy(alpha = 0.08f)
     val resetBorder = if (isDark) Color.White.copy(alpha = 0.25f) else Color.Black.copy(alpha = 0.18f)
 
+    val buttonScale by animateFloatAsState(
+        targetValue = if (isReset) 1.02f else 1.0f,
+        animationSpec = spring(dampingRatio = 0.78f, stiffness = 650f),
+        label = "offsetBtnScale"
+    )
+
     Surface(
         color = if (isReset) resetBg else unselectedBg,
         shape = RoundedCornerShape(10.dp),
         border = BorderStroke(0.5.dp, if (isReset) resetBorder else unselectedBorder),
         modifier = modifier
             .height(38.dp)
+            .graphicsLayer {
+                scaleX = buttonScale
+                scaleY = buttonScale
+            }
             .bouncyClickable(
                 pressedScale = 0.90f,
                 onClick = onClick
@@ -1162,6 +1053,11 @@ private fun SegmentPill(
         animationSpec = spring(stiffness = 600f),
         label = "segmentBorder"
     )
+    val pillScale by animateFloatAsState(
+        targetValue = if (isSelected) 1.025f else 1.0f,
+        animationSpec = spring(dampingRatio = 0.78f, stiffness = 650f),
+        label = "segmentScale"
+    )
 
     Surface(
         color = bgColor,
@@ -1169,6 +1065,10 @@ private fun SegmentPill(
         border = BorderStroke(0.5.dp, borderColor),
         modifier = modifier
             .height(38.dp)
+            .graphicsLayer {
+                scaleX = pillScale
+                scaleY = pillScale
+            }
             .bouncyClickable(
                 pressedScale = 0.92f,
                 onClick = onClick
@@ -1213,6 +1113,11 @@ private fun FuriganaPill(
         animationSpec = spring(stiffness = 600f),
         label = "furiganaBorder"
     )
+    val pillScale by animateFloatAsState(
+        targetValue = if (isSelected) 1.025f else 1.0f,
+        animationSpec = spring(dampingRatio = 0.78f, stiffness = 650f),
+        label = "furiganaScale"
+    )
 
     Surface(
         color = bgColor,
@@ -1220,6 +1125,10 @@ private fun FuriganaPill(
         border = BorderStroke(0.5.dp, borderColor),
         modifier = modifier
             .height(38.dp)
+            .graphicsLayer {
+                scaleX = pillScale
+                scaleY = pillScale
+            }
             .bouncyClickable(
                 pressedScale = 0.92f,
                 onClick = onClick
@@ -1231,6 +1140,71 @@ private fun FuriganaPill(
                 color = textColor,
                 fontSize = 12.sp,
                 fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium,
+                fontFamily = FontFamily.SansSerif
+            )
+        }
+    }
+}
+
+/**
+ * 具有物理弹性动效的高级流体选项胶囊 (用于浮动设置排版、宽度、透明度等分段控制)
+ */
+@Composable
+private fun FluidOptionPill(
+    label: String,
+    isSelected: Boolean,
+    isDark: Boolean,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier,
+    height: Dp = 34.dp,
+    activeColor: Color = if (isDark) Color(0xFF03A9F4).copy(alpha = 0.30f) else Color(0xFF0288D1),
+    activeBorderColor: Color = if (isDark) Color(0xFF81D4FA) else Color(0xFF0288D1),
+    activeTextColor: Color = if (isDark) Color(0xFF81D4FA) else Color.White,
+    fontSize: TextUnit = 12.sp
+) {
+    val unselectedBg = if (isDark) Color.White.copy(alpha = 0.08f) else Color.Black.copy(alpha = 0.05f)
+    val textSecondary = if (isDark) Color.White.copy(alpha = 0.75f) else MaterialTheme.colorScheme.onSurfaceVariant
+    val unselectedBorder = if (isDark) Color.White.copy(alpha = 0.12f) else Color.Black.copy(alpha = 0.10f)
+
+    val bgColor by animateColorAsState(
+        targetValue = if (isSelected) activeColor else unselectedBg,
+        animationSpec = spring(stiffness = 650f),
+        label = "optBg"
+    )
+    val textColor by animateColorAsState(
+        targetValue = if (isSelected) activeTextColor else textSecondary,
+        animationSpec = spring(stiffness = 650f),
+        label = "optText"
+    )
+    val borderColor by animateColorAsState(
+        targetValue = if (isSelected) activeBorderColor else unselectedBorder,
+        animationSpec = spring(stiffness = 650f),
+        label = "optBorder"
+    )
+    val pillScale by animateFloatAsState(
+        targetValue = if (isSelected) 1.025f else 1.0f,
+        animationSpec = spring(dampingRatio = 0.78f, stiffness = 650f),
+        label = "optScale"
+    )
+
+    Surface(
+        color = bgColor,
+        shape = RoundedCornerShape(10.dp),
+        border = BorderStroke(0.5.dp, borderColor),
+        modifier = modifier
+            .height(height)
+            .graphicsLayer {
+                scaleX = pillScale
+                scaleY = pillScale
+            }
+            .bouncyClickable(pressedScale = 0.92f, onClick = onClick)
+    ) {
+        Box(contentAlignment = Alignment.Center) {
+            Text(
+                text = label,
+                color = textColor,
+                fontSize = fontSize,
+                fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal,
                 fontFamily = FontFamily.SansSerif
             )
         }

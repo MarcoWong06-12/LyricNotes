@@ -1,6 +1,7 @@
 package com.linernotes.app.presentation.booklet.components
 
 import android.os.Build
+import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.*
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
@@ -95,23 +96,30 @@ fun AmbientGlowBackground(
     val tertiaryColor = MaterialTheme.colorScheme.tertiaryContainer
     val backgroundColor = MaterialTheme.colorScheme.background
 
-    val orb1Colors = remember(primaryColor, tertiaryColor, isDark) {
+    // 色彩平滑交叉溶解 (800ms LinearOutSlowInEasing，切歌与主题切换如水墨晕染)
+    val colorAnimSpec = tween<Color>(800, easing = LinearOutSlowInEasing)
+    val animatedPrimary by animateColorAsState(targetValue = primaryColor, animationSpec = colorAnimSpec, label = "ambPrimary")
+    val animatedSecondary by animateColorAsState(targetValue = secondaryColor, animationSpec = colorAnimSpec, label = "ambSecondary")
+    val animatedTertiary by animateColorAsState(targetValue = tertiaryColor, animationSpec = colorAnimSpec, label = "ambTertiary")
+    val animatedBg by animateColorAsState(targetValue = backgroundColor, animationSpec = colorAnimSpec, label = "ambBg")
+
+    val orb1Colors = remember(animatedPrimary, animatedTertiary, isDark) {
         listOf(
-            primaryColor.copy(alpha = if (isDark) 0.40f else 0.25f),
-            tertiaryColor.copy(alpha = if (isDark) 0.22f else 0.12f),
+            animatedPrimary.copy(alpha = if (isDark) 0.40f else 0.22f),
+            animatedTertiary.copy(alpha = if (isDark) 0.22f else 0.10f),
             Color.Transparent
         )
     }
 
-    val orb2Colors = remember(secondaryColor, primaryColor, isDark) {
+    val orb2Colors = remember(animatedSecondary, animatedPrimary, isDark) {
         listOf(
-            secondaryColor.copy(alpha = if (isDark) 0.35f else 0.20f),
-            primaryColor.copy(alpha = if (isDark) 0.18f else 0.10f),
+            animatedSecondary.copy(alpha = if (isDark) 0.35f else 0.18f),
+            animatedPrimary.copy(alpha = if (isDark) 0.18f else 0.08f),
             Color.Transparent
         )
     }
 
-    val overlayColors = remember(isDark, backgroundColor) {
+    val overlayColors = remember(isDark, animatedBg) {
         if (isDark) {
             listOf(
                 Color(0xFF0C0D12).copy(alpha = 0.48f),
@@ -121,10 +129,10 @@ fun AmbientGlowBackground(
             )
         } else {
             listOf(
-                backgroundColor.copy(alpha = 0.70f),
-                backgroundColor.copy(alpha = 0.45f),
-                backgroundColor.copy(alpha = 0.78f),
-                backgroundColor
+                animatedBg.copy(alpha = 0.72f),
+                animatedBg.copy(alpha = 0.45f),
+                animatedBg.copy(alpha = 0.80f),
+                animatedBg
             )
         }
     }
@@ -135,7 +143,7 @@ fun AmbientGlowBackground(
             AsyncImage(
                 model = ImageRequest.Builder(LocalContext.current)
                     .data(coverUrl)
-                    .crossfade(600)
+                    .crossfade(800)
                     .build(),
                 contentDescription = null,
                 contentScale = ContentScale.Crop,
