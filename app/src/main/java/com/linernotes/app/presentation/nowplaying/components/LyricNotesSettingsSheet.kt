@@ -377,6 +377,8 @@ fun LyricNotesSettingsSheet(
             val currentBgAlpha by floatingPrefs.backgroundAlphaFlow.collectAsState(initial = floatingPrefs.backgroundAlpha)
             val currentTextColor by floatingPrefs.textColorFlow.collectAsState(initial = floatingPrefs.textColor)
             val isLocked by floatingPrefs.isLockedFlow.collectAsState(initial = floatingPrefs.isLocked)
+            val currentDisplayMode by floatingPrefs.displayModeFlow.collectAsState(initial = floatingPrefs.displayMode)
+            val currentCapsuleWidth by floatingPrefs.capsuleWidthDpFlow.collectAsState(initial = floatingPrefs.capsuleWidthDp)
 
             Surface(
                 color = if (isFloatingActive) Color(0xFF162538).copy(alpha = 0.70f) else Color.White.copy(alpha = 0.05f),
@@ -500,6 +502,142 @@ fun LyricNotesSettingsSheet(
                                         .height(34.dp)
                                         .bouncyClickable(pressedScale = 0.92f) {
                                             floatingPrefs.backgroundAlpha = alphaVal
+                                        }
+                                ) {
+                                    Box(contentAlignment = Alignment.Center) {
+                                        Text(
+                                            text = label,
+                                            color = if (isSelected) Color(0xFF81D4FA) else Color.White.copy(alpha = 0.75f),
+                                            fontSize = 11.5.sp,
+                                            fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal,
+                                            fontFamily = FontFamily.SansSerif
+                                        )
+                                    }
+                                }
+                            }
+                        }
+                    }
+
+                    Spacer(modifier = Modifier.height(14.dp))
+
+                    // 4.2 长歌词展示样式 (网易云智能折行 vs 单行跑马灯滚动)
+                    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Column {
+                                Text(
+                                    text = "长歌词排版样式",
+                                    color = Color.White.copy(alpha = 0.85f),
+                                    fontSize = 13.5.sp,
+                                    fontWeight = FontWeight.SemiBold,
+                                    fontFamily = FontFamily.SansSerif
+                                )
+                                Text(
+                                    text = "智能折行可免展开完整阅读原文与译文；跑马灯为单行平滑滚动",
+                                    color = Color.White.copy(alpha = 0.45f),
+                                    fontSize = 11.5.sp,
+                                    fontFamily = FontFamily.SansSerif
+                                )
+                            }
+                        }
+
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.spacedBy(8.dp)
+                        ) {
+                            val modeOptions = listOf(
+                                FloatingLyricsPreferences.DISPLAY_MODE_WRAP to "折行全显 (网易云)",
+                                FloatingLyricsPreferences.DISPLAY_MODE_MARQUEE to "单行跑马灯"
+                            )
+                            modeOptions.forEach { (modeVal, label) ->
+                                val isSelected = currentDisplayMode == modeVal
+                                Surface(
+                                    color = if (isSelected) Color(0xFF03A9F4).copy(alpha = 0.30f) else Color.White.copy(alpha = 0.08f),
+                                    shape = RoundedCornerShape(10.dp),
+                                    border = BorderStroke(
+                                        0.5.dp,
+                                        if (isSelected) Color(0xFF81D4FA) else Color.White.copy(alpha = 0.12f)
+                                    ),
+                                    modifier = Modifier
+                                        .weight(1f)
+                                        .height(34.dp)
+                                        .bouncyClickable(pressedScale = 0.92f) {
+                                            floatingPrefs.displayMode = modeVal
+                                        }
+                                ) {
+                                    Box(contentAlignment = Alignment.Center) {
+                                        Text(
+                                            text = label,
+                                            color = if (isSelected) Color(0xFF81D4FA) else Color.White.copy(alpha = 0.75f),
+                                            fontSize = 12.sp,
+                                            fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal,
+                                            fontFamily = FontFamily.SansSerif
+                                        )
+                                    }
+                                }
+                            }
+                        }
+                    }
+
+                    Spacer(modifier = Modifier.height(14.dp))
+
+                    // 4.3 悬浮窗宽度设置 (320dp, 356dp, 376dp)
+                    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Column {
+                                Text(
+                                    text = "悬浮窗宽度",
+                                    color = Color.White.copy(alpha = 0.85f),
+                                    fontSize = 13.5.sp,
+                                    fontWeight = FontWeight.SemiBold,
+                                    fontFamily = FontFamily.SansSerif
+                                )
+                                Text(
+                                    text = "更宽的悬浮窗可容纳更完整的多语种歌词",
+                                    color = Color.White.copy(alpha = 0.45f),
+                                    fontSize = 11.5.sp,
+                                    fontFamily = FontFamily.SansSerif
+                                )
+                            }
+                            Text(
+                                text = "${currentCapsuleWidth} dp",
+                                color = Color(0xFF81D4FA),
+                                fontSize = 13.sp,
+                                fontWeight = FontWeight.Bold,
+                                fontFamily = FontFamily.SansSerif
+                            )
+                        }
+
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.spacedBy(6.dp)
+                        ) {
+                            val widthOptions = listOf(
+                                320 to "320dp 紧凑",
+                                356 to "356dp 推荐",
+                                376 to "376dp 满屏"
+                            )
+                            widthOptions.forEach { (widthVal, label) ->
+                                val isSelected = currentCapsuleWidth == widthVal
+                                Surface(
+                                    color = if (isSelected) Color(0xFF03A9F4).copy(alpha = 0.30f) else Color.White.copy(alpha = 0.08f),
+                                    shape = RoundedCornerShape(10.dp),
+                                    border = BorderStroke(
+                                        0.5.dp,
+                                        if (isSelected) Color(0xFF81D4FA) else Color.White.copy(alpha = 0.12f)
+                                    ),
+                                    modifier = Modifier
+                                        .weight(1f)
+                                        .height(34.dp)
+                                        .bouncyClickable(pressedScale = 0.92f) {
+                                            floatingPrefs.capsuleWidthDp = widthVal
                                         }
                                 ) {
                                     Box(contentAlignment = Alignment.Center) {

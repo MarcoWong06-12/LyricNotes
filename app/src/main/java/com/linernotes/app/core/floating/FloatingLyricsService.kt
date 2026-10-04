@@ -178,6 +178,8 @@ class FloatingLyricsService : Service() {
                 val bgAlpha by floatingPreferences.backgroundAlphaFlow.collectAsState()
                 val fontScale by floatingPreferences.fontScaleFlow.collectAsState()
                 val textColor by floatingPreferences.textColorFlow.collectAsState()
+                val displayMode by floatingPreferences.displayModeFlow.collectAsState()
+                val capsuleWidthDp by floatingPreferences.capsuleWidthDpFlow.collectAsState()
 
                 FloatingLyricsCapsule(
                     nowPlayingData = nowData,
@@ -186,6 +188,8 @@ class FloatingLyricsService : Service() {
                     backgroundAlpha = bgAlpha,
                     fontScale = fontScale,
                     textColor = textColor,
+                    displayMode = displayMode,
+                    capsuleWidthDp = capsuleWidthDp,
                     onDragStart = {
                         cancelSnapAnimation()
                         windowLayoutParams?.let { params ->
@@ -459,8 +463,8 @@ class FloatingLyricsService : Service() {
     }
 
     companion object {
-        const val EXPANDED_WIDTH_DP = 346
-        const val COMPACT_WIDTH_DP = 300
+        const val EXPANDED_WIDTH_DP = 356
+        const val COMPACT_WIDTH_DP = 356
 
         const val CHANNEL_ID = "floating_lyrics_channel"
         const val NOTIFICATION_ID = 20001

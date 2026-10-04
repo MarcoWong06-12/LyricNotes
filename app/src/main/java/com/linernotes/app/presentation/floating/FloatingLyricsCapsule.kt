@@ -1,9 +1,12 @@
 package com.linernotes.app.presentation.floating
 
 import androidx.compose.animation.*
+import androidx.compose.animation.core.Spring
+import androidx.compose.animation.core.spring
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
+import androidx.compose.foundation.basicMarquee
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.detectDragGestures
 import androidx.compose.foundation.layout.*
@@ -32,12 +35,13 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import coil.compose.AsyncImage
+import com.linernotes.app.core.preference.FloatingLyricsPreferences
 import com.linernotes.app.data.repository.NowPlayingData
 import com.linernotes.app.presentation.common.bouncyIconClickable
 
 /**
- * Apple 灵动岛 / 桌面胶囊风格的悬浮歌词组件 (Floating Lyrics Capsule)
- * 具备双单行紧凑防挤压排版、展开态完整播控底栏、防桌面穿透的高质感磨砂背板与智能反差投影
+ * 桌面悬浮歌词组件 (Floating Lyrics Capsule)
+ * 支持【网易云智能折行全显】与【单行跑马灯滚动】双模式，彻底解决长歌词与双语翻译截断问题
  */
 @Composable
 fun FloatingLyricsCapsule(
@@ -47,6 +51,8 @@ fun FloatingLyricsCapsule(
     backgroundAlpha: Float,
     fontScale: Float,
     textColor: Int = -1,
+    displayMode: Int = FloatingLyricsPreferences.DISPLAY_MODE_WRAP,
+    capsuleWidthDp: Int = 356,
     onDragStart: () -> Unit = {},
     onDrag: (deltaX: Float, deltaY: Float) -> Unit,
     onDragEnd: (isExpanded: Boolean) -> Unit,
@@ -114,11 +120,11 @@ fun FloatingLyricsCapsule(
     val capsuleBackground = baseBgColor.copy(alpha = effectiveBgAlpha)
     val primaryUiColor = if (isLightColor) Color.White else Color(0xFF1A1C24)
 
-    val capsuleWidth = if (isExpanded) 346.dp else 300.dp
+    val capsuleWidth = if (isExpanded) 356.dp else capsuleWidthDp.dp
 
     Surface(
         color = capsuleBackground,
-        shape = if (isExpanded) RoundedCornerShape(22.dp) else RoundedCornerShape(26.dp),
+        shape = if (isExpanded) RoundedCornerShape(22.dp) else RoundedCornerShape(22.dp),
         border = BorderStroke(
             width = if (isLocked) 0.5.dp else 0.8.dp,
             color = if (isLightColor) Color.White.copy(alpha = if (isLocked) 0.15f else 0.28f)
@@ -149,11 +155,12 @@ fun FloatingLyricsCapsule(
             label = "capsuleExpansion"
         ) { expanded ->
             if (!expanded) {
-                // ================= 1. 极简灵动胶囊态 (Compact Capsule) =================
+                // ================= 1. 网易云经典全景歌词态 (Full Banner Capsule) =================
                 Row(
                     verticalAlignment = Alignment.CenterVertically,
                     modifier = Modifier
-                        .padding(horizontal = 12.dp, vertical = 7.dp)
+                        .animateContentSize(animationSpec = spring(stiffness = Spring.StiffnessMediumLow))
+                        .padding(horizontal = 13.dp, vertical = 8.dp)
                         .then(
                             if (!isLocked) {
                                 Modifier.clickable {
@@ -168,7 +175,7 @@ fun FloatingLyricsCapsule(
                     Box(
                         contentAlignment = Alignment.Center,
                         modifier = Modifier
-                            .size(34.dp)
+                            .size(36.dp)
                             .clip(CircleShape)
                             .background(if (isLightColor) Color(0xFF22242B) else Color(0xFFE0E0E0))
                     ) {
@@ -184,46 +191,87 @@ fun FloatingLyricsCapsule(
                                 imageVector = Icons.Default.MusicNote,
                                 contentDescription = "Music",
                                 tint = lyricColor.copy(alpha = 0.85f),
-                                modifier = Modifier.size(17.dp)
+                                modifier = Modifier.size(18.dp)
                             )
                         }
                     }
 
                     Spacer(modifier = Modifier.width(10.dp))
 
-                    // 中间：当前歌词（原文单行 + 译文单行，居中对齐，严禁多行挤压堆叠）
+                    // 中间：当前歌词与翻译（支持网易云居中折行完整展示 或 单行跑马灯滚动）
                     Column(
                         verticalArrangement = Arrangement.Center,
                         horizontalAlignment = Alignment.CenterHorizontally,
                         modifier = Modifier.weight(1f)
                     ) {
-                        // 原文单行
-                        Text(
-                            text = originalText,
-                            color = lyricColor,
-                            fontSize = (13.5f * fontScale).sp,
-                            fontWeight = FontWeight.SemiBold,
-                            fontFamily = FontFamily.SansSerif,
-                            textAlign = TextAlign.Center,
-                            maxLines = 1,
-                            overflow = TextOverflow.Ellipsis,
-                            style = TextStyle(shadow = textShadow)
-                        )
-
-                        // 译文单行（若存在译文，单行居中展示；如无译文则优雅不占位）
-                        if (!secondaryText.isNullOrBlank()) {
-                            Spacer(modifier = Modifier.height(2.dp))
+                        if (displayMode == FloatingLyricsPreferences.DISPLAY_MODE_MARQUEE) {
+                            // 跑马灯单行平滑滚动模式（超长歌词自适应横向匀速滚动轮播）
                             Text(
-                                text = secondaryText,
-                                color = secondaryColor,
-                                fontSize = (11f * fontScale).sp,
-                                fontWeight = FontWeight.Normal,
+                                text = originalText,
+                                color = lyricColor,
+                                fontSize = (13.5f * fontScale).sp,
+                                fontWeight = FontWeight.SemiBold,
                                 fontFamily = FontFamily.SansSerif,
                                 textAlign = TextAlign.Center,
                                 maxLines = 1,
+                                style = TextStyle(shadow = textShadow),
+                                modifier = Modifier.basicMarquee(
+                                    iterations = Int.MAX_VALUE,
+                                    delayMillis = 1500,
+                                    initialDelayMillis = 1200,
+                                    velocity = 32.dp
+                                )
+                            )
+
+                            if (!secondaryText.isNullOrBlank()) {
+                                Spacer(modifier = Modifier.height(2.dp))
+                                Text(
+                                    text = secondaryText,
+                                    color = secondaryColor,
+                                    fontSize = (11f * fontScale).sp,
+                                    fontWeight = FontWeight.Normal,
+                                    fontFamily = FontFamily.SansSerif,
+                                    textAlign = TextAlign.Center,
+                                    maxLines = 1,
+                                    style = TextStyle(shadow = textShadow),
+                                    modifier = Modifier.basicMarquee(
+                                        iterations = Int.MAX_VALUE,
+                                        delayMillis = 1500,
+                                        initialDelayMillis = 1200,
+                                        velocity = 28.dp
+                                    )
+                                )
+                            }
+                        } else {
+                            // 网易云经典居中折行全显模式 (默认推荐，完整呈现全部歌词与译文，绝不省略号截断)
+                            Text(
+                                text = originalText,
+                                color = lyricColor,
+                                fontSize = (13f * fontScale).sp,
+                                lineHeight = (17.5f * fontScale).sp,
+                                fontWeight = FontWeight.SemiBold,
+                                fontFamily = FontFamily.SansSerif,
+                                textAlign = TextAlign.Center,
+                                maxLines = 2,
                                 overflow = TextOverflow.Ellipsis,
                                 style = TextStyle(shadow = textShadow)
                             )
+
+                            if (!secondaryText.isNullOrBlank()) {
+                                Spacer(modifier = Modifier.height(2.5.dp))
+                                Text(
+                                    text = secondaryText,
+                                    color = secondaryColor,
+                                    fontSize = (11f * fontScale).sp,
+                                    lineHeight = (15f * fontScale).sp,
+                                    fontWeight = FontWeight.Normal,
+                                    fontFamily = FontFamily.SansSerif,
+                                    textAlign = TextAlign.Center,
+                                    maxLines = 2,
+                                    overflow = TextOverflow.Ellipsis,
+                                    style = TextStyle(shadow = textShadow)
+                                )
+                            }
                         }
                     }
 
