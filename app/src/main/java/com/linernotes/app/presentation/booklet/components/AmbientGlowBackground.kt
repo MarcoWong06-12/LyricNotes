@@ -8,8 +8,10 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.blur
+import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
@@ -91,6 +93,41 @@ fun AmbientGlowBackground(
     val primaryColor = MaterialTheme.colorScheme.primary
     val secondaryColor = MaterialTheme.colorScheme.secondary
     val tertiaryColor = MaterialTheme.colorScheme.tertiaryContainer
+    val backgroundColor = MaterialTheme.colorScheme.background
+
+    val orb1Colors = remember(primaryColor, tertiaryColor, isDark) {
+        listOf(
+            primaryColor.copy(alpha = if (isDark) 0.40f else 0.25f),
+            tertiaryColor.copy(alpha = if (isDark) 0.22f else 0.12f),
+            Color.Transparent
+        )
+    }
+
+    val orb2Colors = remember(secondaryColor, primaryColor, isDark) {
+        listOf(
+            secondaryColor.copy(alpha = if (isDark) 0.35f else 0.20f),
+            primaryColor.copy(alpha = if (isDark) 0.18f else 0.10f),
+            Color.Transparent
+        )
+    }
+
+    val overlayColors = remember(isDark, backgroundColor) {
+        if (isDark) {
+            listOf(
+                Color(0xFF0C0D12).copy(alpha = 0.48f),
+                Color(0xFF0C0D12).copy(alpha = 0.28f),
+                Color(0xFF090A0E).copy(alpha = 0.68f),
+                Color(0xFF090A0E)
+            )
+        } else {
+            listOf(
+                backgroundColor.copy(alpha = 0.70f),
+                backgroundColor.copy(alpha = 0.45f),
+                backgroundColor.copy(alpha = 0.78f),
+                backgroundColor
+            )
+        }
+    }
 
     Box(modifier = modifier.fillMaxSize()) {
         // 1. 底层：唱片封面大半径高斯模糊 (放大 1.45 倍杜绝边缘白边)
@@ -117,68 +154,34 @@ fun AmbientGlowBackground(
             )
         }
 
-        // 2. 动态双光斑流体弥散层 (Apple Music 流体质感)
+        // 2. 动态双光斑流体弥散层与纵深保护蒙版 (全部延迟至 GPU Draw Phase 绘制，重组率降为 0)
         Box(
             modifier = Modifier
                 .fillMaxSize()
-                .graphicsLayer {
-                    alpha = if (isDark) 0.45f else 0.30f
-                }
-                .background(
-                    Brush.radialGradient(
-                        colors = listOf(
-                            primaryColor.copy(alpha = if (isDark) 0.40f else 0.25f),
-                            tertiaryColor.copy(alpha = if (isDark) 0.22f else 0.12f),
-                            Color.Transparent
+                .drawBehind {
+                    // 光斑 1
+                    drawRect(
+                        brush = Brush.radialGradient(
+                            colors = orb1Colors,
+                            center = Offset(300f + orb1OffsetX, 400f + orb1OffsetY),
+                            radius = 650f * orb1Scale
                         ),
-                        center = Offset(300f + orb1OffsetX, 400f + orb1OffsetY),
-                        radius = 650f * orb1Scale
+                        alpha = if (isDark) 0.45f else 0.30f
                     )
-                )
-        )
-
-        Box(
-            modifier = Modifier
-                .fillMaxSize()
-                .graphicsLayer {
-                    alpha = if (isDark) 0.40f else 0.25f
-                }
-                .background(
-                    Brush.radialGradient(
-                        colors = listOf(
-                            secondaryColor.copy(alpha = if (isDark) 0.35f else 0.20f),
-                            primaryColor.copy(alpha = if (isDark) 0.18f else 0.10f),
-                            Color.Transparent
+                    // 光斑 2
+                    drawRect(
+                        brush = Brush.radialGradient(
+                            colors = orb2Colors,
+                            center = Offset(750f + orb2OffsetX, 1100f + orb2OffsetY),
+                            radius = 800f
                         ),
-                        center = Offset(750f + orb2OffsetX, 1100f + orb2OffsetY),
-                        radius = 800f
+                        alpha = if (isDark) 0.40f else 0.25f
                     )
-                )
-        )
-
-        // 3. 纵深渐变遮罩：顶部保护状态栏/标题对比度，中部通透，底部深沉融合
-        Box(
-            modifier = Modifier
-                .fillMaxSize()
-                .background(
-                    Brush.verticalGradient(
-                        if (isDark) {
-                            listOf(
-                                Color(0xFF0C0D12).copy(alpha = 0.48f),
-                                Color(0xFF0C0D12).copy(alpha = 0.28f),
-                                Color(0xFF090A0E).copy(alpha = 0.68f),
-                                Color(0xFF090A0E)
-                            )
-                        } else {
-                            listOf(
-                                MaterialTheme.colorScheme.background.copy(alpha = 0.70f),
-                                MaterialTheme.colorScheme.background.copy(alpha = 0.45f),
-                                MaterialTheme.colorScheme.background.copy(alpha = 0.78f),
-                                MaterialTheme.colorScheme.background
-                            )
-                        }
+                    // 纵深渐变遮罩：顶部保护状态栏/标题对比度，中部通透，底部深沉融合
+                    drawRect(
+                        brush = Brush.verticalGradient(colors = overlayColors)
                     )
-                )
+                }
         )
     }
 }

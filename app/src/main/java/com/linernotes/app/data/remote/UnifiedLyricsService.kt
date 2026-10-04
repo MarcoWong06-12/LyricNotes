@@ -4,6 +4,8 @@ import com.linernotes.app.core.lyric.LyricSanitizer
 import com.linernotes.app.core.lyric.LyricSearchCleaner
 import com.linernotes.app.core.preference.AiPreferences
 import kotlinx.coroutines.async
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.isActive
 import kotlinx.coroutines.supervisorScope
 import kotlinx.coroutines.withTimeoutOrNull
 
@@ -77,10 +79,41 @@ object UnifiedLyricsService {
             }
         }
 
-        val neteaseRes = neteaseDeferred.await()
-        val qqRes = qqDeferred.await()
-        val kugouRes = kugouDeferred.await()
-        val lrclibRes = lrclibDeferred.await()
+        // 提取标题实质关键词用于鉴伪与 Fast-Path 验证 (如 "praise", "lord", "shine")
+        val keywords = LyricSearchCleaner.extractSignificantTitleKeywords(trackTitle)
+
+        // Fast-Path: 极速抢占窗口 (最多等待 1800ms)
+        // 若网易云或 QQ 音乐等官方主力源已返回高置信度双语时间轴歌词，直接极速返回，无需等待慢速源超时
+        val fastDeadline = System.currentTimeMillis() + 1800L
+        while (System.currentTimeMillis() < fastDeadline && isActive) {
+            if (neteaseDeferred.isCompleted) {
+                val res = runCatching { neteaseDeferred.await() }.getOrNull()
+                if (res != null && isFastPathQualified(res, targetDurationMs, keywords)) {
+                    qqDeferred.cancel()
+                    kugouDeferred.cancel()
+                    lrclibDeferred.cancel()
+                    return@supervisorScope sanitizeResult(res, null)
+                }
+            }
+            if (qqDeferred.isCompleted) {
+                val res = runCatching { qqDeferred.await() }.getOrNull()
+                if (res != null && isFastPathQualified(res, targetDurationMs, keywords)) {
+                    neteaseDeferred.cancel()
+                    kugouDeferred.cancel()
+                    lrclibDeferred.cancel()
+                    return@supervisorScope sanitizeResult(res, null)
+                }
+            }
+            if (neteaseDeferred.isCompleted && qqDeferred.isCompleted) {
+                break
+            }
+            delay(50L)
+        }
+
+        val neteaseRes = runCatching { neteaseDeferred.await() }.getOrNull()
+        val qqRes = runCatching { qqDeferred.await() }.getOrNull()
+        val kugouRes = runCatching { kugouDeferred.await() }.getOrNull()
+        val lrclibRes = runCatching { lrclibDeferred.await() }.getOrNull()
 
         // 收集所有有效候选结果
         val candidates = listOfNotNull(neteaseRes, qqRes, kugouRes, lrclibRes)
@@ -102,9 +135,6 @@ object UnifiedLyricsService {
                 MusixmatchLyricsService.fetchLyrics(trackTitle, artistName)
             }
         }
-
-        // 提取标题实质关键词用于鉴伪 (如 "praise", "lord", "shine")
-        val keywords = LyricSearchCleaner.extractSignificantTitleKeywords(trackTitle)
 
         // 提取各源的演唱正文指纹 (用于多源共识核验)
         val fingerprints = candidates.associateWith {
@@ -198,5 +228,37 @@ object UnifiedLyricsService {
             LyricSanitizer.decensorTitle(result.title, refResult?.title)
         } else result.title
         return result.copy(title = cleanTitle, originalLyrics = cleanLyrics, translatedLyrics = cleanChinese)
+    }
+
+    /**
+     * 判断是否满足 Fast-Path 极速通道资格 (高置信度官方双语时间轴歌词)
+     * 具备 LRC 时间戳、官方双语翻译、时长吻合（误差 <= 8秒）且标题关键词吻合时立即胜出
+     */
+    private fun isFastPathQualified(
+        res: OnlineLyricsResult,
+        targetDurationMs: Long,
+        keywords: List<String>
+    ): Boolean {
+        if (res.originalLyrics.isBlank()) return false
+        // 1. 必须具备动态 LRC 同步时间戳
+        if (!res.originalLyrics.contains(TIMESTAMP_REGEX)) return false
+        // 2. 必须具备双语翻译
+        if (!res.isBilingual || res.translatedLyrics.isNullOrBlank()) return false
+        // 3. 歌曲物理时长对齐验证 (误差 <= 8s)
+        if (targetDurationMs > 0L) {
+            val lyricLastTs = LyricSearchCleaner.extractLastTimestampMs(res.originalLyrics)
+            val effectiveDuration = if (lyricLastTs > 0L) lyricLastTs else res.durationMs
+            if (effectiveDuration > 0L) {
+                val diffSec = Math.abs(targetDurationMs - effectiveDuration) / 1000L
+                if (diffSec > 8L) return false
+            }
+        }
+        // 4. 标题实质关键词核验（如果有提取到显著关键词，标题或歌词至少部分命中）
+        if (keywords.isNotEmpty()) {
+            val relevance = LyricSearchCleaner.calculateTitleKeywordRelevance(res.originalLyrics, keywords)
+            val titleMatches = keywords.any { kw -> res.title.contains(kw, ignoreCase = true) }
+            if (relevance <= 0f && !titleMatches) return false
+        }
+        return true
     }
 }

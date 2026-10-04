@@ -27,9 +27,11 @@ import kotlinx.coroutines.*
 import kotlinx.coroutines.flow.*
 import kotlinx.coroutines.sync.Semaphore
 import kotlinx.coroutines.sync.withPermit
+import androidx.compose.runtime.Immutable
 import javax.inject.Inject
 import javax.inject.Singleton
 
+@Immutable
 data class NowPlayingData(
     val playbackState: TrackPlaybackState = TrackPlaybackState(),
     val lyrics: List<BilingualLyricLine> = emptyList(),

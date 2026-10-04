@@ -1,6 +1,7 @@
 package com.linernotes.app.core.playback
 
 import android.os.SystemClock
+import androidx.compose.runtime.Immutable
 
 enum class MediaSourceApp(val displayName: String, val packageName: String) {
     SPOTIFY("Spotify", "com.spotify.music"),
@@ -18,6 +19,7 @@ enum class MediaSourceApp(val displayName: String, val packageName: String) {
     }
 }
 
+@Immutable
 data class QueueTrackItem(
     val id: Long = 0L,
     val title: String = "",
@@ -29,6 +31,7 @@ data class QueueTrackItem(
 /**
  * 流媒体实时播放状态数据载体
  */
+@Immutable
 data class TrackPlaybackState(
     val title: String = "",
     val artist: String = "",

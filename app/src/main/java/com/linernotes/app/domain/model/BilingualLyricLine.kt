@@ -1,5 +1,8 @@
 package com.linernotes.app.domain.model
 
+import androidx.compose.runtime.Immutable
+
+@Immutable
 data class BilingualLyricLine(
     val lineNumber: Int,
     val original: String,

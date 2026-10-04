@@ -80,6 +80,25 @@ fun NowPlayingScreen(
         isGranted.value = MediaPlaybackSyncService.isNotificationAccessGranted(context)
     }
 
+    // 固化事件闭包引用，防止因匿名函数对象变动引起子组件无谓重组
+    val onLineClicked = remember(viewModel) {
+        { line: BilingualLyricLine -> line.startTimeMs?.let { viewModel.seekTo(it) } }
+    }
+    val onAnnotationClicked = remember(viewModel) {
+        { annotation: LyricAnnotationEntity -> viewModel.openGeniusAnnotation(annotation) }
+    }
+    val onRetryLyrics = remember(viewModel) { { viewModel.reloadLyrics() } }
+    val onOpenSongStory = remember(viewModel) { { viewModel.openSongStory() } }
+    val onOpenQueue = remember(viewModel) { { viewModel.openQueueSheet() } }
+    val onOpenSettings = remember(viewModel) { { viewModel.openSettings() } }
+    val onPlayPause = remember(viewModel) { { viewModel.togglePlayPause() } }
+    val onNext = remember(viewModel) { { viewModel.skipToNext() } }
+    val onPrevious = remember(viewModel) { { viewModel.skipToPrevious() } }
+    val onToggleShuffle = remember(viewModel) { { viewModel.toggleShuffle() } }
+    val onCycleRepeat = remember(viewModel) { { viewModel.cycleRepeatMode() } }
+    val onSeekTo = remember(viewModel) { { posMs: Long -> viewModel.seekTo(posMs) } }
+    val onCloseQueue = remember(viewModel) { { viewModel.closeQueueSheet() } }
+
     Box(
         modifier = Modifier
             .fillMaxSize()
@@ -103,13 +122,9 @@ fun NowPlayingScreen(
                     annotatedLines = nowData.annotatedLines,
                     isTraditional = state.isTraditionalChinese,
                     isLoadingLyrics = nowData.isLoadingLyrics,
-                    onLineClicked = { line ->
-                        line.startTimeMs?.let { viewModel.seekTo(it) }
-                    },
-                    onAnnotationClicked = { annotation ->
-                        viewModel.openGeniusAnnotation(annotation)
-                    },
-                    onRetryLyrics = { viewModel.reloadLyrics() }
+                    onLineClicked = onLineClicked,
+                    onAnnotationClicked = onAnnotationClicked,
+                    onRetryLyrics = onRetryLyrics
                 )
             } else {
                 NowPlayingIdleContent(
@@ -134,9 +149,9 @@ fun NowPlayingScreen(
             NowPlayingTopBar(
                 trackState = trackState,
                 hasSongStory = nowData.songStory != null,
-                onOpenSongStory = { viewModel.openSongStory() },
-                onOpenQueue = { viewModel.openQueueSheet() },
-                onOpenSettings = { viewModel.openSettings() },
+                onOpenSongStory = onOpenSongStory,
+                onOpenQueue = onOpenQueue,
+                onOpenSettings = onOpenSettings,
                 modifier = Modifier.align(Alignment.TopCenter)
             )
 
@@ -226,13 +241,13 @@ fun NowPlayingScreen(
             ) {
                 NowPlayingFloatingGlassPlayer(
                     trackState = trackState,
-                    onPlayPause = { viewModel.togglePlayPause() },
-                    onNext = { viewModel.skipToNext() },
-                    onPrevious = { viewModel.skipToPrevious() },
-                    onToggleShuffle = { viewModel.toggleShuffle() },
-                    onSeekTo = { posMs -> viewModel.seekTo(posMs) },
-                    onOpenQueue = { viewModel.openQueueSheet() },
-                    onOpenSettings = { viewModel.openSettings() }
+                    onPlayPause = onPlayPause,
+                    onNext = onNext,
+                    onPrevious = onPrevious,
+                    onToggleShuffle = onToggleShuffle,
+                    onSeekTo = onSeekTo,
+                    onOpenQueue = onOpenQueue,
+                    onOpenSettings = onOpenSettings
                 )
             }
         }
@@ -241,10 +256,10 @@ fun NowPlayingScreen(
         if (state.isQueueSheetOpen) {
             NowPlayingQueueSheet(
                 trackState = trackState,
-                onToggleShuffle = { viewModel.toggleShuffle() },
-                onCycleRepeat = { viewModel.cycleRepeatMode() },
-                onPlayPause = { viewModel.togglePlayPause() },
-                onDismiss = { viewModel.closeQueueSheet() }
+                onToggleShuffle = onToggleShuffle,
+                onCycleRepeat = onCycleRepeat,
+                onPlayPause = onPlayPause,
+                onDismiss = onCloseQueue
             )
         }
 
