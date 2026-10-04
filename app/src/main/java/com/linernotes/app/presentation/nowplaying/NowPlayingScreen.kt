@@ -205,23 +205,25 @@ fun NowPlayingScreen(
                                 horizontalArrangement = Arrangement.spacedBy(4.dp),
                                 modifier = Modifier.padding(horizontal = 4.dp)
                             ) {
+                                val geniusAccent = if (isDark) Color(0xFF1ED760) else Color(0xFF0A8F3F)
                                 CircularProgressIndicator(
                                     modifier = Modifier.size(10.dp),
                                     strokeWidth = 1.5.dp,
-                                    color = Color(0xFF1ED760)
+                                    color = geniusAccent
                                 )
                                 Text(
                                     text = if (state.isTraditionalChinese) "檢索中" else "检索中",
-                                    color = Color(0xFF1ED760),
+                                    color = geniusAccent,
                                     fontSize = 11.5.sp,
                                     fontWeight = FontWeight.Bold,
                                     fontFamily = FontFamily.SansSerif
                                 )
                             }
                         } else {
+                            val geniusAccent = if (isDark) Color(0xFF1ED760) else Color(0xFF0A8F3F)
                             Text(
                                 text = if (state.isTraditionalChinese) "重試" else "重试",
-                                color = Color(0xFF1ED760),
+                                color = geniusAccent,
                                 fontSize = 12.sp,
                                 fontWeight = FontWeight.Bold,
                                 fontFamily = FontFamily.SansSerif,

@@ -278,10 +278,13 @@ fun LyricNotesSettingsSheet(
 
             // 2. Genius 歌曲创作背景与典故状态
             if (hasSongStory) {
+                val storyCardBg = if (isDark) Color(0xFFFFD54F).copy(alpha = 0.12f) else Color(0xFFFFF8E1).copy(alpha = 0.95f)
+                val storyBorder = if (isDark) Color(0xFFFFD54F).copy(alpha = 0.35f) else Color(0xFFFFB300).copy(alpha = 0.50f)
+                val storyColor = if (isDark) Color(0xFFFFE082) else Color(0xFFE65100)
                 Surface(
-                    color = Color(0xFFFFD54F).copy(alpha = 0.12f),
+                    color = storyCardBg,
                     shape = RoundedCornerShape(18.dp),
-                    border = BorderStroke(1.dp, Color(0xFFFFD54F).copy(alpha = 0.35f)),
+                    border = BorderStroke(1.dp, storyBorder),
                     modifier = Modifier
                         .fillMaxWidth()
                         .bouncyItemClickable {
@@ -301,7 +304,7 @@ fun LyricNotesSettingsSheet(
                             Text("💡", fontSize = 20.sp)
                             Text(
                                 text = "Genius 歌曲背景故事",
-                                color = Color(0xFFFFE082),
+                                color = storyColor,
                                 fontSize = 15.sp,
                                 fontWeight = FontWeight.Bold,
                                 fontFamily = FontFamily.SansSerif
@@ -310,7 +313,7 @@ fun LyricNotesSettingsSheet(
                         Icon(
                             imageVector = Icons.Default.ChevronRight,
                             contentDescription = null,
-                            tint = Color(0xFFFFE082)
+                            tint = storyColor
                         )
                     }
                 }
@@ -469,13 +472,18 @@ fun LyricNotesSettingsSheet(
             val currentCapsuleWidth by floatingPrefs.capsuleWidthDpFlow.collectAsState(initial = floatingPrefs.capsuleWidthDp)
             val currentFloatingStyle by floatingPrefs.floatingStyleFlow.collectAsState(initial = floatingPrefs.floatingStyle)
 
+            val floatingCardBg = if (isFloatingActive) {
+                if (isDark) Color(0xFF162538).copy(alpha = 0.70f) else Color(0xFFE1F5FE).copy(alpha = 0.85f)
+            } else cardBg
+
+            val floatingCardBorder = if (isFloatingActive) {
+                if (isDark) Color(0xFF81D4FA).copy(alpha = 0.50f) else Color(0xFF0288D1).copy(alpha = 0.40f)
+            } else cardBorder
+
             Surface(
-                color = if (isFloatingActive) (if (isDark) Color(0xFF162538).copy(alpha = 0.70f) else Color(0xFFE1F5FE).copy(alpha = 0.85f)) else cardBg,
+                color = floatingCardBg,
                 shape = RoundedCornerShape(18.dp),
-                border = BorderStroke(
-                    0.5.dp,
-                    if (isFloatingActive) Color(0xFF81D4FA).copy(alpha = 0.50f) else cardBorder
-                ),
+                border = BorderStroke(0.5.dp, floatingCardBorder),
                 modifier = Modifier.fillMaxWidth()
             ) {
                 Column(modifier = Modifier.padding(horizontal = 16.dp, vertical = 13.dp)) {
@@ -493,7 +501,7 @@ fun LyricNotesSettingsSheet(
                             Column {
                                 Text(
                                     text = "桌面悬浮歌词",
-                                    color = Color.White,
+                                    color = textPrimary,
                                     fontSize = 15.sp,
                                     fontWeight = FontWeight.Bold,
                                     fontFamily = FontFamily.SansSerif
@@ -501,7 +509,7 @@ fun LyricNotesSettingsSheet(
                                 if (!isOverlayGranted) {
                                     Text(
                                         text = "需授予悬浮窗权限",
-                                        color = Color(0xFFFFB74D),
+                                        color = if (isDark) Color(0xFFFFB74D) else Color(0xFFE65100),
                                         fontSize = 12.sp,
                                         fontFamily = FontFamily.SansSerif
                                     )
@@ -525,14 +533,14 @@ fun LyricNotesSettingsSheet(
                             colors = SwitchDefaults.colors(
                                 checkedThumbColor = Color.White,
                                 checkedTrackColor = Color(0xFF03A9F4),
-                                uncheckedThumbColor = Color.White.copy(alpha = 0.6f),
-                                uncheckedTrackColor = Color.White.copy(alpha = 0.15f)
+                                uncheckedThumbColor = if (isDark) Color.LightGray else Color.DarkGray,
+                                uncheckedTrackColor = if (isDark) Color.White.copy(alpha = 0.15f) else Color.Black.copy(alpha = 0.12f)
                             )
                         )
                     }
 
                     HorizontalDivider(
-                        color = Color.White.copy(alpha = 0.08f),
+                        color = dividerColor,
                         thickness = 0.5.dp,
                         modifier = Modifier.padding(vertical = 12.dp)
                     )
@@ -541,7 +549,7 @@ fun LyricNotesSettingsSheet(
                     Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                         Text(
                             text = "显示形态",
-                            color = Color.White.copy(alpha = 0.85f),
+                            color = textPrimary,
                             fontSize = 13.5.sp,
                             fontWeight = FontWeight.SemiBold,
                             fontFamily = FontFamily.SansSerif
@@ -557,13 +565,26 @@ fun LyricNotesSettingsSheet(
                             )
                             styleOptions.forEach { (styleVal, label) ->
                                 val isSelected = currentFloatingStyle == styleVal
+                                val optBg = if (isSelected) {
+                                    if (isDark) Color(0xFF03A9F4).copy(alpha = 0.30f) else Color(0xFF0288D1)
+                                } else {
+                                    if (isDark) Color.White.copy(alpha = 0.08f) else Color.Black.copy(alpha = 0.05f)
+                                }
+                                val optBorder = if (isSelected) {
+                                    if (isDark) Color(0xFF81D4FA) else Color(0xFF0288D1)
+                                } else {
+                                    if (isDark) Color.White.copy(alpha = 0.12f) else Color.Black.copy(alpha = 0.10f)
+                                }
+                                val optText = if (isSelected) {
+                                    if (isDark) Color(0xFF81D4FA) else Color.White
+                                } else {
+                                    if (isDark) Color.White.copy(alpha = 0.75f) else textSecondary
+                                }
+
                                 Surface(
-                                    color = if (isSelected) Color(0xFF03A9F4).copy(alpha = 0.30f) else Color.White.copy(alpha = 0.08f),
+                                    color = optBg,
                                     shape = RoundedCornerShape(10.dp),
-                                    border = BorderStroke(
-                                        0.5.dp,
-                                        if (isSelected) Color(0xFF81D4FA) else Color.White.copy(alpha = 0.12f)
-                                    ),
+                                    border = BorderStroke(0.5.dp, optBorder),
                                     modifier = Modifier
                                         .weight(1f)
                                         .height(34.dp)
@@ -574,7 +595,7 @@ fun LyricNotesSettingsSheet(
                                     Box(contentAlignment = Alignment.Center) {
                                         Text(
                                             text = label,
-                                            color = if (isSelected) Color(0xFF81D4FA) else Color.White.copy(alpha = 0.75f),
+                                            color = optText,
                                             fontSize = 12.sp,
                                             fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal,
                                             fontFamily = FontFamily.SansSerif
@@ -596,14 +617,14 @@ fun LyricNotesSettingsSheet(
                         ) {
                             Text(
                                 text = "背景不透明度",
-                                color = Color.White.copy(alpha = 0.85f),
+                                color = textPrimary,
                                 fontSize = 13.5.sp,
                                 fontWeight = FontWeight.SemiBold,
                                 fontFamily = FontFamily.SansSerif
                             )
                             Text(
                                 text = "${(currentBgAlpha * 100).toInt()}%",
-                                color = Color(0xFF81D4FA),
+                                color = if (isDark) Color(0xFF81D4FA) else Color(0xFF0288D1),
                                 fontSize = 13.sp,
                                 fontWeight = FontWeight.Bold,
                                 fontFamily = FontFamily.SansSerif
@@ -623,13 +644,26 @@ fun LyricNotesSettingsSheet(
                             )
                             alphaOptions.forEach { (alphaVal, label) ->
                                 val isSelected = kotlin.math.abs(currentBgAlpha - alphaVal) < 0.08f
+                                val optBg = if (isSelected) {
+                                    if (isDark) Color(0xFF03A9F4).copy(alpha = 0.30f) else Color(0xFF0288D1)
+                                } else {
+                                    if (isDark) Color.White.copy(alpha = 0.08f) else Color.Black.copy(alpha = 0.05f)
+                                }
+                                val optBorder = if (isSelected) {
+                                    if (isDark) Color(0xFF81D4FA) else Color(0xFF0288D1)
+                                } else {
+                                    if (isDark) Color.White.copy(alpha = 0.12f) else Color.Black.copy(alpha = 0.10f)
+                                }
+                                val optText = if (isSelected) {
+                                    if (isDark) Color(0xFF81D4FA) else Color.White
+                                } else {
+                                    if (isDark) Color.White.copy(alpha = 0.75f) else textSecondary
+                                }
+
                                 Surface(
-                                    color = if (isSelected) Color(0xFF03A9F4).copy(alpha = 0.30f) else Color.White.copy(alpha = 0.08f),
+                                    color = optBg,
                                     shape = RoundedCornerShape(10.dp),
-                                    border = BorderStroke(
-                                        0.5.dp,
-                                        if (isSelected) Color(0xFF81D4FA) else Color.White.copy(alpha = 0.12f)
-                                    ),
+                                    border = BorderStroke(0.5.dp, optBorder),
                                     modifier = Modifier
                                         .weight(1f)
                                         .height(34.dp)
@@ -640,7 +674,7 @@ fun LyricNotesSettingsSheet(
                                     Box(contentAlignment = Alignment.Center) {
                                         Text(
                                             text = label,
-                                            color = if (isSelected) Color(0xFF81D4FA) else Color.White.copy(alpha = 0.75f),
+                                            color = optText,
                                             fontSize = 11.5.sp,
                                             fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal,
                                             fontFamily = FontFamily.SansSerif
@@ -657,7 +691,7 @@ fun LyricNotesSettingsSheet(
                     Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                         Text(
                             text = "排版方式",
-                            color = Color.White.copy(alpha = 0.85f),
+                            color = textPrimary,
                             fontSize = 13.5.sp,
                             fontWeight = FontWeight.SemiBold,
                             fontFamily = FontFamily.SansSerif
@@ -673,13 +707,26 @@ fun LyricNotesSettingsSheet(
                             )
                             modeOptions.forEach { (modeVal, label) ->
                                 val isSelected = currentDisplayMode == modeVal
+                                val optBg = if (isSelected) {
+                                    if (isDark) Color(0xFF03A9F4).copy(alpha = 0.30f) else Color(0xFF0288D1)
+                                } else {
+                                    if (isDark) Color.White.copy(alpha = 0.08f) else Color.Black.copy(alpha = 0.05f)
+                                }
+                                val optBorder = if (isSelected) {
+                                    if (isDark) Color(0xFF81D4FA) else Color(0xFF0288D1)
+                                } else {
+                                    if (isDark) Color.White.copy(alpha = 0.12f) else Color.Black.copy(alpha = 0.10f)
+                                }
+                                val optText = if (isSelected) {
+                                    if (isDark) Color(0xFF81D4FA) else Color.White
+                                } else {
+                                    if (isDark) Color.White.copy(alpha = 0.75f) else textSecondary
+                                }
+
                                 Surface(
-                                    color = if (isSelected) Color(0xFF03A9F4).copy(alpha = 0.30f) else Color.White.copy(alpha = 0.08f),
+                                    color = optBg,
                                     shape = RoundedCornerShape(10.dp),
-                                    border = BorderStroke(
-                                        0.5.dp,
-                                        if (isSelected) Color(0xFF81D4FA) else Color.White.copy(alpha = 0.12f)
-                                    ),
+                                    border = BorderStroke(0.5.dp, optBorder),
                                     modifier = Modifier
                                         .weight(1f)
                                         .height(34.dp)
@@ -690,7 +737,7 @@ fun LyricNotesSettingsSheet(
                                     Box(contentAlignment = Alignment.Center) {
                                         Text(
                                             text = label,
-                                            color = if (isSelected) Color(0xFF81D4FA) else Color.White.copy(alpha = 0.75f),
+                                            color = optText,
                                             fontSize = 12.sp,
                                             fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal,
                                             fontFamily = FontFamily.SansSerif
@@ -712,14 +759,14 @@ fun LyricNotesSettingsSheet(
                         ) {
                             Text(
                                 text = "视窗宽度",
-                                color = Color.White.copy(alpha = 0.85f),
+                                color = textPrimary,
                                 fontSize = 13.5.sp,
                                 fontWeight = FontWeight.SemiBold,
                                 fontFamily = FontFamily.SansSerif
                             )
                             Text(
                                 text = "${currentCapsuleWidth} dp",
-                                color = Color(0xFF81D4FA),
+                                color = if (isDark) Color(0xFF81D4FA) else Color(0xFF0288D1),
                                 fontSize = 13.sp,
                                 fontWeight = FontWeight.Bold,
                                 fontFamily = FontFamily.SansSerif
@@ -737,13 +784,26 @@ fun LyricNotesSettingsSheet(
                             )
                             widthOptions.forEach { (widthVal, label) ->
                                 val isSelected = currentCapsuleWidth == widthVal
+                                val optBg = if (isSelected) {
+                                    if (isDark) Color(0xFF03A9F4).copy(alpha = 0.30f) else Color(0xFF0288D1)
+                                } else {
+                                    if (isDark) Color.White.copy(alpha = 0.08f) else Color.Black.copy(alpha = 0.05f)
+                                }
+                                val optBorder = if (isSelected) {
+                                    if (isDark) Color(0xFF81D4FA) else Color(0xFF0288D1)
+                                } else {
+                                    if (isDark) Color.White.copy(alpha = 0.12f) else Color.Black.copy(alpha = 0.10f)
+                                }
+                                val optText = if (isSelected) {
+                                    if (isDark) Color(0xFF81D4FA) else Color.White
+                                } else {
+                                    if (isDark) Color.White.copy(alpha = 0.75f) else textSecondary
+                                }
+
                                 Surface(
-                                    color = if (isSelected) Color(0xFF03A9F4).copy(alpha = 0.30f) else Color.White.copy(alpha = 0.08f),
+                                    color = optBg,
                                     shape = RoundedCornerShape(10.dp),
-                                    border = BorderStroke(
-                                        0.5.dp,
-                                        if (isSelected) Color(0xFF81D4FA) else Color.White.copy(alpha = 0.12f)
-                                    ),
+                                    border = BorderStroke(0.5.dp, optBorder),
                                     modifier = Modifier
                                         .weight(1f)
                                         .height(34.dp)
@@ -754,7 +814,7 @@ fun LyricNotesSettingsSheet(
                                     Box(contentAlignment = Alignment.Center) {
                                         Text(
                                             text = label,
-                                            color = if (isSelected) Color(0xFF81D4FA) else Color.White.copy(alpha = 0.75f),
+                                            color = optText,
                                             fontSize = 11.5.sp,
                                             fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal,
                                             fontFamily = FontFamily.SansSerif
@@ -771,7 +831,7 @@ fun LyricNotesSettingsSheet(
                     Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                         Text(
                             text = "文字颜色",
-                            color = Color.White.copy(alpha = 0.85f),
+                            color = textPrimary,
                             fontSize = 13.5.sp,
                             fontWeight = FontWeight.SemiBold,
                             fontFamily = FontFamily.SansSerif
@@ -798,6 +858,13 @@ fun LyricNotesSettingsSheet(
                             colorPresets.forEach { (colorVal, colorCompose) ->
                                 val isSelected = currentTextColor == colorVal
                                 val isDarkSwatch = colorCompose.luminance() < 0.20f
+                                val swatchBorder = if (isSelected) {
+                                    if (isDark) Color(0xFF00E5FF) else Color(0xFF0288D1)
+                                } else if (isDarkSwatch) {
+                                    if (isDark) Color.White.copy(alpha = 0.5f) else Color.Black.copy(alpha = 0.35f)
+                                } else {
+                                    if (isDark) Color.White.copy(alpha = 0.15f) else Color.Black.copy(alpha = 0.15f)
+                                }
 
                                 Box(
                                     contentAlignment = Alignment.Center,
@@ -807,7 +874,7 @@ fun LyricNotesSettingsSheet(
                                         .background(colorCompose)
                                         .border(
                                             width = if (isSelected) 2.5.dp else if (isDarkSwatch) 1.dp else 0.5.dp,
-                                            color = if (isSelected) Color(0xFF00E5FF) else if (isDarkSwatch) Color.White.copy(alpha = 0.5f) else Color.White.copy(alpha = 0.15f),
+                                            color = swatchBorder,
                                             shape = CircleShape
                                         )
                                         .bouncyClickable(pressedScale = 0.85f) {
@@ -833,6 +900,7 @@ fun LyricNotesSettingsSheet(
                     SettingsSwitchRow(
                         title = "锁定触摸穿透",
                         checked = isLocked,
+                        isDark = isDark,
                         onCheckedChange = {
                             floatingPrefs.isLocked = !isLocked
                         }
@@ -925,9 +993,13 @@ fun LyricNotesSettingsSheet(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.spacedBy(12.dp)
             ) {
+                val reloadBg = if (isDark) Color.White.copy(alpha = 0.10f) else Color.Black.copy(alpha = 0.06f)
+                val reloadBorder = if (isDark) Color.White.copy(alpha = 0.12f) else Color.Black.copy(alpha = 0.10f)
+
                 Surface(
-                    color = Color.White.copy(alpha = 0.10f),
+                    color = reloadBg,
                     shape = RoundedCornerShape(14.dp),
+                    border = BorderStroke(0.5.dp, reloadBorder),
                     modifier = Modifier
                         .weight(1f)
                         .height(46.dp)
@@ -944,9 +1016,9 @@ fun LyricNotesSettingsSheet(
                         horizontalArrangement = Arrangement.Center,
                         verticalAlignment = Alignment.CenterVertically
                     ) {
-                        Icon(imageVector = Icons.Default.Refresh, contentDescription = null, tint = Color.White, modifier = Modifier.size(16.dp))
+                        Icon(imageVector = Icons.Default.Refresh, contentDescription = null, tint = textPrimary, modifier = Modifier.size(16.dp))
                         Spacer(modifier = Modifier.width(6.dp))
-                        Text("重载歌词", fontSize = 13.5.sp, color = Color.White, fontWeight = FontWeight.Medium)
+                        Text("重载歌词", fontSize = 13.5.sp, color = textPrimary, fontWeight = FontWeight.Medium)
                     }
                 }
 

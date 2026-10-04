@@ -77,9 +77,9 @@ fun NowPlayingGeniusSheet(
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 Surface(
-                    color = Color(0xFFFFC107).copy(alpha = 0.16f),
+                    color = if (isDark) Color(0xFFFFC107).copy(alpha = 0.16f) else Color(0xFFFFECB3).copy(alpha = 0.50f),
                     shape = RoundedCornerShape(14.dp),
-                    border = BorderStroke(0.5.dp, Color(0xFFFFC107).copy(alpha = 0.45f))
+                    border = BorderStroke(0.5.dp, if (isDark) Color(0xFFFFC107).copy(alpha = 0.45f) else Color(0xFFFFA000).copy(alpha = 0.60f))
                 ) {
                     Row(
                         modifier = Modifier.padding(horizontal = 10.dp, vertical = 5.dp),
@@ -89,7 +89,7 @@ fun NowPlayingGeniusSheet(
                         Icon(
                             imageVector = Icons.Default.CheckCircle,
                             contentDescription = null,
-                            tint = Color(0xFFFFC107),
+                            tint = if (isDark) Color(0xFFFFC107) else Color(0xFFE65100),
                             modifier = Modifier.size(14.dp)
                         )
                         Text(
@@ -98,7 +98,7 @@ fun NowPlayingGeniusSheet(
                             } else {
                                 if (isTraditional) "Genius 樂評典故" else "Genius 乐评典故"
                             },
-                            color = Color(0xFFFFD54F),
+                            color = if (isDark) Color(0xFFFFD54F) else Color(0xFFC77700),
                             fontSize = 12.sp,
                             fontWeight = FontWeight.Bold
                         )
@@ -130,7 +130,7 @@ fun NowPlayingGeniusSheet(
             Surface(
                 color = cardBg,
                 shape = RoundedCornerShape(16.dp),
-                border = BorderStroke(0.5.dp, Color(0xFFFFD54F).copy(alpha = 0.25f)),
+                border = BorderStroke(0.5.dp, if (isDark) Color(0xFFFFD54F).copy(alpha = 0.25f) else Color(0xFFFFA000).copy(alpha = 0.35f)),
                 modifier = Modifier.fillMaxWidth()
             ) {
                 Column(
@@ -139,7 +139,7 @@ fun NowPlayingGeniusSheet(
                 ) {
                     Text(
                         text = "❝ $displayFrag ❞",
-                        color = Color(0xFFFFE082),
+                        color = if (isDark) Color(0xFFFFE082) else Color(0xFFE65100),
                         fontSize = 15.sp,
                         fontWeight = FontWeight.SemiBold,
                         lineHeight = 22.sp
@@ -207,12 +207,12 @@ fun NowPlayingGeniusSheet(
                             modifier = Modifier
                                 .size(24.dp)
                                 .clip(CircleShape)
-                                .background(Color(0xFFFFC107).copy(alpha = 0.25f)),
+                                .background(if (isDark) Color(0xFFFFC107).copy(alpha = 0.25f) else Color(0xFFFFECB3)),
                             contentAlignment = Alignment.Center
                         ) {
                             Text(
                                 text = "G",
-                                color = Color(0xFFFFD54F),
+                                color = if (isDark) Color(0xFFFFD54F) else Color(0xFFC77700),
                                 fontSize = 12.sp,
                                 fontWeight = FontWeight.Bold
                             )
@@ -226,6 +226,7 @@ fun NowPlayingGeniusSheet(
                 }
 
                 if (annotation.votesTotal > 0) {
+                    val upvoteColor = if (isDark) Color(0xFFFFD54F) else Color(0xFFC77700)
                     Row(
                         verticalAlignment = Alignment.CenterVertically,
                         horizontalArrangement = Arrangement.spacedBy(4.dp)
@@ -233,12 +234,12 @@ fun NowPlayingGeniusSheet(
                         Icon(
                             imageVector = Icons.Default.ThumbUp,
                             contentDescription = null,
-                            tint = Color(0xFFFFD54F),
+                            tint = upvoteColor,
                             modifier = Modifier.size(13.dp)
                         )
                         Text(
                             text = if (isTraditional) "${annotation.votesTotal} 贊同" else "${annotation.votesTotal} 赞同",
-                            color = Color(0xFFFFD54F),
+                            color = upvoteColor,
                             fontSize = 12.sp,
                             fontWeight = FontWeight.Medium
                         )

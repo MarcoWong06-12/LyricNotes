@@ -160,7 +160,7 @@ fun NowPlayingQueueSheet(
                         )
                     } else {
                         Surface(
-                            color = Color.White.copy(alpha = 0.1f),
+                            color = if (isDark) Color.White.copy(alpha = 0.1f) else Color.Black.copy(alpha = 0.05f),
                             shape = RoundedCornerShape(8.dp),
                             modifier = Modifier.size(48.dp)
                         ) {
@@ -168,7 +168,7 @@ fun NowPlayingQueueSheet(
                                 Icon(
                                     imageVector = Icons.Default.MusicNote,
                                     contentDescription = null,
-                                    tint = Color.White.copy(alpha = 0.6f)
+                                    tint = if (isDark) Color.White.copy(alpha = 0.6f) else Color.Black.copy(alpha = 0.4f)
                                 )
                             }
                         }
@@ -187,7 +187,7 @@ fun NowPlayingQueueSheet(
                         Spacer(modifier = Modifier.height(2.dp))
                         Text(
                             text = if (trackState.hasValidTrack) trackState.artist else "等待播放",
-                            color = Color.White.copy(alpha = 0.65f),
+                            color = textSecondary,
                             fontSize = 12.sp,
                             fontFamily = FontFamily.SansSerif,
                             maxLines = 1,
@@ -223,7 +223,7 @@ fun NowPlayingQueueSheet(
             // 3. 接下来播放 (Next in queue)
             Text(
                 text = "接下来播放 (Next in queue)",
-                color = Color.White.copy(alpha = 0.5f),
+                color = textSecondary,
                 fontSize = 12.sp,
                 fontWeight = FontWeight.SemiBold,
                 fontFamily = FontFamily.SansSerif,
@@ -238,15 +238,15 @@ fun NowPlayingQueueSheet(
                     verticalArrangement = Arrangement.spacedBy(10.dp)
                 ) {
                     items(trackState.queueItems) { item ->
-                        QueueItemRow(item = item)
+                        QueueItemRow(item = item, isDark = isDark)
                     }
                 }
             } else {
                 // 友好解析 Spotify 系统 MediaSession 机制
                 Surface(
-                    color = Color.White.copy(alpha = 0.04f),
+                    color = if (isDark) Color.White.copy(alpha = 0.04f) else Color.Black.copy(alpha = 0.03f),
                     shape = RoundedCornerShape(16.dp),
-                    border = BorderStroke(1.dp, Color.White.copy(alpha = 0.08f)),
+                    border = BorderStroke(1.dp, if (isDark) Color.White.copy(alpha = 0.08f) else Color.Black.copy(alpha = 0.06f)),
                     modifier = Modifier.fillMaxWidth()
                 ) {
                     Column(
@@ -265,7 +265,7 @@ fun NowPlayingQueueSheet(
                             )
                             Text(
                                 text = "Spotify 待播队列机制说明",
-                                color = Color.White,
+                                color = sheetContent,
                                 fontSize = 13.sp,
                                 fontWeight = FontWeight.Bold,
                                 fontFamily = FontFamily.SansSerif
@@ -274,7 +274,7 @@ fun NowPlayingQueueSheet(
 
                         Text(
                             text = "Spotify 官方出于核心推荐流与云端保护，未向 Android 系统的媒体会话接口暴露待播队列数组。如需完整调取云端个性化队列，需通过 Spotify Web API 账号直连授权。您可以直接在 Spotify 中管理，或使用下方控制栏随时切换播放模式！",
-                            color = Color.White.copy(alpha = 0.6f),
+                            color = textSecondary,
                             fontSize = 12.sp,
                             fontFamily = FontFamily.SansSerif,
                             lineHeight = 18.sp
@@ -313,7 +313,15 @@ fun NowPlayingQueueSheet(
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .background(Color.White.copy(alpha = 0.05f), RoundedCornerShape(20.dp))
+                    .background(
+                        if (isDark) Color.White.copy(alpha = 0.05f) else Color.Black.copy(alpha = 0.04f),
+                        RoundedCornerShape(20.dp)
+                    )
+                    .border(
+                        0.5.dp,
+                        if (isDark) Color.White.copy(alpha = 0.08f) else Color.Black.copy(alpha = 0.06f),
+                        RoundedCornerShape(20.dp)
+                    )
                     .padding(vertical = 10.dp, horizontal = 12.dp),
                 horizontalArrangement = Arrangement.SpaceAround,
                 verticalAlignment = Alignment.CenterVertically
@@ -323,6 +331,7 @@ fun NowPlayingQueueSheet(
                     icon = Icons.Default.Tune,
                     label = "Mix",
                     isActive = false,
+                    isDark = isDark,
                     onClick = { /* 扩展音效/风格 */ }
                 )
 
@@ -331,6 +340,7 @@ fun NowPlayingQueueSheet(
                     icon = Icons.Default.Shuffle,
                     label = "Shuffle",
                     isActive = trackState.isShuffleActive,
+                    isDark = isDark,
                     onClick = onToggleShuffle
                 )
 
@@ -346,6 +356,7 @@ fun NowPlayingQueueSheet(
                     icon = repeatIcon,
                     label = repeatLabel,
                     isActive = trackState.repeatMode != 0,
+                    isDark = isDark,
                     onClick = onCycleRepeat
                 )
 
@@ -354,6 +365,7 @@ fun NowPlayingQueueSheet(
                     icon = Icons.Default.Timer,
                     label = "Timer",
                     isActive = false,
+                    isDark = isDark,
                     onClick = { /* 定时关闭设定 */ }
                 )
             }
@@ -362,7 +374,16 @@ fun NowPlayingQueueSheet(
 }
 
 @Composable
-private fun QueueItemRow(item: QueueTrackItem) {
+private fun QueueItemRow(
+    item: QueueTrackItem,
+    isDark: Boolean = true
+) {
+    val textPrimary = if (isDark) Color.White else MaterialTheme.colorScheme.onSurface
+    val textSecondary = if (isDark) Color.White.copy(alpha = 0.6f) else MaterialTheme.colorScheme.onSurfaceVariant
+    val placeholderBg = if (isDark) Color.White.copy(alpha = 0.1f) else Color.Black.copy(alpha = 0.05f)
+    val placeholderTint = if (isDark) Color.White.copy(alpha = 0.5f) else Color.Black.copy(alpha = 0.4f)
+    val dragTint = if (isDark) Color.White.copy(alpha = 0.4f) else Color.Black.copy(alpha = 0.35f)
+
     Row(
         modifier = Modifier
             .fillMaxWidth()
@@ -381,7 +402,7 @@ private fun QueueItemRow(item: QueueTrackItem) {
             )
         } else {
             Surface(
-                color = Color.White.copy(alpha = 0.1f),
+                color = placeholderBg,
                 shape = RoundedCornerShape(6.dp),
                 modifier = Modifier.size(42.dp)
             ) {
@@ -389,7 +410,7 @@ private fun QueueItemRow(item: QueueTrackItem) {
                     Icon(
                         imageVector = Icons.Default.MusicNote,
                         contentDescription = null,
-                        tint = Color.White.copy(alpha = 0.5f),
+                        tint = placeholderTint,
                         modifier = Modifier.size(18.dp)
                     )
                 }
@@ -399,7 +420,7 @@ private fun QueueItemRow(item: QueueTrackItem) {
         Column(modifier = Modifier.weight(1f)) {
             Text(
                 text = item.title,
-                color = Color.White,
+                color = textPrimary,
                 fontSize = 14.sp,
                 fontWeight = FontWeight.SemiBold,
                 fontFamily = FontFamily.SansSerif,
@@ -408,7 +429,7 @@ private fun QueueItemRow(item: QueueTrackItem) {
             )
             Text(
                 text = item.artist,
-                color = Color.White.copy(alpha = 0.6f),
+                color = textSecondary,
                 fontSize = 11.sp,
                 fontFamily = FontFamily.SansSerif,
                 maxLines = 1,
@@ -419,7 +440,7 @@ private fun QueueItemRow(item: QueueTrackItem) {
         Icon(
             imageVector = Icons.Default.Menu,
             contentDescription = "拖拽排序",
-            tint = Color.White.copy(alpha = 0.4f),
+            tint = dragTint,
             modifier = Modifier.size(18.dp)
         )
     }
@@ -430,8 +451,10 @@ private fun SpotifyQueueBottomButton(
     icon: ImageVector,
     label: String,
     isActive: Boolean,
+    isDark: Boolean = true,
     onClick: () -> Unit
 ) {
+    val inactiveColor = if (isDark) Color.White.copy(alpha = 0.55f) else MaterialTheme.colorScheme.onSurfaceVariant
     Column(
         horizontalAlignment = Alignment.CenterHorizontally,
         verticalArrangement = Arrangement.spacedBy(4.dp),
@@ -443,12 +466,12 @@ private fun SpotifyQueueBottomButton(
         Icon(
             imageVector = icon,
             contentDescription = label,
-            tint = if (isActive) Color(0xFF1ED760) else Color.White.copy(alpha = 0.55f),
+            tint = if (isActive) Color(0xFF1ED760) else inactiveColor,
             modifier = Modifier.size(22.dp)
         )
         Text(
             text = label,
-            color = if (isActive) Color(0xFF1ED760) else Color.White.copy(alpha = 0.55f),
+            color = if (isActive) Color(0xFF1ED760) else inactiveColor,
             fontSize = 10.sp,
             fontWeight = if (isActive) FontWeight.Bold else FontWeight.Normal,
             fontFamily = FontFamily.SansSerif
