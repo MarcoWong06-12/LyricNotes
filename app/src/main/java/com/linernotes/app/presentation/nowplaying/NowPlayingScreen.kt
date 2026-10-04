@@ -81,23 +81,28 @@ fun NowPlayingScreen(
     }
 
     // 固化事件闭包引用，防止因匿名函数对象变动引起子组件无谓重组
-    val onLineClicked = remember(viewModel) {
-        { line: BilingualLyricLine -> line.startTimeMs?.let { viewModel.seekTo(it) } }
+    val onLineClicked: (BilingualLyricLine) -> Unit = remember(viewModel) {
+        { line: BilingualLyricLine ->
+            val pos = line.startTimeMs
+            if (pos != null) {
+                viewModel.seekTo(pos)
+            }
+        }
     }
-    val onAnnotationClicked = remember(viewModel) {
+    val onAnnotationClicked: (LyricAnnotationEntity) -> Unit = remember(viewModel) {
         { annotation: LyricAnnotationEntity -> viewModel.openGeniusAnnotation(annotation) }
     }
-    val onRetryLyrics = remember(viewModel) { { viewModel.reloadLyrics() } }
-    val onOpenSongStory = remember(viewModel) { { viewModel.openSongStory() } }
-    val onOpenQueue = remember(viewModel) { { viewModel.openQueueSheet() } }
-    val onOpenSettings = remember(viewModel) { { viewModel.openSettings() } }
-    val onPlayPause = remember(viewModel) { { viewModel.togglePlayPause() } }
-    val onNext = remember(viewModel) { { viewModel.skipToNext() } }
-    val onPrevious = remember(viewModel) { { viewModel.skipToPrevious() } }
-    val onToggleShuffle = remember(viewModel) { { viewModel.toggleShuffle() } }
-    val onCycleRepeat = remember(viewModel) { { viewModel.cycleRepeatMode() } }
-    val onSeekTo = remember(viewModel) { { posMs: Long -> viewModel.seekTo(posMs) } }
-    val onCloseQueue = remember(viewModel) { { viewModel.closeQueueSheet() } }
+    val onRetryLyrics: () -> Unit = remember(viewModel) { { viewModel.reloadLyrics() } }
+    val onOpenSongStory: () -> Unit = remember(viewModel) { { viewModel.openSongStory() } }
+    val onOpenQueue: () -> Unit = remember(viewModel) { { viewModel.openQueueSheet() } }
+    val onOpenSettings: () -> Unit = remember(viewModel) { { viewModel.openSettings() } }
+    val onPlayPause: () -> Unit = remember(viewModel) { { viewModel.togglePlayPause() } }
+    val onNext: () -> Unit = remember(viewModel) { { viewModel.skipToNext() } }
+    val onPrevious: () -> Unit = remember(viewModel) { { viewModel.skipToPrevious() } }
+    val onToggleShuffle: () -> Unit = remember(viewModel) { { viewModel.toggleShuffle() } }
+    val onCycleRepeat: () -> Unit = remember(viewModel) { { viewModel.cycleRepeatMode() } }
+    val onSeekTo: (Long) -> Unit = remember(viewModel) { { posMs: Long -> viewModel.seekTo(posMs) } }
+    val onCloseQueue: () -> Unit = remember(viewModel) { { viewModel.closeQueueSheet() } }
 
     Box(
         modifier = Modifier
