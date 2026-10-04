@@ -180,6 +180,7 @@ class FloatingLyricsService : Service() {
                 val textColor by floatingPreferences.textColorFlow.collectAsState()
                 val displayMode by floatingPreferences.displayModeFlow.collectAsState()
                 val capsuleWidthDp by floatingPreferences.capsuleWidthDpFlow.collectAsState()
+                val floatingStyle by floatingPreferences.floatingStyleFlow.collectAsState()
 
                 FloatingLyricsCapsule(
                     nowPlayingData = nowData,
@@ -189,6 +190,7 @@ class FloatingLyricsService : Service() {
                     fontScale = fontScale,
                     textColor = textColor,
                     displayMode = displayMode,
+                    floatingStyle = floatingStyle,
                     capsuleWidthDp = capsuleWidthDp,
                     onDragStart = {
                         cancelSnapAnimation()
@@ -202,12 +204,12 @@ class FloatingLyricsService : Service() {
                         windowLayoutParams?.let { params ->
                             val screenBounds = getScreenBounds()
                             val densityVal = resources.displayMetrics.density
-                            val minY = (56 * densityVal).toInt()
+                            val minY = (36 * densityVal).toInt()
                             val viewHeight = composeView?.height?.takeIf { it > 0 } ?: (52 * densityVal).toInt()
-                            val viewWidth = composeView?.width?.takeIf { it > 0 } ?: (COMPACT_WIDTH_DP * densityVal).toInt()
-                            val maxY = (screenBounds.height() - viewHeight - (48 * densityVal).toInt()).coerceAtLeast(minY)
-                            val minX = (10 * densityVal).toInt()
-                            val maxX = (screenBounds.width() - viewWidth - (10 * densityVal).toInt()).coerceAtLeast(minX)
+                            val viewWidth = composeView?.width?.takeIf { it > 0 } ?: (capsuleWidthDp * densityVal).toInt()
+                            val maxY = (screenBounds.height() - viewHeight - (36 * densityVal).toInt()).coerceAtLeast(minY)
+                            val minX = (4 * densityVal).toInt()
+                            val maxX = (screenBounds.width() - viewWidth - (4 * densityVal).toInt()).coerceAtLeast(minX)
 
                             // 采用高精度浮点累积，彻底消除 90/120Hz 刷新率下的慢速拖拽丢帧与卡滞
                             dragCurrentX = (dragCurrentX + dx).coerceIn(minX.toFloat(), maxX.toFloat())
@@ -226,13 +228,10 @@ class FloatingLyricsService : Service() {
                     },
                     onDragEnd = { isExpanded ->
                         windowLayoutParams?.let { params ->
-                            if (isExpanded) {
-                                // 展开大卡片态不粗暴吸附到边框，保持用户放置的视觉位置并保存坐标
-                                floatingPreferences.lastPositionX = params.x
-                                floatingPreferences.lastPositionY = params.y
-                            } else {
-                                snapToNearestEdge(params)
-                            }
+                            cancelSnapAnimation()
+                            // 自由悬浮停留：绝不强制吸附甩动到屏幕边缘，完美保留用户放置的位置
+                            floatingPreferences.lastPositionX = params.x
+                            floatingPreferences.lastPositionY = params.y
                         }
                     },
                     onExpandChanged = { isExpanded ->
@@ -291,7 +290,8 @@ class FloatingLyricsService : Service() {
                     windowManager?.updateViewLayout(composeView, params)
                 } catch (e: Exception) {}
             } else {
-                snapToNearestEdge(params)
+                floatingPreferences.lastPositionX = params.x
+                floatingPreferences.lastPositionY = params.y
             }
         }
     }

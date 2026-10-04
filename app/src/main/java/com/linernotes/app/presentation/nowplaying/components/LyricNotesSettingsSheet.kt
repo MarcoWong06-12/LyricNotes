@@ -379,6 +379,7 @@ fun LyricNotesSettingsSheet(
             val isLocked by floatingPrefs.isLockedFlow.collectAsState(initial = floatingPrefs.isLocked)
             val currentDisplayMode by floatingPrefs.displayModeFlow.collectAsState(initial = floatingPrefs.displayMode)
             val currentCapsuleWidth by floatingPrefs.capsuleWidthDpFlow.collectAsState(initial = floatingPrefs.capsuleWidthDp)
+            val currentFloatingStyle by floatingPrefs.floatingStyleFlow.collectAsState(initial = floatingPrefs.floatingStyle)
 
             Surface(
                 color = if (isFloatingActive) Color(0xFF162538).copy(alpha = 0.70f) else Color.White.copy(alpha = 0.05f),
@@ -403,14 +404,14 @@ fun LyricNotesSettingsSheet(
                             Text("🫧", fontSize = 19.sp)
                             Column {
                                 Text(
-                                    text = "桌面悬浮歌词胶囊",
+                                    text = "桌面悬浮歌词",
                                     color = Color.White,
                                     fontSize = 15.sp,
                                     fontWeight = FontWeight.Bold,
                                     fontFamily = FontFamily.SansSerif
                                 )
                                 Text(
-                                    text = if (!isOverlayGranted) "需授予【显示在其他应用上层】权限" else "极速展开播控，居中换行全词展示",
+                                    text = if (!isOverlayGranted) "需授予【显示在其他应用上层】权限" else "纯净无框无底色桌面歌词，轻触唤出快捷播控",
                                     color = if (!isOverlayGranted) Color(0xFFFFB74D) else Color.White.copy(alpha = 0.6f),
                                     fontSize = 12.sp,
                                     fontFamily = FontFamily.SansSerif
@@ -440,14 +441,78 @@ fun LyricNotesSettingsSheet(
                         )
                     }
 
-                    // 悬浮胶囊个性化定制参数 (透明度、字体颜色、锁定穿透)
+                    // 悬浮胶囊个性化定制参数 (形态、透明度、字体颜色、锁定穿透)
                     HorizontalDivider(
                         color = Color.White.copy(alpha = 0.08f),
                         thickness = 0.5.dp,
                         modifier = Modifier.padding(vertical = 12.dp)
                     )
 
-                    // 4.1 视窗背景不透明度调节 (70%, 85%, 92%, 100%)
+                    // 4.0 悬浮歌词形态 (纯净桌面歌词 vs 卡片胶囊)
+                    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Column {
+                                Text(
+                                    text = "悬浮歌词形态",
+                                    color = Color.White.copy(alpha = 0.85f),
+                                    fontSize = 13.5.sp,
+                                    fontWeight = FontWeight.SemiBold,
+                                    fontFamily = FontFamily.SansSerif
+                                )
+                                Text(
+                                    text = "纯净模式无气泡边框与封面，仅歌词悬浮；卡片模式带气泡底板与封面",
+                                    color = Color.White.copy(alpha = 0.45f),
+                                    fontSize = 11.5.sp,
+                                    fontFamily = FontFamily.SansSerif
+                                )
+                            }
+                        }
+
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.spacedBy(8.dp)
+                        ) {
+                            val styleOptions = listOf(
+                                FloatingLyricsPreferences.STYLE_PURE_LYRICS to "纯净桌面歌词 (网易云)",
+                                FloatingLyricsPreferences.STYLE_CAPSULE_CARD to "微型卡片胶囊"
+                            )
+                            styleOptions.forEach { (styleVal, label) ->
+                                val isSelected = currentFloatingStyle == styleVal
+                                Surface(
+                                    color = if (isSelected) Color(0xFF03A9F4).copy(alpha = 0.30f) else Color.White.copy(alpha = 0.08f),
+                                    shape = RoundedCornerShape(10.dp),
+                                    border = BorderStroke(
+                                        0.5.dp,
+                                        if (isSelected) Color(0xFF81D4FA) else Color.White.copy(alpha = 0.12f)
+                                    ),
+                                    modifier = Modifier
+                                        .weight(1f)
+                                        .height(34.dp)
+                                        .bouncyClickable(pressedScale = 0.92f) {
+                                            floatingPrefs.floatingStyle = styleVal
+                                        }
+                                ) {
+                                    Box(contentAlignment = Alignment.Center) {
+                                        Text(
+                                            text = label,
+                                            color = if (isSelected) Color(0xFF81D4FA) else Color.White.copy(alpha = 0.75f),
+                                            fontSize = 12.sp,
+                                            fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal,
+                                            fontFamily = FontFamily.SansSerif
+                                        )
+                                    }
+                                }
+                            }
+                        }
+                    }
+
+                    Spacer(modifier = Modifier.height(14.dp))
+
+                    // 4.1 视窗背景不透明度调节 (0%, 30%, 60%, 85%, 100%)
                     Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                         Row(
                             modifier = Modifier.fillMaxWidth(),
@@ -463,7 +528,7 @@ fun LyricNotesSettingsSheet(
                                     fontFamily = FontFamily.SansSerif
                                 )
                                 Text(
-                                    text = "高不透明度可彻底阻断桌面图标与文字透光重叠",
+                                    text = "选择 0% 呈现纯粹悬浮歌词；高不透明度可彻底阻断图标透光重叠",
                                     color = Color.White.copy(alpha = 0.45f),
                                     fontSize = 11.5.sp,
                                     fontFamily = FontFamily.SansSerif
@@ -483,13 +548,14 @@ fun LyricNotesSettingsSheet(
                             horizontalArrangement = Arrangement.spacedBy(6.dp)
                         ) {
                             val alphaOptions = listOf(
-                                0.70f to "70% 半透",
-                                0.85f to "85% 磨砂",
-                                0.92f to "92% 推荐",
+                                0.00f to "0% 纯透",
+                                0.30f to "30% 微透",
+                                0.60f to "60% 磨砂",
+                                0.85f to "85% 半黑",
                                 1.00f to "100% 实黑"
                             )
                             alphaOptions.forEach { (alphaVal, label) ->
-                                val isSelected = kotlin.math.abs(currentBgAlpha - alphaVal) < 0.06f
+                                val isSelected = kotlin.math.abs(currentBgAlpha - alphaVal) < 0.08f
                                 Surface(
                                     color = if (isSelected) Color(0xFF03A9F4).copy(alpha = 0.30f) else Color.White.copy(alpha = 0.08f),
                                     shape = RoundedCornerShape(10.dp),

@@ -60,14 +60,22 @@ class FloatingLyricsPreferences @Inject constructor(
             _isBilingualFlow.value = value
         }
 
-    // 4. 背景不透明度 (0.50f ~ 1.0f，默认 0.92f 高质感深色防穿透背板)
-    private val _backgroundAlphaFlow = MutableStateFlow(prefs.getFloat(KEY_BG_ALPHA, 0.92f))
+    // 4. 背景不透明度 (0.0f ~ 1.0f，纯净桌面歌词模式默认 0.0f 纯透明)
+    private val initialBgAlpha: Float = if (!prefs.contains(KEY_BG_ALPHA_V3)) {
+        // 升级至纯净无边框桌面歌词：默认设为 0.0f 纯透明全透
+        prefs.edit().putFloat(KEY_BG_ALPHA_V3, 0.0f).putFloat(KEY_BG_ALPHA, 0.0f).apply()
+        0.0f
+    } else {
+        prefs.getFloat(KEY_BG_ALPHA, 0.0f)
+    }
+
+    private val _backgroundAlphaFlow = MutableStateFlow(initialBgAlpha)
     val backgroundAlphaFlow: StateFlow<Float> = _backgroundAlphaFlow.asStateFlow()
 
     var backgroundAlpha: Float
         get() = _backgroundAlphaFlow.value
         set(value) {
-            prefs.edit().putFloat(KEY_BG_ALPHA, value).apply()
+            prefs.edit().putFloat(KEY_BG_ALPHA, value).putFloat(KEY_BG_ALPHA_V3, value).apply()
             _backgroundAlphaFlow.value = value
         }
 
@@ -135,7 +143,21 @@ class FloatingLyricsPreferences @Inject constructor(
             _capsuleWidthDpFlow.value = value
         }
 
+    // 11. 桌面歌词形态：0 = 纯净桌面歌词 (网易云经典风格，无底色边框与封面，默认)，1 = 卡片胶囊模式 (带封面与气泡底板)
+    private val _floatingStyleFlow = MutableStateFlow(prefs.getInt(KEY_FLOATING_STYLE, STYLE_PURE_LYRICS))
+    val floatingStyleFlow: StateFlow<Int> = _floatingStyleFlow.asStateFlow()
+
+    var floatingStyle: Int
+        get() = _floatingStyleFlow.value
+        set(value) {
+            prefs.edit().putInt(KEY_FLOATING_STYLE, value).apply()
+            _floatingStyleFlow.value = value
+        }
+
     companion object {
+        const val STYLE_PURE_LYRICS = 0
+        const val STYLE_CAPSULE_CARD = 1
+
         const val DISPLAY_MODE_WRAP = 0
         const val DISPLAY_MODE_MARQUEE = 1
 
@@ -143,6 +165,7 @@ class FloatingLyricsPreferences @Inject constructor(
         private const val KEY_LOCKED = "floating_locked"
         private const val KEY_BILINGUAL = "floating_bilingual"
         private const val KEY_BG_ALPHA = "floating_bg_alpha"
+        private const val KEY_BG_ALPHA_V3 = "floating_bg_alpha_v3"
         private const val KEY_FONT_SCALE = "floating_font_scale"
         private const val KEY_TEXT_COLOR = "floating_text_color"
         private const val KEY_OFFSET_MS = "floating_offset_ms"
@@ -150,6 +173,7 @@ class FloatingLyricsPreferences @Inject constructor(
         private const val KEY_POS_Y = "floating_pos_y"
         private const val KEY_DISPLAY_MODE = "floating_display_mode"
         private const val KEY_CAPSULE_WIDTH = "floating_capsule_width"
+        private const val KEY_FLOATING_STYLE = "floating_style"
 
         fun get(context: Context): FloatingLyricsPreferences {
             return EntryPointAccessors.fromApplication(
