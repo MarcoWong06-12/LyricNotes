@@ -440,10 +440,12 @@ private fun NowPlayingTopBar(
             }
         }
 
-        // 中间：极简优雅来源/状态信息 (Apple Music 规范：明确展示专辑来源与曲目归属，杜绝将专辑名误当歌名)
+        // 中间：极简优雅来源/状态信息 (加 weight(1f) 限制最大占用宽度，超长优雅截断，绝不挤压右侧按钮)
         Column(
             horizontalAlignment = Alignment.CenterHorizontally,
-            modifier = Modifier.padding(horizontal = 8.dp)
+            modifier = Modifier
+                .weight(1f)
+                .padding(horizontal = 8.dp)
         ) {
             val topHeader = when {
                 !trackState.hasValidTrack -> "LyricNotes"
@@ -456,7 +458,9 @@ private fun NowPlayingTopBar(
                 fontSize = 11.sp,
                 fontFamily = FontFamily.SansSerif,
                 fontWeight = FontWeight.Medium,
-                letterSpacing = 0.6.sp
+                letterSpacing = 0.6.sp,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis
             )
             if (trackState.hasValidTrack) {
                 val subText = if (!trackState.album.isNullOrBlank()) trackState.album else trackState.title
@@ -468,12 +472,13 @@ private fun NowPlayingTopBar(
                     fontWeight = FontWeight.SemiBold,
                     fontFamily = FontFamily.SansSerif,
                     maxLines = 1,
-                    overflow = TextOverflow.Ellipsis
+                    overflow = TextOverflow.Ellipsis,
+                    textAlign = TextAlign.Center
                 )
             }
         }
 
-        // 右侧操作群：歌曲背景故事直达入口 (✦ 故事) + 待播队列 (Queue) + 更多设置 (···)
+        // 右侧操作群：歌曲背景故事直达入口 (✦ 故事) + 待播队列 (Queue) + 桌面悬浮歌词 (PiP)
         val storyInfiniteTransition = rememberInfiniteTransition(label = "storyGlow")
         val storyGlowAlpha by storyInfiniteTransition.animateFloat(
             initialValue = 0.40f,
@@ -489,8 +494,12 @@ private fun NowPlayingTopBar(
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(8.dp)
         ) {
-            // 歌曲背景故事外层高频入口（当有故事时呈现柔和微光，1 步直达）
-            if (hasSongStory) {
+            // 歌曲背景故事外层高频入口（当有故事时呈现柔和微光，1 步直达；带平滑淡入展开与折叠动效）
+            AnimatedVisibility(
+                visible = hasSongStory,
+                enter = fadeIn(tween(220)) + expandHorizontally(spring(dampingRatio = 0.85f, stiffness = 420f)),
+                exit = fadeOut(tween(160)) + shrinkHorizontally(tween(200))
+            ) {
                 val storyBg = if (isDark) Color(0xFF281E10).copy(alpha = 0.94f) else Color(0xFFFFF8E1).copy(alpha = 0.95f)
                 val storyColor = if (isDark) Color(0xFFFFD54F) else Color(0xFFF57C00)
                 Surface(
@@ -579,26 +588,6 @@ private fun NowPlayingTopBar(
                         contentDescription = "桌面悬浮歌词",
                         tint = if (isFloatingActive) Color.White else pillIconTint,
                         modifier = Modifier.size(18.dp)
-                    )
-                }
-            }
-
-            Surface(
-                color = pillBg,
-                shape = CircleShape,
-                border = BorderStroke(0.5.dp, pillBorder),
-                modifier = Modifier
-                    .size(38.dp)
-                    .bouncyIconClickable(
-                        onClick = onOpenSettings
-                    )
-            ) {
-                Box(contentAlignment = Alignment.Center) {
-                    Icon(
-                        imageVector = Icons.Default.MoreHoriz,
-                        contentDescription = "设置",
-                        tint = pillIconTint,
-                        modifier = Modifier.size(19.dp)
                     )
                 }
             }
