@@ -72,4 +72,37 @@ class TranslationServiceTest {
         assertEquals("", parsed[2])
         assertEquals("第四行", parsed[3])
     }
+
+    @Test
+    fun testRefineMusicSlang_hipHopIdioms() {
+        val service = TranslationService()
+
+        // 1. running for your jewels
+        val r1 = service.refineMusicSlang(
+            "当我们为你的珠宝而奔跑时，我们不断地来",
+            "We keep on coming while we running for your jewels"
+        )
+        assertEquals("当我们抢夺洗劫你的金链首饰时，我们不断地来", r1)
+
+        // 2. how I'll leave ya
+        val r2 = service.refineMusicSlang(
+            "小凯撒，去问问你的朋友我怎么离开你",
+            "Lil Caesar, go ask your homie how I'll leave ya"
+        )
+        assertEquals("小凯撒，去问问你的朋友我会把你收拾成什么凄惨死样", r2)
+
+        // 3. steady gunning, busting at fools
+        val r3 = service.refineMusicSlang(
+            "稳扎稳打，继续打击那些笨蛋，你知道规矩的",
+            "Steady gunning, keep on busting at them fools, you know the rules"
+        )
+        assertEquals("枪火连番扫射，继续狠狠收拾开火痛击那帮蠢货，你知道规矩的", r3)
+
+        // 4. mark-ass
+        val r4 = service.refineMusicSlang(
+            "大佬斯莫尔斯和少年犯M.A.F.I.A.都是些混蛋",
+            "Biggie Smalls and Junior M.A.F.I.A. is some mark-ass bitches"
+        )
+        assertEquals("大佬斯莫尔斯和少年犯M.A.F.I.A.都是些软蛋窝囊废", r4)
+    }
 }

@@ -4,6 +4,9 @@ import com.linernotes.app.core.lyric.LyricAligner
 import com.linernotes.app.core.lyric.LyricSearchCleaner
 import com.linernotes.app.core.network.LinerNotesHttpClient
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.async
+import kotlinx.coroutines.awaitAll
+import kotlinx.coroutines.supervisorScope
 import kotlinx.coroutines.withContext
 import org.json.JSONArray
 import org.json.JSONObject
@@ -69,54 +72,26 @@ object NetEaseLyricsService {
         null
     }
 
-    private suspend fun searchAndFetch(
-        query: String,
+    private data class ScoredCandidate(
+        val songJson: JSONObject,
+        val score: Int
+    )
+
+    private suspend fun fetchSongLyricsById(
+        s: JSONObject,
+        score: Int,
         targetTitle: String,
-        targetArtist: String,
-        targetDurationMs: Long = 0L
+        targetArtist: String
     ): OnlineLyricsResult? {
-        val songs = searchSongs(query) ?: return null
-        if (songs.length() == 0) return null
-
-        var bestSong: JSONObject? = null
-        var bestScore = -100
-
-        for (i in 0 until songs.length()) {
-            val s = songs.optJSONObject(i) ?: continue
-            val candTitle = s.optString("name", "")
-            val artists = s.optJSONArray("ar") ?: s.optJSONArray("artists")
-            val candArtist = if (artists != null) {
-                (0 until artists.length()).mapNotNull { idx -> artists.optJSONObject(idx)?.optString("name") }.joinToString(", ")
-            } else ""
-            val candDuration = s.optLong("dt", 0L)
-
-            val score = LyricSearchCleaner.scoreCandidateMatch(
-                candidateTitle = candTitle,
-                candidateArtist = candArtist,
-                targetTitle = targetTitle,
-                targetArtist = targetArtist,
-                candidateDurationMs = candDuration,
-                targetDurationMs = targetDurationMs
-            )
-
-            if (score > bestScore && score >= 50) {
-                bestScore = score
-                bestSong = s
-            }
-        }
-
-        if (bestSong == null) return null
-
-        val songId = bestSong.optLong("id", 0L)
+        val songId = s.optLong("id", 0L)
         if (songId <= 0L) return null
 
-        val matchedTitle = bestSong.optString("name", targetTitle)
-        val matchedArtists = bestSong.optJSONArray("ar") ?: bestSong.optJSONArray("artists")
+        val matchedTitle = s.optString("name", targetTitle)
+        val matchedArtists = s.optJSONArray("ar") ?: s.optJSONArray("artists")
         val matchedArtist = matchedArtists?.optJSONObject(0)?.optString("name", targetArtist) ?: targetArtist
-        val matchedDuration = bestSong.optLong("dt", 0L)
-        val matchedCover = bestSong.optJSONObject("al")?.optString("picUrl")?.takeIf { it.isNotBlank() }
+        val matchedDuration = s.optLong("dt", 0L)
+        val matchedCover = s.optJSONObject("al")?.optString("picUrl")?.takeIf { it.isNotBlank() }
 
-        // 获取原版与翻译歌词
         val lyricUrl = "$LYRIC_API?id=$songId&lv=1&kv=1&tv=1"
         val lyricJson = LinerNotesHttpClient.getAsync(lyricUrl, HEADERS) ?: return null
 
@@ -144,6 +119,70 @@ object NetEaseLyricsService {
         } catch (e: Exception) {
             null
         }
+    }
+
+    private suspend fun searchAndFetch(
+        query: String,
+        targetTitle: String,
+        targetArtist: String,
+        targetDurationMs: Long = 0L
+    ): OnlineLyricsResult? {
+        val songs = searchSongs(query) ?: return null
+        if (songs.length() == 0) return null
+
+        val scoredList = mutableListOf<ScoredCandidate>()
+
+        for (i in 0 until songs.length()) {
+            val s = songs.optJSONObject(i) ?: continue
+            val candTitle = s.optString("name", "")
+            val artists = s.optJSONArray("ar") ?: s.optJSONArray("artists")
+            val candArtist = if (artists != null) {
+                (0 until artists.length()).mapNotNull { idx -> artists.optJSONObject(idx)?.optString("name") }.joinToString(", ")
+            } else ""
+            val candDuration = s.optLong("dt", 0L)
+
+            val score = LyricSearchCleaner.scoreCandidateMatch(
+                candidateTitle = candTitle,
+                candidateArtist = candArtist,
+                targetTitle = targetTitle,
+                targetArtist = targetArtist,
+                candidateDurationMs = candDuration,
+                targetDurationMs = targetDurationMs
+            )
+
+            if (score >= 45) {
+                scoredList.add(ScoredCandidate(s, score))
+            }
+        }
+
+        if (scoredList.isEmpty()) return null
+        scoredList.sortByDescending { it.score }
+
+        // 多候选版本深度嗅探（并发探测前 4 个高分版本，优先捕获官方/社区人工双语精翻）
+        val topCandidates = scoredList.take(4)
+        val fetchedResults = supervisorScope {
+            topCandidates.map { cand ->
+                async {
+                    fetchSongLyricsById(cand.songJson, cand.score, targetTitle, targetArtist)?.let { res ->
+                        cand to res
+                    }
+                }
+            }.awaitAll().filterNotNull()
+        }
+
+        if (fetchedResults.isEmpty()) return null
+
+        // 1. 优先选择拥有有效人工双语翻译 (isBilingual && translatedLyrics 非空) 的高分候选
+        val bestBilingual = fetchedResults
+            .filter { (_, res) -> res.isBilingual && !res.translatedLyrics.isNullOrBlank() }
+            .maxByOrNull { (cand, _) -> cand.score }
+
+        if (bestBilingual != null) {
+            return bestBilingual.second
+        }
+
+        // 2. 若所有版本均无双语翻译，则回退到匹配得分最高的版本
+        return fetchedResults.maxByOrNull { (cand, _) -> cand.score }?.second
     }
 
     private suspend fun searchSongs(query: String): JSONArray? {

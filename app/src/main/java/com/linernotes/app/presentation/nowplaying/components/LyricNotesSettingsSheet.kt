@@ -899,7 +899,7 @@ fun LyricNotesSettingsSheet(
                     ) {
                         Icon(imageVector = Icons.Default.Refresh, contentDescription = null, tint = textPrimary, modifier = Modifier.size(16.dp))
                         Spacer(modifier = Modifier.width(6.dp))
-                        Text("重载歌词", fontSize = 13.5.sp, color = textPrimary, fontWeight = FontWeight.Medium)
+                        Text("重新匹配双语歌词", fontSize = 13.sp, color = textPrimary, fontWeight = FontWeight.Medium)
                     }
                 }
 
