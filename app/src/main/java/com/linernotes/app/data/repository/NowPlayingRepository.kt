@@ -199,7 +199,11 @@ class NowPlayingRepository @Inject constructor(
 
         // 检查内存缓存：只有当歌词具备且（典故已具备 或 失败通知已结算）时，才视为完全命中缓存直接秒开
         val cached = memoryCache[songKey]
-        if (cached != null && cached.lyrics.isNotEmpty() && (cached.annotatedLines.isNotEmpty() || cached.songStory != null || cached.geniusNotice != null)) {
+        val isCachedTranslationSeverelyIncomplete = cached != null &&
+            cached.lyrics.size > 5 &&
+            cached.lyrics.count { it.translation.isNotBlank() } <= (cached.lyrics.size * 0.25).toInt()
+
+        if (cached != null && !isCachedTranslationSeverelyIncomplete && cached.lyrics.isNotEmpty() && (cached.annotatedLines.isNotEmpty() || cached.songStory != null || cached.geniusNotice != null)) {
             _nowPlayingData.update {
                 it.copy(
                     lyrics = cached.lyrics,
@@ -215,7 +219,7 @@ class NowPlayingRepository @Inject constructor(
         }
 
         // 若歌词已就绪但典故尚未获取，立刻展示歌词，后台并发补全典故
-        if (cached != null && cached.lyrics.isNotEmpty()) {
+        if (cached != null && !isCachedTranslationSeverelyIncomplete && cached.lyrics.isNotEmpty()) {
             _nowPlayingData.update {
                 it.copy(
                     lyrics = cached.lyrics,
@@ -282,7 +286,12 @@ class NowPlayingRepository @Inject constructor(
                         var transLyrics = rawResult.translatedLyrics
 
                         // 如果抓取到的歌词没有中文翻译，优先向网易云与 QQ 音乐查询官方人工双语精翻！
-                        if (transLyrics.isNullOrBlank()) {
+                        val isOfficialTransLacking = transLyrics.isNullOrBlank() || run {
+                            val origCount = origLyrics.lines().count { it.replace(LyricAligner.LRC_TIMESTAMP_REGEX, "").trim().isNotBlank() }
+                            val transCount = transLyrics?.lines()?.count { it.replace(LyricAligner.LRC_TIMESTAMP_REGEX, "").trim().isNotBlank() } ?: 0
+                            origCount > 4 && transCount <= (origCount * 0.35).toInt()
+                        }
+                        if (isOfficialTransLacking) {
                             try {
                                 val officialBilingual = NetEaseLyricsService.fetchLyrics(title, artist, curState.durationMs)
                                     ?: QQMusicLyricsService.fetchLyrics(title, artist, curState.durationMs)
@@ -295,8 +304,13 @@ class NowPlayingRepository @Inject constructor(
                             }
                         }
 
-                        // 若官方平台均无人工译文，触发内置极速翻译引擎（带序号硬锚定，零错位）
-                        if (transLyrics.isNullOrBlank()) {
+                        // 若官方平台仍无人工译文或译文严重残缺，触发内置极速翻译引擎（带序号硬锚定，零错位）
+                        val isNeedMachineTrans = transLyrics.isNullOrBlank() || run {
+                            val origCount = origLyrics.lines().count { it.replace(LyricAligner.LRC_TIMESTAMP_REGEX, "").trim().isNotBlank() }
+                            val transCount = transLyrics?.lines()?.count { it.replace(LyricAligner.LRC_TIMESTAMP_REGEX, "").trim().isNotBlank() } ?: 0
+                            origCount > 4 && transCount <= (origCount * 0.35).toInt()
+                        }
+                        if (isNeedMachineTrans) {
                             try {
                                 val transResult = translationService.translateTrack(title, origLyrics)
                                 if (transResult != null && transResult.translatedLyrics.isNotBlank()) {
@@ -562,7 +576,12 @@ class NowPlayingRepository @Inject constructor(
 
     private suspend fun silentFetchAndCacheSongFull(title: String, artist: String, songKey: String) {
         // 1. 检查或静默拉取歌词与翻译
-        var lyrics = memoryCache[songKey]?.lyrics ?: emptyList()
+        val cachedInMem = memoryCache[songKey]
+        val isCachedTranslationSeverelyIncomplete = cachedInMem != null &&
+            cachedInMem.lyrics.size > 5 &&
+            cachedInMem.lyrics.count { it.translation.isNotBlank() } <= (cachedInMem.lyrics.size * 0.25).toInt()
+
+        var lyrics = if (!isCachedTranslationSeverelyIncomplete) cachedInMem?.lyrics ?: emptyList() else emptyList()
         if (lyrics.isEmpty()) {
             val rawResult = UnifiedLyricsService.fetchLyrics(
                 trackTitle = title,
@@ -584,7 +603,12 @@ class NowPlayingRepository @Inject constructor(
             var transLyrics = rawResult.translatedLyrics
 
             // 如果抓取到的歌词没有中文翻译，优先向网易云与 QQ 音乐查询官方人工双语精翻！
-            if (transLyrics.isNullOrBlank()) {
+            val isOfficialTransLacking = transLyrics.isNullOrBlank() || run {
+                val origCount = origLyrics.lines().count { it.replace(LyricAligner.LRC_TIMESTAMP_REGEX, "").trim().isNotBlank() }
+                val transCount = transLyrics?.lines()?.count { it.replace(LyricAligner.LRC_TIMESTAMP_REGEX, "").trim().isNotBlank() } ?: 0
+                origCount > 4 && transCount <= (origCount * 0.35).toInt()
+            }
+            if (isOfficialTransLacking) {
                 try {
                     val officialBilingual = NetEaseLyricsService.fetchLyrics(title, artist)
                         ?: QQMusicLyricsService.fetchLyrics(title, artist)
@@ -597,8 +621,13 @@ class NowPlayingRepository @Inject constructor(
                 }
             }
 
-            // 若官方平台均无人工译文，触发内置极速翻译引擎（带序号硬锚定，零错位）
-            if (transLyrics.isNullOrBlank()) {
+            // 若官方平台仍无人工译文或译文严重残缺，触发内置极速翻译引擎（带序号硬锚定，零错位）
+            val isNeedMachineTrans = transLyrics.isNullOrBlank() || run {
+                val origCount = origLyrics.lines().count { it.replace(LyricAligner.LRC_TIMESTAMP_REGEX, "").trim().isNotBlank() }
+                val transCount = transLyrics?.lines()?.count { it.replace(LyricAligner.LRC_TIMESTAMP_REGEX, "").trim().isNotBlank() } ?: 0
+                origCount > 4 && transCount <= (origCount * 0.35).toInt()
+            }
+            if (isNeedMachineTrans) {
                 try {
                     val transResult = translationService.translateTrack(title, origLyrics)
                     if (transResult != null && transResult.translatedLyrics.isNotBlank()) {

@@ -86,27 +86,44 @@ class TranslationService(
 
     private val INDEXED_LINE_REGEX = Regex("""^\s*(?:\[#?(\d+)\]|(\d+)[\.、\s\-:])\s*(.*)$""")
 
-    private fun parseIndexedLines(rawLines: List<String>, expectedCount: Int): List<String> {
-        val map = mutableMapOf<Int, String>()
-        for (line in rawLines) {
-            val trimmed = line.trim()
-            val match = INDEXED_LINE_REGEX.find(trimmed)
-            if (match != null) {
-                val idx = match.groupValues[1].toIntOrNull() ?: match.groupValues[2].toIntOrNull()
-                val content = match.groupValues[3].trim()
-                if (idx != null && idx in 1..expectedCount) {
-                    map[idx] = content
-                }
+    internal fun parseIndexedLines(rawLines: List<String>, expectedCount: Int): List<String> {
+        val cleanedLines = rawLines.map { it.trim() }.filter { it.isNotBlank() }
+        if (cleanedLines.isEmpty()) return emptyList()
+
+        // 1. 若返回行数完全吻合（最理想情况），1:1 逐行剥离序号映射，绝不错丢任何一行
+        if (cleanedLines.size == expectedCount) {
+            return cleanedLines.map { line ->
+                val m = INDEXED_LINE_REGEX.find(line)
+                val stripped = m?.groupValues?.getOrNull(3)?.trim()
+                if (!stripped.isNullOrBlank()) stripped else line
             }
         }
-        if (map.size >= (expectedCount + 1) / 2) {
-            return (1..expectedCount).map { i -> map[i] ?: "" }
+
+        // 2. 若行数不一致，优先通过提取的序号 (1..expectedCount) 进行确定性定位，并对无序号行按序填补空缺
+        val idxMap = mutableMapOf<Int, String>()
+        val unindexed = mutableListOf<String>()
+
+        for (line in cleanedLines) {
+            val m = INDEXED_LINE_REGEX.find(line)
+            val num = m?.let { it.groupValues[1].toIntOrNull() ?: it.groupValues[2].toIntOrNull() }
+            val content = m?.groupValues?.getOrNull(3)?.trim()
+
+            if (num != null && num in 1..expectedCount && !content.isNullOrBlank()) {
+                idxMap[num] = content
+            } else {
+                unindexed.add(if (!content.isNullOrBlank()) content else line)
+            }
         }
-        if (rawLines.size == expectedCount) {
-            return rawLines.map { it.replace(INDEXED_LINE_REGEX, "$3").trim() }
-        }
-        return (0 until expectedCount).map { i ->
-            rawLines.getOrNull(i)?.replace(INDEXED_LINE_REGEX, "$3")?.trim() ?: ""
+
+        val unindexedIter = unindexed.iterator()
+        return (1..expectedCount).map { i ->
+            if (idxMap.containsKey(i)) {
+                idxMap[i] ?: ""
+            } else if (unindexedIter.hasNext()) {
+                unindexedIter.next()
+            } else {
+                ""
+            }
         }
     }
 
@@ -141,7 +158,7 @@ class TranslationService(
             val translatedChunks = supervisorScope {
                 chunks.map { chunk ->
                     async {
-                        val indexedChunkText = chunk.mapIndexed { idx, line -> "[#${idx + 1}] $line" }.joinToString("\n")
+                        val indexedChunkText = chunk.mapIndexed { idx, line -> "${idx + 1}. $line" }.joinToString("\n")
                         val youdaoResult = translateChunkViaYoudao(indexedChunkText)
                         var parsed = if (youdaoResult != null && youdaoResult.isNotEmpty()) {
                             parseIndexedLines(youdaoResult.map { HtmlUtils.cleanTranslationOutput(it) }, chunk.size)
