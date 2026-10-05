@@ -133,12 +133,20 @@ fun NowPlayingScreen(
         // 2. 核心主内容区 (歌词全屏贯通，并在呼出底部抽屉时呈现 iOS / Apple Music 规范的流体视差微下沉)
         val isAnySheetOpen = state.isSettingsSheetOpen || state.isGeniusSheetOpen || state.isSongStorySheetOpen || state.isQueueSheetOpen || state.isManualSearchSheetOpen
         val contentParallaxScale by animateFloatAsState(
-            targetValue = if (isAnySheetOpen) 0.958f else 1.0f,
+            targetValue = when {
+                state.isQueueSheetOpen -> 0.935f
+                isAnySheetOpen -> 0.955f
+                else -> 1.0f
+            },
             animationSpec = spring(dampingRatio = 0.86f, stiffness = 380f),
             label = "sheetParallaxScale"
         )
         val contentParallaxAlpha by animateFloatAsState(
-            targetValue = if (isAnySheetOpen) 0.84f else 1.0f,
+            targetValue = when {
+                state.isQueueSheetOpen -> 0.68f
+                isAnySheetOpen -> 0.84f
+                else -> 1.0f
+            },
             animationSpec = spring(dampingRatio = 0.86f, stiffness = 380f),
             label = "sheetParallaxAlpha"
         )
