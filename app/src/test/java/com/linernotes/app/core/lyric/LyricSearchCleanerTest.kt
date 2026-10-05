@@ -35,6 +35,11 @@ class LyricSearchCleanerTest {
         assertEquals("Subtitle", LyricSearchCleaner.cleanTrackTitle("Subtitle [Official Audio]"))
         assertEquals("前前前世", LyricSearchCleaner.cleanTrackTitle("前前前世 (movie ver.)"))
         assertEquals("Automatic", LyricSearchCleaner.cleanTrackTitle("Automatic (Remastered 2024)"))
+        assertEquals("LOVE.", LyricSearchCleaner.cleanTrackTitle("LOVE. FEAT. ZACARI."))
+        assertEquals("LOYALTY.", LyricSearchCleaner.cleanTrackTitle("LOYALTY. FEAT. RIHANNA."))
+        assertEquals("XXX.", LyricSearchCleaner.cleanTrackTitle("XXX. FEAT. U2."))
+        assertEquals("Shape of You", LyricSearchCleaner.cleanTrackTitle("Shape of You feat. Khalid"))
+        assertEquals("Dance With Me", LyricSearchCleaner.cleanTrackTitle("Dance With Me"))
     }
 
     @Test

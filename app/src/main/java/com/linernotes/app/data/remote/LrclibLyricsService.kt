@@ -21,10 +21,11 @@ object LrclibLyricsService {
         artistName: String,
         targetDurationMs: Long = 0L
     ): OnlineLyricsResult? = withContext(Dispatchers.IO) {
+        val cleanTitle = LyricSearchCleaner.cleanTrackTitle(trackTitle).ifBlank { trackTitle }
         val queries = LyricSearchCleaner.buildSearchQueries(trackTitle, artistName)
 
         for (query in queries) {
-            val result = searchAndFetch(query, trackTitle, artistName, targetDurationMs)
+            val result = searchAndFetch(query, cleanTitle, artistName, targetDurationMs)
             if (result != null && result.originalLyrics.isNotBlank()) {
                 return@withContext result
             }

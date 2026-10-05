@@ -144,7 +144,7 @@ fun AmbientGlowBackground(
             val imageRequest = remember(coverUrl) {
                 ImageRequest.Builder(context)
                     .data(coverUrl)
-                    .crossfade(400)
+                    .crossfade(false)
                     .build()
             }
             AsyncImage(

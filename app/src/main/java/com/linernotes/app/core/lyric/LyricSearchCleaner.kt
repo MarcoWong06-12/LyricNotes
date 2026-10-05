@@ -22,6 +22,11 @@ object LyricSearchCleaner {
         RegexOption.IGNORE_CASE
     )
 
+    private val STANDALONE_FEAT_REGEX = Regex(
+        """\s+(?:feat\.?|featuring|ft\.?)\s+.*$""",
+        RegexOption.IGNORE_CASE
+    )
+
     private val PLACEHOLDER_ARTISTS = setOf(
         "unknown", "unknown artist", "various", "various artists",
         "群星", "合辑", "va", "ost", "soundtrack", "未知歌手", "未知艺术家"
@@ -67,6 +72,7 @@ object LyricSearchCleaner {
         // 4. 去除多余的标签后缀与混音信息
         title = title.replace(PARENTHETICAL_NOISE_REGEX, "").trim()
         title = title.replace(HYPHEN_NOISE_REGEX, "").trim()
+        title = title.replace(STANDALONE_FEAT_REGEX, "").trim()
 
         return if (title.isNotBlank()) title else rawTitle.trim()
     }
