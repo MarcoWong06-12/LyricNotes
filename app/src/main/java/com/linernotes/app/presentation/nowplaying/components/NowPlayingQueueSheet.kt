@@ -37,9 +37,9 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 
 /**
- * 仿 Spotify 待播队列 (Queue) 半屏抽屉 (1:1 复刻 Spotify 视觉规范与物理弹簧动效)
- * 1. 顶部：70% 黄金半屏高度限制，顶部露出现正播放专辑封面与暗光视差
- * 2. 标头：Queue + Playing {Artist} + 完成/Edit 药丸按钮
+ * 待播队列 (Queue) 半屏抽屉 (流体物理弹簧动效与沉浸深色规范)
+ * 1. 顶部：72% 黄金半屏高度限制，顶部露出现正播放专辑封面与暗光视差
+ * 2. 标头：Queue + Playing {Artist} + 完成 药丸按钮
  * 3. 正在播放：纯净流体行，无臃肿外框，带动态跳动绿色均衡器声波 (Equalizer Wave)
  * 4. 待播队列：紧凑列表行，带 Explicit 徽章与三条杠拖拽手柄图标 (Drag Handle)
  * 5. 底栏：4 键专属沉浸播控坞 (Mix、Shuffle、Repeat、Timer 定时睡眠)
@@ -116,7 +116,7 @@ fun NowPlayingQueueSheet(
                     )
                     Spacer(modifier = Modifier.height(1.dp))
                     Text(
-                        text = if (trackState.artist.isNotBlank()) "Playing ${trackState.artist}" else "Playing from Spotify",
+                        text = if (trackState.artist.isNotBlank()) "Playing ${trackState.artist}" else "待播列表",
                         color = textSecondary,
                         fontSize = 12.5.sp,
                         fontFamily = FontFamily.SansSerif,
@@ -236,7 +236,7 @@ fun NowPlayingQueueSheet(
                                 }
 
                                 Text(
-                                    text = "已连接 Spotify 媒体会话。如需在 Spotify 官方中管理并重排播放列表，可点击下方快速进入，或使用底部播控坞随心控制！",
+                                    text = "已同步当前媒体播放会话。你可在此查看队列清单，或使用下方播控坞调节随机与循环模式。",
                                     color = textSecondary,
                                     fontSize = 12.sp,
                                     lineHeight = 17.sp
@@ -252,10 +252,10 @@ fun NowPlayingQueueSheet(
                                             pressedScale = 0.96f,
                                             onClick = { SpotifyLauncher.launchSpotify(context) }
                                         )
-                                ) {
+                                 ) {
                                     Box(contentAlignment = Alignment.Center) {
                                         Text(
-                                            text = "在 Spotify 查看完整待播队列 ➔",
+                                            text = "管理播放列表 ➔",
                                             color = Color.Black,
                                             fontSize = 12.5.sp,
                                             fontWeight = FontWeight.Bold
@@ -541,7 +541,7 @@ private fun SpotifyQueueItemRow(
     } else {
         "Unknown Track"
     }
-    val displayArtist = if (item.artist.isNotBlank()) item.artist else item.album.ifBlank { "Spotify" }
+    val displayArtist = if (item.artist.isNotBlank()) item.artist else item.album.ifBlank { "未知歌手" }
 
     Row(
         modifier = Modifier

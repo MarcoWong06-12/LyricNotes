@@ -156,7 +156,7 @@ fun LyricNotesSettingsSheet(
                         )
                         Spacer(modifier = Modifier.height(2.dp))
                         Text(
-                            text = if (trackState.hasValidTrack) trackState.artist else "请在 Spotify 播放音乐",
+                            text = if (trackState.hasValidTrack) trackState.artist else "等待音乐播放",
                             color = textSecondary,
                             fontSize = 13.sp,
                             fontFamily = FontFamily.SansSerif,
@@ -955,7 +955,7 @@ fun LyricNotesSettingsSheet(
                         )
                 ) {
                     Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                        Text("打开 Spotify", fontSize = 13.5.sp, color = Color.Black, fontWeight = FontWeight.Bold)
+                        Text("打开音乐应用", fontSize = 13.5.sp, color = Color.Black, fontWeight = FontWeight.Bold)
                     }
                 }
             }

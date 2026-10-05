@@ -123,7 +123,7 @@ fun NowPlayingScreen(
             .fillMaxSize()
             .background(if (isDark) Color(0xFF090A0E) else MaterialTheme.colorScheme.background)
     ) {
-        // 1. 灵动流体弥散背景 (Apple Music / Lyricify 风格，纯净温润呼吸)
+        // 1. 灵动流体弥散背景 (纯净温润呼吸)
         AmbientGlowBackground(
             coverUrl = trackState.coverUrl,
             isDark = isDark,
@@ -449,7 +449,7 @@ private fun NowPlayingTopBar(
         horizontalArrangement = Arrangement.SpaceBetween,
         verticalAlignment = Alignment.CenterVertically
     ) {
-        // 左侧：优雅收起/设置图标按钮 + 正在播放歌曲缩略信息 (1:1 复刻 Lyricify 靠左排布)
+        // 左侧：优雅收起/设置图标按钮 + 正在播放歌曲缩略信息 (靠左排布)
         Row(
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(10.dp),
@@ -492,7 +492,7 @@ private fun NowPlayingTopBar(
                     verticalArrangement = Arrangement.spacedBy(1.dp)
                 ) {
                     val displayTitle = if (isTraditional) ChineseConverter.toTraditional(trackState.title) else trackState.title
-                    val rawArtist = if (trackState.artist.isNotBlank()) trackState.artist else if (!trackState.album.isNullOrBlank()) trackState.album else "Spotify"
+                    val rawArtist = if (trackState.artist.isNotBlank()) trackState.artist else if (!trackState.album.isNullOrBlank()) trackState.album else ""
                     val displayArtist = if (isTraditional) ChineseConverter.toTraditional(rawArtist) else rawArtist
                     Text(
                         text = displayTitle,
@@ -641,7 +641,7 @@ private fun NowPlayingTopBar(
 }
 
 /**
- * 丝滑流畅歌词滚动列表 (Apple Music / Lyricify 级视差与羽化遮罩)
+ * 丝滑流畅歌词滚动列表 (流体视差与羽化遮罩)
  * 1. 采用物理级几何中心对齐：动态计算歌词行垂直中点与视口黄金分割线 (36%) 的精确差值
  * 2. 硬件级 graphicsLayer 离屏羽化渐变遮罩 (CompositingStrategy.Offscreen + DstIn)，两端自然融入虚空
  * 3. 活跃行 27sp 纯白 Bold 聚光灯聚焦，非活跃行 20sp 半透柔光退居次席
@@ -766,7 +766,7 @@ private fun NowPlayingLyricsContent(
     val listState = rememberLazyListState()
     val coroutineScope = rememberCoroutineScope()
 
-    // 采用 Apple Music / Lyricify 统一流体物理弹簧规范 (450ms 优雅磁吸无机械顿挫)
+    // 采用统一流体物理弹簧规范 (450ms 优雅磁吸无机械顿挫)
     val lyricFluidSpring = remember {
         spring<Float>(
             dampingRatio = 0.86f, // 次临界柔和阻尼：零机械顿挫，优雅磁吸微缓冲
@@ -856,7 +856,7 @@ private fun NowPlayingLyricsContent(
         }
     }
 
-    // 物理级黄金视线重心对齐动力学 (Apple Music / Lyricify 顶级流体顺滑吸附)
+    // 物理级黄金视线重心对齐动力学 (流体顺滑吸附)
     // 监听当前歌词改变以及播放状态切换：跟随模式下每一行歌词切换均如丝绸般滑入焦点
     LaunchedEffect(currentLineIndex, isPlaying, userScrolledAway) {
         // 当暂停播放或用户正在手动翻阅时，绝对不强制回滚，完全保障自由沉浸
@@ -1038,7 +1038,7 @@ private fun NowPlayingLyricsContent(
 }
 
 /**
- * 单行双语歌词组件 (Apple Music / Lyricify 级流体物理联动动画)
+ * 单行双语歌词组件 (流体物理联动动画)
  */
 @Composable
 private fun LyricLineRow(
@@ -1053,7 +1053,7 @@ private fun LyricLineRow(
     onClick: () -> Unit,
     onAnnotationClick: () -> Unit
 ) {
-    // 空间景深动力学与自由阅读增强 (符合 WCAG AAA 标准，1:1 复刻 Lyricify 聚光灯对比)：
+    // 空间景深动力学与自由阅读增强 (符合 WCAG AAA 标准，高对比聚光灯聚焦)：
     // 1. 活跃行拥有绝对聚光灯聚焦：纯白高对比度 (1.0f)，从左原点锚定缩放；
     // 2. 常规跟随状态下，非活跃行大幅柔化退居次席 (相邻行 0.38f，其余 0.18f)；
     // 3. 翻阅浏览模式下，视口中央行与周边行整体提升可读性。
@@ -1149,7 +1149,7 @@ private fun LyricLineRow(
             .bouncyItemClickable(pressedScale = 0.985f, onClick = onClick),
         horizontalAlignment = Alignment.Start
     ) {
-        // 1. 原文歌词 (Lyricify 标志性紧凑加粗 Sans-Serif 纯净左对齐)
+        // 1. 原文歌词 (紧凑加粗 Sans-Serif 纯净左对齐)
         Text(
             text = displayOriginal,
             color = lyricColor,
@@ -1264,7 +1264,7 @@ private fun LyricAnnotationBadge(
 }
 
 /**
- * 方案 1：底栏悬浮毛玻璃全能胶囊 (Apple Music / Lyricify 风格极简悬浮坞)
+ * 方案 1：底栏悬浮毛玻璃全能胶囊 (极简流体悬浮坞)
  * 上半部：当前进度时间 01:24 + 极细平滑声学进度条 (3dp 无白块) + 总时长 04:36
  * 下半部：歌曲封面缩略图 (44dp) + 歌曲名(支持跑马灯) + 歌手名 + 随机 / 上一首 / 播放·暂停 / 下一首
  */
@@ -1761,7 +1761,7 @@ private fun NowPlayingIdleContent(
         Spacer(modifier = Modifier.height(8.dp))
 
         Text(
-            text = "在 Spotify 开始播放音乐，实时双语歌词与\nGenius 典故将自动呈现在屏幕上",
+            text = "开始播放音乐，实时双语歌词与\n典故注解将自动呈现在屏幕上",
             color = if (isDark) Color.White.copy(alpha = 0.60f) else MaterialTheme.colorScheme.onBackground.copy(alpha = 0.65f),
             fontSize = 14.sp,
             textAlign = TextAlign.Center,
@@ -1792,7 +1792,7 @@ private fun NowPlayingIdleContent(
                             fontFamily = FontFamily.SansSerif
                         )
                         Text(
-                            text = "用于获取 Spotify 播放进度与歌词同屏",
+                            text = "用于获取正在播放进度与歌词同屏联动",
                             color = if (isDark) Color.White.copy(alpha = 0.50f) else MaterialTheme.colorScheme.onSurface.copy(alpha = 0.60f),
                             fontSize = 11.5.sp,
                             fontFamily = FontFamily.SansSerif
@@ -1847,7 +1847,7 @@ private fun NowPlayingIdleContent(
                         modifier = Modifier.size(20.dp)
                     )
                     Text(
-                        text = "打开 Spotify 播放音乐",
+                        text = "打开音乐播放器",
                         color = Color.Black,
                         fontSize = 15.sp,
                         fontWeight = FontWeight.Bold,
