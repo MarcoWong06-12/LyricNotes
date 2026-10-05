@@ -21,7 +21,9 @@ enum class MediaSourceApp(val displayName: String, val packageName: String) {
 
 @Immutable
 data class QueueTrackItem(
-    val id: Long = 0L,
+    val id: Long = -1L,
+    val mediaId: String? = null,
+    val mediaUri: String? = null,
     val title: String = "",
     val artist: String = "",
     val album: String = "",

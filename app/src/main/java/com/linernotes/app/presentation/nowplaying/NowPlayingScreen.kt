@@ -56,6 +56,7 @@ import kotlinx.coroutines.launch
 import coil.compose.AsyncImage
 import coil.request.ImageRequest
 import com.linernotes.app.core.playback.MediaPlaybackSyncService
+import com.linernotes.app.core.playback.QueueTrackItem
 import com.linernotes.app.core.playback.TrackPlaybackState
 import com.linernotes.app.core.util.ChineseConverter
 import com.linernotes.app.data.local.entity.LyricAnnotationEntity
@@ -110,6 +111,9 @@ fun NowPlayingScreen(
     val onCycleRepeat: () -> Unit = remember(viewModel) { { viewModel.cycleRepeatMode() } }
     val onSeekTo: (Long) -> Unit = remember(viewModel) { { posMs: Long -> viewModel.seekTo(posMs) } }
     val onCloseQueue: () -> Unit = remember(viewModel) { { viewModel.closeQueueSheet() } }
+    val onSkipToQueueItem: (QueueTrackItem) -> Unit = remember(viewModel) {
+        { item: QueueTrackItem -> viewModel.skipToQueueItem(item) }
+    }
 
     val isDark = MaterialTheme.colorScheme.background.luminance() < 0.5f
 
@@ -302,6 +306,7 @@ fun NowPlayingScreen(
                 onToggleShuffle = onToggleShuffle,
                 onCycleRepeat = onCycleRepeat,
                 onPlayPause = onPlayPause,
+                onSkipToQueueItem = onSkipToQueueItem,
                 onDismiss = onCloseQueue
             )
         }

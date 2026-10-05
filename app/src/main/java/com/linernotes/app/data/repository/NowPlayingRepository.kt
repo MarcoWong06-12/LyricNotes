@@ -8,6 +8,7 @@ import com.linernotes.app.core.lyric.LyricFragmentMatcher
 import com.linernotes.app.core.lyric.LyricSanitizer
 import com.linernotes.app.core.lyric.LyricSearchCleaner
 import com.linernotes.app.core.playback.PlaybackStateManager
+import com.linernotes.app.core.playback.QueueTrackItem
 import com.linernotes.app.core.playback.TrackPlaybackState
 import com.linernotes.app.core.preference.AiPreferences
 import com.linernotes.app.core.preference.FloatingLyricsPreferences
@@ -880,4 +881,5 @@ class NowPlayingRepository @Inject constructor(
     fun seekTo(positionMs: Long) = playbackStateManager.seekTo(positionMs)
     fun toggleShuffle() = playbackStateManager.toggleShuffle()
     fun cycleRepeatMode() = playbackStateManager.cycleRepeatMode()
+    fun skipToQueueItem(item: QueueTrackItem) = playbackStateManager.skipToQueueItem(item)
 }

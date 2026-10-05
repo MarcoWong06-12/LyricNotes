@@ -51,15 +51,7 @@ class MediaPlaybackSyncService : NotificationListenerService(), MediaControlActi
         }
 
         override fun onQueueChanged(queue: MutableList<MediaSessionCompat.QueueItem>?) {
-            val items = queue?.map { item ->
-                QueueTrackItem(
-                    id = item.queueId,
-                    title = item.description.title?.toString() ?: "",
-                    artist = item.description.subtitle?.toString() ?: "",
-                    album = item.description.description?.toString() ?: "",
-                    coverUri = item.description.iconUri?.toString()
-                )
-            } ?: emptyList()
+            val items = queue?.map { mapQueueItem(it) } ?: emptyList()
             val current = playbackStateManager.playbackState.value
             playbackStateManager.updateState(current.copy(queueItems = items))
         }
@@ -223,15 +215,7 @@ class MediaPlaybackSyncService : NotificationListenerService(), MediaControlActi
                     PlaybackStateCompat.REPEAT_MODE_ONE -> 2
                     else -> 0
                 }
-                val initQueue = compat.queue?.map { item ->
-                    QueueTrackItem(
-                        id = item.queueId,
-                        title = item.description.title?.toString() ?: "",
-                        artist = item.description.subtitle?.toString() ?: "",
-                        album = item.description.description?.toString() ?: "",
-                        coverUri = item.description.iconUri?.toString()
-                    )
-                } ?: emptyList()
+                val initQueue = compat.queue?.map { mapQueueItem(it) } ?: emptyList()
 
                 val cur = playbackStateManager.playbackState.value
                 playbackStateManager.updateState(
@@ -388,6 +372,121 @@ class MediaPlaybackSyncService : NotificationListenerService(), MediaControlActi
         compat.transportControls.setRepeatMode(targetMode)
         val cur = playbackStateManager.playbackState.value
         playbackStateManager.updateState(cur.copy(repeatMode = mappedMode))
+    }
+
+    override fun skipToQueueItem(item: QueueTrackItem) {
+        val compat = activeCompatController
+        val native = activeController
+
+        val actions = compat?.playbackState?.actions
+            ?: native?.playbackState?.actions
+            ?: 0L
+
+        val supportsQueue = (actions and PlaybackStateCompat.ACTION_SKIP_TO_QUEUE_ITEM) != 0L
+        val supportsUri = (actions and PlaybackStateCompat.ACTION_PLAY_FROM_URI) != 0L
+        val supportsMediaId = (actions and PlaybackStateCompat.ACTION_PLAY_FROM_MEDIA_ID) != 0L
+        val supportsSearch = (actions and PlaybackStateCompat.ACTION_PLAY_FROM_SEARCH) != 0L
+
+        val hasValidQueueId = item.id != -1L
+        var triggered = false
+
+        // 1. 若宿主播放器声明支持标准 ACTION_SKIP_TO_QUEUE_ITEM
+        if (supportsQueue && hasValidQueueId) {
+            try {
+                compat?.transportControls?.skipToQueueItem(item.id)
+                    ?: native?.transportControls?.skipToQueueItem(item.id)
+                triggered = true
+            } catch (e: Exception) {
+                e.printStackTrace()
+            }
+        }
+
+        // 2. 若有 mediaUri (如 spotify:track:xxx)，且支持 ACTION_PLAY_FROM_URI
+        if (!triggered && supportsUri && !item.mediaUri.isNullOrBlank()) {
+            try {
+                val parsed = Uri.parse(item.mediaUri)
+                compat?.transportControls?.playFromUri(parsed, null)
+                    ?: native?.transportControls?.playFromUri(parsed, null)
+                triggered = true
+            } catch (e: Exception) {
+                e.printStackTrace()
+            }
+        }
+
+        // 3. 若有 mediaId (如 spotify:track:xxx)，且支持 ACTION_PLAY_FROM_MEDIA_ID
+        if (!triggered && supportsMediaId && !item.mediaId.isNullOrBlank()) {
+            try {
+                compat?.transportControls?.playFromMediaId(item.mediaId, null)
+                    ?: native?.transportControls?.playFromMediaId(item.mediaId, null)
+                triggered = true
+            } catch (e: Exception) {
+                e.printStackTrace()
+            }
+        }
+
+        // 4. 若未在 actions 中显式声明支持位，但具备有效队列 ID（许多播放器未置位 actions 掩码但已实现 onSkipToQueueItem 回调）
+        if (!triggered && hasValidQueueId) {
+            try {
+                compat?.transportControls?.skipToQueueItem(item.id)
+                    ?: native?.transportControls?.skipToQueueItem(item.id)
+                triggered = true
+            } catch (e: Exception) {
+                e.printStackTrace()
+            }
+        }
+
+        // 5. 若有 mediaId（如 spotify:track:xxx）直接兜底尝试 playFromMediaId
+        if (!triggered && !item.mediaId.isNullOrBlank()) {
+            try {
+                compat?.transportControls?.playFromMediaId(item.mediaId, null)
+                    ?: native?.transportControls?.playFromMediaId(item.mediaId, null)
+                triggered = true
+            } catch (e: Exception) {
+                e.printStackTrace()
+            }
+        }
+
+        // 6. 兜底策略：若上述特定通道均未触发，通过精准搜索词（Title + Artist）点播
+        if (!triggered && item.title.isNotBlank()) {
+            try {
+                val query = if (item.artist.isNotBlank()) "${item.title} ${item.artist}" else item.title
+                compat?.transportControls?.playFromSearch(query, null)
+                    ?: native?.transportControls?.playFromSearch(query, null)
+                triggered = true
+            } catch (e: Exception) {
+                e.printStackTrace()
+            }
+        }
+    }
+
+    private fun mapQueueItem(item: MediaSessionCompat.QueueItem): QueueTrackItem {
+        val desc = item.description
+        val rawTitle = desc.title?.toString()?.trim().orEmpty()
+        val rawSubtitle = desc.subtitle?.toString()?.trim().orEmpty()
+        val rawDesc = desc.description?.toString()?.trim().orEmpty()
+        val rawExtrasTitle = desc.extras?.getString(MediaMetadata.METADATA_KEY_TITLE)
+            ?: desc.extras?.getString(MediaMetadata.METADATA_KEY_DISPLAY_TITLE)
+            ?: desc.extras?.getString("android.media.metadata.TITLE")
+
+        val title = when {
+            rawTitle.isNotBlank() -> rawTitle
+            !rawExtrasTitle.isNullOrBlank() -> rawExtrasTitle
+            rawDesc.isNotBlank() && rawDesc != rawSubtitle -> rawDesc
+            else -> rawTitle
+        }
+
+        val coverUri = desc.iconUri?.toString()
+            ?: desc.iconBitmap?.let { saveBitmapToLocalFile(it, "queue_${item.queueId}") }
+
+        return QueueTrackItem(
+            id = item.queueId,
+            mediaId = desc.mediaId,
+            mediaUri = desc.mediaUri?.toString(),
+            title = title,
+            artist = rawSubtitle,
+            album = rawDesc,
+            coverUri = coverUri
+        )
     }
 
     companion object {

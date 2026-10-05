@@ -3,6 +3,7 @@ package com.linernotes.app.presentation.nowplaying
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.linernotes.app.core.lyric.AiAnnotationCurator
+import com.linernotes.app.core.playback.QueueTrackItem
 import com.linernotes.app.core.preference.AiPreferences
 import com.linernotes.app.data.local.entity.LyricAnnotationEntity
 import com.linernotes.app.data.local.entity.SongStoryEntity
@@ -339,5 +340,9 @@ class NowPlayingViewModel @Inject constructor(
 
     fun retryGenius() {
         nowPlayingRepository.reloadGeniusOnly()
+    }
+
+    fun skipToQueueItem(item: QueueTrackItem) {
+        nowPlayingRepository.skipToQueueItem(item)
     }
 }

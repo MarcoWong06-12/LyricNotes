@@ -20,6 +20,7 @@ interface MediaControlActionHandler {
     fun seekTo(positionMs: Long)
     fun toggleShuffle()
     fun cycleRepeatMode()
+    fun skipToQueueItem(item: QueueTrackItem)
 }
 
 @EntryPoint
@@ -81,6 +82,7 @@ class PlaybackStateManager @Inject constructor() {
     fun seekTo(positionMs: Long) = controlActionHandler?.seekTo(positionMs)
     fun toggleShuffle() = controlActionHandler?.toggleShuffle()
     fun cycleRepeatMode() = controlActionHandler?.cycleRepeatMode()
+    fun skipToQueueItem(item: QueueTrackItem) = controlActionHandler?.skipToQueueItem(item)
 
     companion object {
         @Volatile

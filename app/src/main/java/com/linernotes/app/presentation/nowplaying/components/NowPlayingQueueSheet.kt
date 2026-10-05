@@ -47,6 +47,7 @@ fun NowPlayingQueueSheet(
     onToggleShuffle: () -> Unit,
     onCycleRepeat: () -> Unit,
     onPlayPause: () -> Unit,
+    onSkipToQueueItem: (QueueTrackItem) -> Unit = {},
     onDismiss: () -> Unit
 ) {
     val context = LocalContext.current
@@ -236,10 +237,14 @@ fun NowPlayingQueueSheet(
                     modifier = Modifier
                         .fillMaxWidth()
                         .weight(1f, fill = false),
-                    verticalArrangement = Arrangement.spacedBy(10.dp)
+                    verticalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
                     items(trackState.queueItems) { item ->
-                        QueueItemRow(item = item, isDark = isDark)
+                        QueueItemRow(
+                            item = item,
+                            isDark = isDark,
+                            onClick = { onSkipToQueueItem(item) }
+                        )
                     }
                 }
             } else {
@@ -377,18 +382,34 @@ fun NowPlayingQueueSheet(
 @Composable
 private fun QueueItemRow(
     item: QueueTrackItem,
-    isDark: Boolean = true
+    isDark: Boolean = true,
+    onClick: () -> Unit = {}
 ) {
     val textPrimary = if (isDark) Color.White else MaterialTheme.colorScheme.onSurface
     val textSecondary = if (isDark) Color.White.copy(alpha = 0.6f) else MaterialTheme.colorScheme.onSurfaceVariant
     val placeholderBg = if (isDark) Color.White.copy(alpha = 0.1f) else Color.Black.copy(alpha = 0.05f)
     val placeholderTint = if (isDark) Color.White.copy(alpha = 0.5f) else Color.Black.copy(alpha = 0.4f)
-    val dragTint = if (isDark) Color.White.copy(alpha = 0.4f) else Color.Black.copy(alpha = 0.35f)
+    val playButtonBg = if (isDark) Color.White.copy(alpha = 0.08f) else Color.Black.copy(alpha = 0.06f)
+    val playAccent = if (isDark) Color(0xFF1ED760) else Color(0xFF1DB954)
+
+    val displayTitle = if (item.title.isNotBlank()) {
+        item.title
+    } else if (item.album.isNotBlank() && item.album != item.artist) {
+        item.album
+    } else {
+        "Unknown Track"
+    }
+    val displayArtist = if (item.artist.isNotBlank()) item.artist else item.album.ifBlank { "Spotify Queue" }
 
     Row(
         modifier = Modifier
             .fillMaxWidth()
-            .padding(vertical = 4.dp),
+            .clip(RoundedCornerShape(12.dp))
+            .bouncyItemClickable(
+                pressedScale = 0.975f,
+                onClick = onClick
+            )
+            .padding(horizontal = 6.dp, vertical = 6.dp),
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(12.dp)
     ) {
@@ -398,21 +419,21 @@ private fun QueueItemRow(
                 contentDescription = null,
                 contentScale = ContentScale.Crop,
                 modifier = Modifier
-                    .size(42.dp)
-                    .clip(RoundedCornerShape(6.dp))
+                    .size(44.dp)
+                    .clip(RoundedCornerShape(8.dp))
             )
         } else {
             Surface(
                 color = placeholderBg,
-                shape = RoundedCornerShape(6.dp),
-                modifier = Modifier.size(42.dp)
+                shape = RoundedCornerShape(8.dp),
+                modifier = Modifier.size(44.dp)
             ) {
                 Box(contentAlignment = Alignment.Center) {
                     Icon(
                         imageVector = Icons.Default.MusicNote,
                         contentDescription = null,
                         tint = placeholderTint,
-                        modifier = Modifier.size(18.dp)
+                        modifier = Modifier.size(20.dp)
                     )
                 }
             }
@@ -420,7 +441,7 @@ private fun QueueItemRow(
 
         Column(modifier = Modifier.weight(1f)) {
             Text(
-                text = item.title,
+                text = displayTitle,
                 color = textPrimary,
                 fontSize = 14.sp,
                 fontWeight = FontWeight.SemiBold,
@@ -428,22 +449,31 @@ private fun QueueItemRow(
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis
             )
+            Spacer(modifier = Modifier.height(2.dp))
             Text(
-                text = item.artist,
+                text = displayArtist,
                 color = textSecondary,
-                fontSize = 11.sp,
+                fontSize = 11.5.sp,
                 fontFamily = FontFamily.SansSerif,
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis
             )
         }
 
-        Icon(
-            imageVector = Icons.Default.Menu,
-            contentDescription = "拖拽排序",
-            tint = dragTint,
-            modifier = Modifier.size(18.dp)
-        )
+        Surface(
+            color = playButtonBg,
+            shape = CircleShape,
+            modifier = Modifier.size(30.dp)
+        ) {
+            Box(contentAlignment = Alignment.Center) {
+                Icon(
+                    imageVector = Icons.Default.PlayArrow,
+                    contentDescription = "播放此曲",
+                    tint = playAccent,
+                    modifier = Modifier.size(17.dp)
+                )
+            }
+        }
     }
 }
 
