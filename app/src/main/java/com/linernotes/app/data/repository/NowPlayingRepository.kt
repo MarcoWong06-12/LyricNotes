@@ -999,9 +999,10 @@ class NowPlayingRepository @Inject constructor(
         return@withContext false
     }
 
-    suspend fun resetManualLyricBinding(trackTitle: String, artistName: String) = withContext(Dispatchers.IO) {
+    suspend fun resetManualLyricBinding(trackTitle: String, artistName: String): Unit = withContext(Dispatchers.IO) {
         aiPreferences.clearManualLyricBinding(trackTitle, artistName)
-        reloadLyrics()
+        val songKey = "${artistName.trim().lowercase()} - ${trackTitle.trim().lowercase()}"
+        forceReloadLyrics(trackTitle, artistName, songKey)
     }
 }
 
