@@ -21,6 +21,7 @@ import com.linernotes.app.data.remote.KugouLyricsService
 import com.linernotes.app.data.remote.LrclibLyricsService
 import com.linernotes.app.data.remote.NetEaseLyricsService
 import com.linernotes.app.data.remote.QQMusicLyricsService
+import com.linernotes.app.data.remote.OnlineLyricsResult
 import com.linernotes.app.data.remote.TranslationService
 import com.linernotes.app.data.remote.UnifiedLyricsService
 import com.linernotes.app.domain.model.BilingualLyricLine

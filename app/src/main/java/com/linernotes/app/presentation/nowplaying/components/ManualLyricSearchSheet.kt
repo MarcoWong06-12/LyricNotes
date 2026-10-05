@@ -35,9 +35,7 @@ import coil.compose.AsyncImage
 import com.linernotes.app.core.util.ChineseConverter
 import com.linernotes.app.domain.model.LyricCandidateItem
 import com.linernotes.app.domain.model.LyricSource
-import com.linernotes.app.presentation.common.BouncyButton
 import com.linernotes.app.presentation.common.bouncyClickable
-import com.linernotes.app.presentation.common.bouncyIconClickable
 
 /**
  * 手动搜歌词与版本切换器抽屉
@@ -203,21 +201,24 @@ fun ManualLyricSearchSheet(
                         )
                     }
 
-                    BouncyButton(
-                        onClick = {
-                            focusManager.clearFocus()
-                            if (inputQuery.isNotBlank()) onSearch(inputQuery)
-                        },
+                    Surface(
+                        color = if (isDark) Color(0xFF272938) else Color(0xFFE2E4EB),
+                        shape = RoundedCornerShape(10.dp),
                         modifier = Modifier
-                            .clip(RoundedCornerShape(10.dp))
-                            .background(if (isDark) Color(0xFF272938) else Color(0xFFE2E4EB))
-                            .padding(horizontal = 12.dp, vertical = 6.dp)
+                            .bouncyClickable(
+                                pressedScale = 0.94f,
+                                onClick = {
+                                    focusManager.clearFocus()
+                                    if (inputQuery.isNotBlank()) onSearch(inputQuery)
+                                }
+                            )
                     ) {
                         Text(
                             text = tr("搜索"),
                             fontSize = 13.sp,
                             fontWeight = FontWeight.SemiBold,
-                            color = sheetContent
+                            color = sheetContent,
+                            modifier = Modifier.padding(horizontal = 14.dp, vertical = 7.dp)
                         )
                     }
                 }
