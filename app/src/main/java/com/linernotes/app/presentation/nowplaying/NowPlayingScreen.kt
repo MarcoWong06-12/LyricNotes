@@ -13,6 +13,7 @@ import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.animateScrollBy
 import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.foundation.interaction.collectIsDraggedAsState
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.itemsIndexed
@@ -689,18 +690,35 @@ private fun NowPlayingLyricsContent(
 
     val listState = rememberLazyListState()
     val coroutineScope = rememberCoroutineScope()
-    var lastUserInteractionTime by remember { mutableLongStateOf(0L) }
-    var isUserBrowsing by remember { mutableStateOf(false) }
 
-    // 监听用户主动滑动浏览，松手后持续保留阅读宽容期 (8 秒) 以便用户完整阅读段落
-    LaunchedEffect(listState.isScrollInProgress) {
-        if (listState.isScrollInProgress) {
-            lastUserInteractionTime = System.currentTimeMillis()
-            isUserBrowsing = true
-        } else if (isUserBrowsing) {
-            kotlinx.coroutines.delay(8000L)
-            if (!listState.isScrollInProgress) {
-                isUserBrowsing = false
+    // 采用 Apple Music / Lyricify 统一流体物理弹簧规范 (450ms 优雅磁吸无机械顿挫)
+    val lyricFluidSpring = remember {
+        spring<Float>(
+            dampingRatio = 0.86f, // 次临界柔和阻尼：零机械顿挫，优雅磁吸微缓冲
+            stiffness = 180f      // 柔和流体刚度：~450ms 连续平滑位移，与人类语速天然共振
+        )
+    }
+
+    // 监听用户真实手指触摸拖拽交互 (不被程序化滚动所污染)
+    val isUserDragging by listState.interactionSource.collectIsDraggedAsState()
+    var userScrolledAway by remember { mutableStateOf(false) }
+    var lastUserDragReleaseTime by remember { mutableLongStateOf(0L) }
+
+    // 当用户用手指触摸拖拽时，标记用户偏离当前播放位置；松手时记录时间戳
+    LaunchedEffect(isUserDragging) {
+        if (isUserDragging) {
+            userScrolledAway = true
+        } else if (userScrolledAway) {
+            lastUserDragReleaseTime = System.currentTimeMillis()
+        }
+    }
+
+    // 当用户手动滑动离开后长时间无操作（8秒以上）且歌曲推进到新歌词行时，优雅自动恢复跟随
+    LaunchedEffect(currentLineIndex) {
+        if (userScrolledAway && !isUserDragging && isPlaying) {
+            val idleDuration = System.currentTimeMillis() - lastUserDragReleaseTime
+            if (idleDuration >= 8000L) {
+                userScrolledAway = false
             }
         }
     }
@@ -712,7 +730,7 @@ private fun NowPlayingLyricsContent(
         }
     }
 
-    // 动态计算当前视口黄金视线带（约 38% 高度处）最中央的歌词行索引，用于视口相对阅读聚焦
+    // 动态计算当前视口黄金视线带（约 36% 高度处）最中央的歌词行索引，用于视口相对阅读聚焦
     val visibleFocalIndex by remember {
         derivedStateOf {
             val layoutInfo = listState.layoutInfo
@@ -720,7 +738,7 @@ private fun NowPlayingLyricsContent(
             if (visibleItems.isEmpty()) return@derivedStateOf currentLineIndex.coerceAtLeast(0)
 
             val viewportHeight = layoutInfo.viewportSize.height.toFloat()
-            val targetFocalY = if (viewportHeight > 0f) viewportHeight * 0.38f else 320f
+            val targetFocalY = if (viewportHeight > 0f) viewportHeight * 0.36f else 300f
             val closest = visibleItems.minByOrNull { item ->
                 val itemCenter = item.offset.toFloat() + (item.size.toFloat() / 2f)
                 kotlin.math.abs(itemCenter - targetFocalY)
@@ -729,8 +747,8 @@ private fun NowPlayingLyricsContent(
         }
     }
 
-    // 当用户正在滑动、处于滑动阅读保留期、播放行脱离当前视口、或暂停播放沉浸阅读时，激活全屏歌词高对比度阅读增强模式
-    val isBrowsing = listState.isScrollInProgress || isUserBrowsing || !isCurrentLineVisible || !isPlaying
+    // 当用户正在手动拖拽、处于偏离浏览状态、或处于暂停沉浸阅读时，激活全屏歌词高对比度阅读增强模式
+    val isBrowsing = isUserDragging || userScrolledAway || !isCurrentLineVisible || !isPlaying
 
     // 确定当前的视觉基准行：在翻阅阅读模式下以视口中央行为基准，避免因正在播放行在视口之外而导致全屏被施加极限距离惩罚
     val focalIndex = if (isBrowsing && (!isCurrentLineVisible || !isPlaying)) {
@@ -739,30 +757,16 @@ private fun NowPlayingLyricsContent(
         if (currentLineIndex >= 0) currentLineIndex else visibleFocalIndex
     }
 
-    // 物理级黄金视线重心对齐动力学 (对标 Spotify 与 Apple Music 顶级流体顺滑吸附)
-    // 监听当前歌词改变以及滑动状态切换：当用户停止滑动后经过沉浸空闲期，自动平滑回归播放焦点
-    LaunchedEffect(currentLineIndex, listState.isScrollInProgress, isPlaying) {
-        // 当暂停播放时，绝对不强制自动回滚，完全保障用户自由沉浸式翻阅浏览
-        if (!isPlaying) {
+    // 物理级黄金视线重心对齐动力学 (Apple Music / Lyricify 顶级流体顺滑吸附)
+    // 监听当前歌词改变以及播放状态切换：跟随模式下每一行歌词切换均如丝绸般滑入焦点
+    LaunchedEffect(currentLineIndex, isPlaying, userScrolledAway) {
+        // 当暂停播放或用户正在手动翻阅时，绝对不强制回滚，完全保障自由沉浸
+        if (!isPlaying || userScrolledAway) {
             return@LaunchedEffect
         }
         if (currentLineIndex in lyrics.indices) {
-            if (listState.isScrollInProgress) {
-                return@LaunchedEffect
-            }
-            val timeSinceInteraction = System.currentTimeMillis() - lastUserInteractionTime
-            // 当用户手动浏览远离播放行时，提供 8 秒宽容等待期；普通跟随则 2.5 秒
-            val requiredIdleMs = if (!isCurrentLineVisible) 8000L else 2500L
-            if (timeSinceInteraction < requiredIdleMs) {
-                kotlinx.coroutines.delay(requiredIdleMs - timeSinceInteraction)
-            }
-            if (listState.isScrollInProgress || !isPlaying) {
-                return@LaunchedEffect
-            }
-
             val viewportHeight = listState.layoutInfo.viewportSize.height.toFloat()
-            // 黄金视线重心：视口高度的 38%（Spotify 经典视觉焦点阅读带）
-            val targetFocalY = if (viewportHeight > 0f) viewportHeight * 0.38f else 320f
+            val targetFocalY = if (viewportHeight > 0f) viewportHeight * 0.36f else 300f
             val visibleItem = listState.layoutInfo.visibleItemsInfo.find { it.index == currentLineIndex }
 
             if (visibleItem != null && viewportHeight > 0f) {
@@ -770,22 +774,26 @@ private fun NowPlayingLyricsContent(
                 val itemCenterY = visibleItem.offset.toFloat() + (visibleItem.size.toFloat() / 2f)
                 val scrollDelta = itemCenterY - targetFocalY
 
-                if (kotlin.math.abs(scrollDelta) > 1.5f) {
+                if (kotlin.math.abs(scrollDelta) > 1.0f) {
                     listState.animateScrollBy(
                         value = scrollDelta,
-                        animationSpec = spring(
-                            dampingRatio = 0.86f, // 次临界柔和阻尼：零回弹超临界平稳悬停，消除机械顿挫
-                            stiffness = 160f      // 柔和流体刚度：~550ms 连续平滑位移，如轨道摄影机般平滑推进
-                        )
+                        animationSpec = lyricFluidSpring
                     )
                 }
             } else {
-                // 当条目因跳转或切歌脱离视口时，先快速平滑粗定位到视口内部，随后下一帧精确微调
-                val approxPrecedingItems = (targetFocalY / 220f).toInt().coerceIn(1, 3)
-                listState.scrollToItem(
-                    index = (currentLineIndex - approxPrecedingItems).coerceAtLeast(0),
-                    scrollOffset = 0
-                )
+                // 若由于跳转或初次加载导致当前行脱离视口，先顺畅滑动到目标行
+                listState.animateScrollToItem(currentLineIndex)
+                val itemAfter = listState.layoutInfo.visibleItemsInfo.find { it.index == currentLineIndex }
+                if (itemAfter != null && viewportHeight > 0f) {
+                    val itemCenterY = itemAfter.offset.toFloat() + (itemAfter.size.toFloat() / 2f)
+                    val scrollDelta = itemCenterY - targetFocalY
+                    if (kotlin.math.abs(scrollDelta) > 1.0f) {
+                        listState.animateScrollBy(
+                            value = scrollDelta,
+                            animationSpec = lyricFluidSpring
+                        )
+                    }
+                }
             }
         }
     }
@@ -800,7 +808,7 @@ private fun NowPlayingLyricsContent(
                 .graphicsLayer(compositingStrategy = CompositingStrategy.Offscreen)
                 .drawWithContent {
                     drawContent()
-                    // 硬件级上下边缘羽化蒙版：收紧顶部过渡（仅在最顶端 2%~5% 微羽化），杜绝上划浏览时上方文字被蒙版冲淡看不清
+                    // 硬件级上下边缘羽化蒙版 (Apple Music 纯净两端羽化虚空过渡)
                     drawRect(
                         brush = Brush.verticalGradient(
                             0.0f to Color.Transparent,
@@ -832,7 +840,11 @@ private fun NowPlayingLyricsContent(
                     annotation = annotation,
                     isTraditional = isTraditional,
                     isDark = isDark,
-                    onClick = { onLineClicked(line) },
+                    onClick = {
+                        userScrolledAway = false
+                        lastUserDragReleaseTime = 0L
+                        onLineClicked(line)
+                    },
                     onAnnotationClick = {
                         if (annotation != null) {
                             val enriched = if (annotation.lyricTranslation.isNullOrBlank() && line.translation.isNotBlank()) {
@@ -845,12 +857,16 @@ private fun NowPlayingLyricsContent(
             }
         }
 
-        // 浮动返回正在播放位置胶囊 (Apple Music / Spotify 旗舰级体验：脱离播放焦点时温和出现，轻触瞬间丝滑回正)
-        val isScrolledAway = !isCurrentLineVisible && currentLineIndex in lyrics.indices && currentLineIndex >= 0
+        // 浮动返回正在播放位置胶囊 (Apple Music / Spotify 旗舰级体验：脱离播放焦点且离开视口时温和出现，轻触瞬间丝滑回正)
+        val showReturnPill = userScrolledAway && !isUserDragging && !isCurrentLineVisible && currentLineIndex in lyrics.indices && currentLineIndex >= 0
         AnimatedVisibility(
-            visible = isScrolledAway,
-            enter = fadeIn(tween(180)) + slideInVertically(spring(dampingRatio = 0.84f, stiffness = 320f)) { it / 2 } + scaleIn(initialScale = 0.92f),
-            exit = fadeOut(tween(160)) + slideOutVertically(tween(200)) { it / 2 } + scaleOut(targetScale = 0.92f),
+            visible = showReturnPill,
+            enter = fadeIn(spring(dampingRatio = 0.86f, stiffness = 320f)) +
+                    slideInVertically(spring(dampingRatio = 0.86f, stiffness = 320f)) { it / 2 } +
+                    scaleIn(spring(dampingRatio = 0.86f, stiffness = 320f), initialScale = 0.90f),
+            exit = fadeOut(tween(160)) +
+                    slideOutVertically(tween(200)) { it / 2 } +
+                    scaleOut(tween(160), targetScale = 0.90f),
             modifier = Modifier
                 .align(Alignment.BottomCenter)
                 .navigationBarsPadding()
@@ -864,14 +880,37 @@ private fun NowPlayingLyricsContent(
                 shadowElevation = 8.dp,
                 modifier = Modifier.bouncyClickable(pressedScale = 0.93f) {
                     coroutineScope.launch {
-                        isUserBrowsing = false
+                        // 核心：立即重置用户偏离标记，让播放进度跟随立刻接管！
+                        userScrolledAway = false
+                        lastUserDragReleaseTime = 0L
+
                         val viewportHeight = listState.layoutInfo.viewportSize.height.toFloat()
-                        val targetFocalY = if (viewportHeight > 0f) viewportHeight * 0.38f else 320f
-                        val approxPreceding = (targetFocalY / 220f).toInt().coerceIn(1, 3)
-                        listState.animateScrollToItem(
-                            index = (currentLineIndex - approxPreceding).coerceAtLeast(0),
-                            scrollOffset = 0
-                        )
+                        val targetFocalY = if (viewportHeight > 0f) viewportHeight * 0.36f else 300f
+
+                        val visibleItem = listState.layoutInfo.visibleItemsInfo.find { it.index == currentLineIndex }
+                        if (visibleItem != null && viewportHeight > 0f) {
+                            val itemCenterY = visibleItem.offset.toFloat() + (visibleItem.size.toFloat() / 2f)
+                            val scrollDelta = itemCenterY - targetFocalY
+                            if (kotlin.math.abs(scrollDelta) > 1.0f) {
+                                listState.animateScrollBy(
+                                    value = scrollDelta,
+                                    animationSpec = lyricFluidSpring
+                                )
+                            }
+                        } else {
+                            listState.animateScrollToItem(currentLineIndex)
+                            val itemAfter = listState.layoutInfo.visibleItemsInfo.find { it.index == currentLineIndex }
+                            if (itemAfter != null && viewportHeight > 0f) {
+                                val itemCenterY = itemAfter.offset.toFloat() + (itemAfter.size.toFloat() / 2f)
+                                val scrollDelta = itemCenterY - targetFocalY
+                                if (kotlin.math.abs(scrollDelta) > 1.0f) {
+                                    listState.animateScrollBy(
+                                        value = scrollDelta,
+                                        animationSpec = lyricFluidSpring
+                                    )
+                                }
+                            }
+                        }
                     }
                 }
             ) {
@@ -900,7 +939,7 @@ private fun NowPlayingLyricsContent(
 }
 
 /**
- * 单行双语歌词组件 (高对比度纯正无杂色，RenderNode GPU 级合成动画)
+ * 单行双语歌词组件 (Apple Music / Lyricify 级流体物理联动动画)
  */
 @Composable
 private fun LyricLineRow(
@@ -917,7 +956,7 @@ private fun LyricLineRow(
 ) {
     // 空间景深动力学与自由阅读增强 (符合 WCAG AAA 标准)：
     // 1. 当用户处于翻阅/浏览/暂停阅读模式时，视口内所有歌词均保持高对比度与绝对清晰度 (原文 0.78f~1.0f，译文 0.70f~0.95f)；
-    // 2. 常规播放跟随状态下，大幅提高基础对比度下限 (浅色 >= 0.55f，暗色 >= 0.48f)，彻底根除发灰发虚看不清的问题。
+    // 2. 常规播放跟随状态下，活跃行纯白高亮，非活跃行柔和有度 (浅色 >= 0.55f，暗色 >= 0.48f)，层级清晰绝不发虚发灰。
     val targetOriginalAlpha = when {
         isBrowsing -> {
             when (distance) {
@@ -972,29 +1011,37 @@ private fun LyricLineRow(
         }
     }
 
-    // 缩放策略：浏览时全部保持 1.0f 点对点原生矢量栅格化，杜绝 GPU 双线性缩放导致的文字模糊；仅在播放跟随的当前行应用 1.028f 聚光灯聚焦
+    // 缩放策略：仅在实时播放跟随的活跃行应用 1.035f 柔和聚光灯聚焦，浏览时保持 1.0f 纯平点对点
     val targetScale = when {
         isBrowsing -> 1.0f
-        isActive -> 1.028f
+        isActive -> 1.035f
         else -> 1.0f
     }
 
-    // 与视口滚动动效完全同频同步，消除时间错位
+    // 关键：采用与视口垂直滚动物理弹簧（dampingRatio = 0.86f, stiffness = 180f）完全相同曲线
+    // 彻底根除“文字先闪亮放大、再慢速滑动”的脱节生硬感，实现 100% 呼应共振
+    val lyricMotionSpring = remember {
+        spring<Float>(
+            dampingRatio = 0.86f,
+            stiffness = 180f
+        )
+    }
+
     val animatedOriginalAlpha by animateFloatAsState(
         targetValue = targetOriginalAlpha,
-        animationSpec = spring(dampingRatio = 0.85f, stiffness = 220f),
+        animationSpec = lyricMotionSpring,
         label = "origAlpha"
     )
 
     val animatedTransAlpha by animateFloatAsState(
         targetValue = targetTransAlpha,
-        animationSpec = spring(dampingRatio = 0.85f, stiffness = 220f),
+        animationSpec = lyricMotionSpring,
         label = "transAlpha"
     )
 
     val animatedScale by animateFloatAsState(
         targetValue = targetScale,
-        animationSpec = spring(dampingRatio = 0.84f, stiffness = 240f),
+        animationSpec = lyricMotionSpring,
         label = "lineScale"
     )
 
@@ -1011,15 +1058,11 @@ private fun LyricLineRow(
     Column(
         modifier = Modifier
             .fillMaxWidth()
-            .then(
-                if (animatedScale != 1.0f) {
-                    Modifier.graphicsLayer {
-                        scaleX = animatedScale
-                        scaleY = animatedScale
-                        transformOrigin = TransformOrigin(0f, 0.5f)
-                    }
-                } else Modifier
-            )
+            .graphicsLayer {
+                scaleX = animatedScale
+                scaleY = animatedScale
+                transformOrigin = TransformOrigin(0f, 0.5f)
+            }
             .bouncyItemClickable(pressedScale = 0.985f, onClick = onClick)
     ) {
         // 原文歌词：统一使用坚实一致的 FontWeight.Bold，杜绝因 Medium/Bold 突变导致的字宽重排与抽搐
