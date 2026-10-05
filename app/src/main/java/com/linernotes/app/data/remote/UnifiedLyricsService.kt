@@ -264,4 +264,69 @@ object UnifiedLyricsService {
         }
         return true
     }
+
+    /**
+     * 手动搜索歌词版本候选（跨网易云/QQ音乐并发搜索，带时长差异与双语标记智能排序）
+     */
+    suspend fun searchLyricCandidates(
+        query: String,
+        targetDurationMs: Long = 0L
+    ): List<com.linernotes.app.domain.model.LyricCandidateItem> = supervisorScope {
+        if (query.isBlank()) return@supervisorScope emptyList()
+
+        val neteaseDeferred = async {
+            runCatching { NetEaseLyricsService.searchRawCandidates(query, limit = 8) }.getOrDefault(emptyList())
+        }
+        val qqDeferred = async {
+            runCatching { QQMusicLyricsService.searchRawCandidates(query, limit = 8) }.getOrDefault(emptyList())
+        }
+
+        val neteaseList = neteaseDeferred.await()
+        val qqList = qqDeferred.await()
+
+        val combined = (neteaseList + qqList).toMutableList()
+
+        // 智能排序：
+        // 1. 若有时长匹配，时长误差 <= 4s 的排前面
+        // 2. 有双语翻译标记的排前面
+        combined.sortWith(
+            compareByDescending<com.linernotes.app.domain.model.LyricCandidateItem> { item ->
+                var weight = 0
+                if (item.hasTranslation) weight += 100
+                if (targetDurationMs > 0L && item.durationMs > 0L) {
+                    val diffSec = Math.abs(targetDurationMs - item.durationMs) / 1000L
+                    if (diffSec <= 3L) weight += 200
+                    else if (diffSec <= 8L) weight += 120
+                    else if (diffSec <= 15L) weight += 60
+                }
+                weight
+            }
+        )
+
+        combined
+    }
+
+    /**
+     * 精确拉取指定候选版本的在线歌词与双语翻译
+     */
+    suspend fun fetchLyricForCandidate(
+        candidate: com.linernotes.app.domain.model.LyricCandidateItem
+    ): OnlineLyricsResult? {
+        val result = when (candidate.source) {
+            com.linernotes.app.domain.model.LyricSource.NETEASE -> {
+                val songId = candidate.sourceId.toLongOrNull() ?: return null
+                NetEaseLyricsService.fetchLyricById(songId, candidate.title, candidate.artist)
+            }
+            com.linernotes.app.domain.model.LyricSource.QQ_MUSIC -> {
+                QQMusicLyricsService.fetchLyricByMid(
+                    songmid = candidate.sourceId,
+                    fallbackTitle = candidate.title,
+                    fallbackArtist = candidate.artist,
+                    albummid = candidate.extraKey,
+                    durationMs = candidate.durationMs
+                )
+            }
+        }
+        return result?.let { sanitizeResult(it, null) }
+    }
 }

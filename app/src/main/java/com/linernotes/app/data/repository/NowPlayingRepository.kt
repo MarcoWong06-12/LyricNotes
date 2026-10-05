@@ -256,20 +256,40 @@ class NowPlayingRepository @Inject constructor(
                 if (fetchedLyrics.isNotEmpty()) return@async
                 try {
                     val curState = playbackStateManager.playbackState.value
-                    var rawResult = UnifiedLyricsService.fetchLyrics(
-                        trackTitle = title,
-                        artistName = artist,
-                        sourcePref = aiPreferences.lyricsSource,
-                        targetDurationMs = curState.durationMs
-                    )
+                    val manualBinding = aiPreferences.getManualLyricBinding(title, artist)
+                    var rawResult: OnlineLyricsResult? = null
 
-                    // 如果首次抓取落空（例如冷启动多源并发争抢导致超时），延时 300ms 进行一次直接直连兜底
+                    if (manualBinding != null) {
+                        if (manualBinding.source == com.linernotes.app.domain.model.LyricSource.NETEASE.name) {
+                            val songId = manualBinding.sourceId.toLongOrNull() ?: 0L
+                            rawResult = NetEaseLyricsService.fetchLyricById(songId, title, artist)
+                        } else if (manualBinding.source == com.linernotes.app.domain.model.LyricSource.QQ_MUSIC.name) {
+                            rawResult = QQMusicLyricsService.fetchLyricByMid(
+                                songmid = manualBinding.sourceId,
+                                fallbackTitle = title,
+                                fallbackArtist = artist,
+                                albummid = manualBinding.extraKey,
+                                durationMs = curState.durationMs
+                            )
+                        }
+                    }
+
                     if (rawResult == null || rawResult.originalLyrics.isBlank()) {
-                        kotlinx.coroutines.delay(300)
-                        rawResult = NetEaseLyricsService.fetchLyrics(title, artist, curState.durationMs)
-                            ?: QQMusicLyricsService.fetchLyrics(title, artist, curState.durationMs)
-                            ?: KugouLyricsService.fetchLyrics(title, artist, curState.durationMs)
-                            ?: LrclibLyricsService.fetchLyrics(title, artist, curState.durationMs)
+                        rawResult = UnifiedLyricsService.fetchLyrics(
+                            trackTitle = title,
+                            artistName = artist,
+                            sourcePref = aiPreferences.lyricsSource,
+                            targetDurationMs = curState.durationMs
+                        )
+
+                        // 如果首次抓取落空（例如冷启动多源并发争抢导致超时），延时 300ms 进行一次直接直连兜底
+                        if (rawResult == null || rawResult.originalLyrics.isBlank()) {
+                            kotlinx.coroutines.delay(300)
+                            rawResult = NetEaseLyricsService.fetchLyrics(title, artist, curState.durationMs)
+                                ?: QQMusicLyricsService.fetchLyrics(title, artist, curState.durationMs)
+                                ?: KugouLyricsService.fetchLyrics(title, artist, curState.durationMs)
+                                ?: LrclibLyricsService.fetchLyrics(title, artist, curState.durationMs)
+                        }
                     }
 
                     if (rawResult != null && rawResult.originalLyrics.isNotBlank()) {
@@ -911,4 +931,76 @@ class NowPlayingRepository @Inject constructor(
     fun toggleShuffle() = playbackStateManager.toggleShuffle()
     fun cycleRepeatMode() = playbackStateManager.cycleRepeatMode()
     fun skipToQueueItem(item: QueueTrackItem) = playbackStateManager.skipToQueueItem(item)
+
+    fun hasManualBinding(title: String, artist: String): Boolean =
+        aiPreferences.hasManualLyricBinding(title, artist)
+
+    suspend fun searchLyricCandidates(query: String): List<com.linernotes.app.domain.model.LyricCandidateItem> {
+        val curDuration = playbackStateManager.playbackState.value.durationMs
+        return UnifiedLyricsService.searchLyricCandidates(query, curDuration)
+    }
+
+    suspend fun applyManualCandidate(
+        candidate: com.linernotes.app.domain.model.LyricCandidateItem,
+        trackTitle: String,
+        artistName: String
+    ): Boolean = withContext(Dispatchers.IO) {
+        aiPreferences.saveManualLyricBinding(
+            title = trackTitle,
+            artist = artistName,
+            source = candidate.source.name,
+            sourceId = candidate.sourceId,
+            extraKey = candidate.extraKey
+        )
+
+        val rawResult = UnifiedLyricsService.fetchLyricForCandidate(candidate)
+        if (rawResult != null && rawResult.originalLyrics.isNotBlank()) {
+            var origLyrics = rawResult.originalLyrics
+            var transLyrics = rawResult.translatedLyrics
+
+            if (transLyrics.isNullOrBlank()) {
+                try {
+                    val transResult = translationService.translateTrack(trackTitle, origLyrics)
+                    if (transResult != null && transResult.translatedLyrics.isNotBlank()) {
+                        transLyrics = transResult.translatedLyrics
+                    }
+                } catch (e: Exception) {
+                    // ignore
+                }
+            }
+
+            val aligned = LyricAligner.align(origLyrics, transLyrics)
+            if (aligned.isNotEmpty()) {
+                val songKey = "${artistName.trim()}_${trackTitle.trim()}".lowercase()
+                val curData = _nowPlayingData.value
+                val updatedCache = CachedSongData(
+                    lyrics = aligned,
+                    annotatedLines = curData.annotatedLines,
+                    songStory = curData.songStory,
+                    geniusNotice = curData.geniusNoticeMessage
+                )
+                memoryCache[songKey] = updatedCache
+                _nowPlayingData.update {
+                    it.copy(
+                        lyrics = aligned,
+                        isLoadingLyrics = false
+                    )
+                }
+                if (!candidate.coverUrl.isNullOrBlank()) {
+                    val cur = playbackStateManager.playbackState.value
+                    if (cur.coverUrl.isNullOrBlank() || cur.coverUrl.startsWith("/")) {
+                        playbackStateManager.updateState(cur.copy(coverUrl = candidate.coverUrl))
+                    }
+                }
+                return@withContext true
+            }
+        }
+        return@withContext false
+    }
+
+    suspend fun resetManualLyricBinding(trackTitle: String, artistName: String) = withContext(Dispatchers.IO) {
+        aiPreferences.clearManualLyricBinding(trackTitle, artistName)
+        reloadLyrics()
+    }
 }
+

@@ -185,14 +185,62 @@ object NetEaseLyricsService {
         return fetchedResults.maxByOrNull { (cand, _) -> cand.score }?.second
     }
 
-    private suspend fun searchSongs(query: String): JSONArray? {
+    suspend fun searchRawCandidates(query: String, limit: Int = 8): List<com.linernotes.app.domain.model.LyricCandidateItem> = withContext(Dispatchers.IO) {
+        val songs = searchSongs(query, limit) ?: return@withContext emptyList()
+        val list = mutableListOf<com.linernotes.app.domain.model.LyricCandidateItem>()
+        for (i in 0 until songs.length()) {
+            val s = songs.optJSONObject(i) ?: continue
+            val id = s.optLong("id", 0L)
+            if (id <= 0L) continue
+            val title = s.optString("name", "")
+            val artists = s.optJSONArray("ar") ?: s.optJSONArray("artists")
+            val artist = if (artists != null) {
+                (0 until artists.length()).mapNotNull { idx -> artists.optJSONObject(idx)?.optString("name") }.joinToString(", ")
+            } else ""
+            val alObj = s.optJSONObject("al") ?: s.optJSONObject("album")
+            val album = alObj?.optString("name", "") ?: ""
+            val cover = alObj?.optString("picUrl")?.takeIf { it.isNotBlank() }
+            val durationMs = s.optLong("dt", 0L).takeIf { it > 0 } ?: s.optLong("duration", 0L)
+            list.add(
+                com.linernotes.app.domain.model.LyricCandidateItem(
+                    source = com.linernotes.app.domain.model.LyricSource.NETEASE,
+                    sourceId = id.toString(),
+                    title = title,
+                    artist = artist,
+                    album = album,
+                    durationMs = durationMs,
+                    coverUrl = cover
+                )
+            )
+        }
+        // 并发探测前 6 个候选是否具备官方双语翻译
+        supervisorScope {
+            list.take(6).map { item ->
+                async {
+                    val lyricUrl = "$LYRIC_API?id=${item.sourceId}&lv=1&kv=1&tv=1"
+                    val json = LinerNotesHttpClient.getAsync(lyricUrl, HEADERS)
+                    if (json != null) {
+                        try {
+                            val root = JSONObject(json)
+                            val tlyric = root.optJSONObject("tlyric")?.optString("lyric", "")?.trim() ?: ""
+                            if (tlyric.isNotBlank()) {
+                                item.copy(hasTranslation = true)
+                            } else item
+                        } catch (e: Exception) { item }
+                    } else item
+                }
+            }.awaitAll()
+        } + list.drop(6)
+    }
+
+    private suspend fun searchSongs(query: String, limit: Int = 5): JSONArray? {
         // 首选 CloudSearch POST
         try {
             val postParams = mapOf(
                 "s" to query,
                 "type" to "1",
                 "offset" to "0",
-                "limit" to "5"
+                "limit" to limit.toString()
             )
             val jsonStr = LinerNotesHttpClient.postFormAsync(CLOUD_SEARCH_API, postParams, HEADERS)
             if (!jsonStr.isNullOrBlank()) {
@@ -210,7 +258,7 @@ object NetEaseLyricsService {
         // 回退 WebSearch GET
         return try {
             val encQuery = URLEncoder.encode(query, "UTF-8")
-            val getUrl = "$WEB_SEARCH_API?s=$encQuery&type=1&limit=5"
+            val getUrl = "$WEB_SEARCH_API?s=$encQuery&type=1&limit=$limit"
             val jsonStr = LinerNotesHttpClient.getAsync(getUrl, HEADERS) ?: return null
             val root = JSONObject(jsonStr)
             root.optJSONObject("result")?.optJSONArray("songs")

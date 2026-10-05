@@ -129,4 +129,44 @@ class AiPreferences @Inject constructor(
                 entries.find { it.code.equals(code, ignoreCase = true) } ?: SYSTEM
         }
     }
+
+    data class ManualBinding(
+        val source: String,
+        val sourceId: String,
+        val extraKey: String = ""
+    )
+
+    fun getManualLyricBinding(title: String, artist: String): ManualBinding? {
+        val key = "manual_lyric_${normalizeKey(title, artist)}"
+        val str = prefs.getString(key, null) ?: return null
+        val parts = str.split("|")
+        if (parts.size >= 2) {
+            return ManualBinding(
+                source = parts[0],
+                sourceId = parts[1],
+                extraKey = if (parts.size > 2) parts[2] else ""
+            )
+        }
+        return null
+    }
+
+    fun saveManualLyricBinding(title: String, artist: String, source: String, sourceId: String, extraKey: String = "") {
+        val key = "manual_lyric_${normalizeKey(title, artist)}"
+        prefs.edit().putString(key, "$source|$sourceId|$extraKey").apply()
+    }
+
+    fun clearManualLyricBinding(title: String, artist: String) {
+        val key = "manual_lyric_${normalizeKey(title, artist)}"
+        prefs.edit().remove(key).apply()
+    }
+
+    fun hasManualLyricBinding(title: String, artist: String): Boolean {
+        val key = "manual_lyric_${normalizeKey(title, artist)}"
+        return prefs.contains(key)
+    }
+
+    private fun normalizeKey(title: String, artist: String): String {
+        return "${artist.trim().lowercase()}_${title.trim().lowercase()}".replace(Regex("[^a-zA-Z0-9\u4e00-\u9fa5]"), "")
+    }
 }
+

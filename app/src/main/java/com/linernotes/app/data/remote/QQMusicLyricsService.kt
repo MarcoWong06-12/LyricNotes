@@ -45,6 +45,98 @@ object QQMusicLyricsService {
     }
 
 
+    suspend fun fetchLyricByMid(
+        songmid: String,
+        fallbackTitle: String = "",
+        fallbackArtist: String = "",
+        albummid: String = "",
+        durationMs: Long = 0L
+    ): OnlineLyricsResult? = withContext(Dispatchers.IO) {
+        if (songmid.isBlank()) return@withContext null
+        val matchedCover = if (albummid.isNotBlank()) "https://y.gtimg.cn/music/photo_new/T002R300x300M000${albummid}.jpg" else null
+        val lyricUrl = "$LYRIC_API?songmid=$songmid&format=json&nobase64=1"
+        val lyricJson = LinerNotesHttpClient.getAsync(lyricUrl, LYRIC_HEADERS) ?: return@withContext null
+        return@withContext try {
+            val lyricRoot = JSONObject(lyricJson)
+            var rawLrc = lyricRoot.optString("lyric", "")
+            var rawTrans = lyricRoot.optString("trans", "")
+            if (isBase64(rawLrc)) rawLrc = decodeBase64(rawLrc)
+            if (isBase64(rawTrans)) rawTrans = decodeBase64(rawTrans)
+            if (rawLrc.isBlank()) return@withContext null
+            val alignedPair = LyricAligner.alignLrcTimestamps(rawLrc, rawTrans)
+            OnlineLyricsResult(
+                songId = 0L,
+                title = fallbackTitle,
+                artist = fallbackArtist,
+                originalLyrics = alignedPair.first,
+                translatedLyrics = alignedPair.second.ifBlank { null },
+                isBilingual = alignedPair.second.isNotBlank(),
+                coverUrl = matchedCover,
+                durationMs = durationMs
+            )
+        } catch (e: Exception) {
+            null
+        }
+    }
+
+    suspend fun searchRawCandidates(query: String, limit: Int = 8): List<com.linernotes.app.domain.model.LyricCandidateItem> = withContext(Dispatchers.IO) {
+        try {
+            val encodedQuery = URLEncoder.encode(query, "UTF-8")
+            val searchUrl = "$SEARCH_API?p=1&n=$limit&w=$encodedQuery&format=json"
+            val searchJson = LinerNotesHttpClient.getAsync(searchUrl, SEARCH_HEADERS) ?: return@withContext emptyList()
+            val searchRoot = JSONObject(searchJson)
+            val songList = searchRoot.optJSONObject("data")?.optJSONObject("song")?.optJSONArray("list") ?: return@withContext emptyList()
+            val list = mutableListOf<com.linernotes.app.domain.model.LyricCandidateItem>()
+            for (i in 0 until songList.length()) {
+                val s = songList.optJSONObject(i) ?: continue
+                val songmid = s.optString("songmid", "")
+                if (songmid.isBlank()) continue
+                val title = s.optString("songname", "")
+                val singers = s.optJSONArray("singer")
+                val artist = if (singers != null) {
+                    (0 until singers.length()).mapNotNull { idx -> singers.optJSONObject(idx)?.optString("name") }.joinToString(", ")
+                } else ""
+                val album = s.optString("albumname", "")
+                val albummid = s.optString("albummid", "")
+                val cover = if (albummid.isNotBlank()) "https://y.gtimg.cn/music/photo_new/T002R300x300M000${albummid}.jpg" else null
+                val durationMs = s.optLong("interval", 0L) * 1000L
+                list.add(
+                    com.linernotes.app.domain.model.LyricCandidateItem(
+                        source = com.linernotes.app.domain.model.LyricSource.QQ_MUSIC,
+                        sourceId = songmid,
+                        extraKey = albummid,
+                        title = title,
+                        artist = artist,
+                        album = album,
+                        durationMs = durationMs,
+                        coverUrl = cover
+                    )
+                )
+            }
+            // 并发探测前 6 个候选是否具备官方双语翻译
+            supervisorScope {
+                list.take(6).map { item ->
+                    async {
+                        val lyricUrl = "$LYRIC_API?songmid=${item.sourceId}&format=json&nobase64=1"
+                        val json = LinerNotesHttpClient.getAsync(lyricUrl, LYRIC_HEADERS)
+                        if (json != null) {
+                            try {
+                                val root = JSONObject(json)
+                                var trans = root.optString("trans", "")
+                                if (isBase64(trans)) trans = decodeBase64(trans)
+                                if (trans.isNotBlank()) {
+                                    item.copy(hasTranslation = true)
+                                } else item
+                            } catch (e: Exception) { item }
+                        } else item
+                    }
+                }.awaitAll()
+            } + list.drop(6)
+        } catch (e: Exception) {
+            emptyList()
+        }
+    }
+
     private data class ScoredCandidate(
         val songJson: JSONObject,
         val score: Int

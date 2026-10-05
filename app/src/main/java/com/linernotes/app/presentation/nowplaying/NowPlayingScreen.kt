@@ -101,6 +101,7 @@ fun NowPlayingScreen(
         { annotation: LyricAnnotationEntity -> viewModel.openGeniusAnnotation(annotation) }
     }
     val onRetryLyrics: () -> Unit = remember(viewModel) { { viewModel.reloadLyrics() } }
+    val onOpenManualSearch: () -> Unit = remember(viewModel) { { viewModel.openManualSearchSheet() } }
     val onOpenSongStory: () -> Unit = remember(viewModel) { { viewModel.openSongStory() } }
     val onOpenQueue: () -> Unit = remember(viewModel) { { viewModel.openQueueSheet() } }
     val onOpenSettings: () -> Unit = remember(viewModel) { { viewModel.openSettings() } }
@@ -130,7 +131,7 @@ fun NowPlayingScreen(
         )
 
         // 2. 核心主内容区 (歌词全屏贯通，并在呼出底部抽屉时呈现 iOS / Apple Music 规范的流体视差微下沉)
-        val isAnySheetOpen = state.isSettingsSheetOpen || state.isGeniusSheetOpen || state.isSongStorySheetOpen || state.isQueueSheetOpen
+        val isAnySheetOpen = state.isSettingsSheetOpen || state.isGeniusSheetOpen || state.isSongStorySheetOpen || state.isQueueSheetOpen || state.isManualSearchSheetOpen
         val contentParallaxScale by animateFloatAsState(
             targetValue = if (isAnySheetOpen) 0.958f else 1.0f,
             animationSpec = spring(dampingRatio = 0.86f, stiffness = 380f),
@@ -164,7 +165,8 @@ fun NowPlayingScreen(
                     showPlaybackControls = state.showPlaybackControls,
                     onLineClicked = onLineClicked,
                     onAnnotationClicked = onAnnotationClicked,
-                    onRetryLyrics = onRetryLyrics
+                    onRetryLyrics = onRetryLyrics,
+                    onOpenManualSearch = onOpenManualSearch
                 )
             } else {
                 NowPlayingIdleContent(
@@ -336,7 +338,27 @@ fun NowPlayingScreen(
                 onToggleDeCensor = { viewModel.toggleDeCensor() },
                 onTogglePlaybackControls = { viewModel.togglePlaybackControls() },
                 onReloadLyrics = { viewModel.reloadLyrics() },
+                onOpenManualSearch = onOpenManualSearch,
                 onDismiss = { viewModel.closeSettings() }
+            )
+        }
+
+        // 手动搜索与更换歌词版本抽屉
+        if (state.isManualSearchSheetOpen) {
+            com.linernotes.app.presentation.nowplaying.components.ManualLyricSearchSheet(
+                trackTitle = trackState.title,
+                artistName = trackState.artist,
+                targetDurationMs = trackState.durationMs,
+                candidates = state.manualCandidates,
+                isSearching = state.isSearchingCandidates,
+                isApplying = state.isApplyingCandidate,
+                hasManualBinding = state.hasManualBinding,
+                errorMessage = state.candidateSearchError,
+                isTraditional = state.isTraditionalChinese,
+                onSearch = { query -> viewModel.searchCandidates(query) },
+                onSelectCandidate = { candidate -> viewModel.selectCandidate(candidate) },
+                onResetToAutoMatch = { viewModel.resetToAutoMatch() },
+                onDismiss = { viewModel.closeManualSearchSheet() }
             )
         }
 
@@ -613,7 +635,8 @@ private fun NowPlayingLyricsContent(
     showPlaybackControls: Boolean = true,
     onLineClicked: (BilingualLyricLine) -> Unit,
     onAnnotationClicked: (LyricAnnotationEntity) -> Unit,
-    onRetryLyrics: () -> Unit = {}
+    onRetryLyrics: () -> Unit = {},
+    onOpenManualSearch: () -> Unit = {}
 ) {
     if (isLoadingLyrics && lyrics.isEmpty()) {
         Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
@@ -643,7 +666,7 @@ private fun NowPlayingLyricsContent(
             Column(
                 horizontalAlignment = Alignment.CenterHorizontally,
                 verticalArrangement = Arrangement.spacedBy(16.dp),
-                modifier = Modifier.padding(horizontal = 32.dp)
+                modifier = Modifier.padding(horizontal = 24.dp)
             ) {
                 Text(
                     text = if (isTraditional) "暫無帶時間軸的歌詞" else "暂无带时间轴的歌词",
@@ -651,31 +674,65 @@ private fun NowPlayingLyricsContent(
                     fontSize = 15.sp,
                     fontFamily = FontFamily.SansSerif
                 )
-                Surface(
-                    color = if (isDark) Color.White.copy(alpha = 0.12f) else MaterialTheme.colorScheme.surfaceVariant,
-                    shape = RoundedCornerShape(20.dp),
-                    border = BorderStroke(1.dp, if (isDark) Color.White.copy(alpha = 0.18f) else Color.Black.copy(alpha = 0.10f)),
-                    modifier = Modifier
-                        .bouncyClickable(pressedScale = 0.94f) { onRetryLyrics() }
+
+                Row(
+                    horizontalArrangement = Arrangement.spacedBy(10.dp),
+                    verticalAlignment = Alignment.CenterVertically
                 ) {
-                    Row(
-                        modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(6.dp)
+                    Surface(
+                        color = if (isDark) Color.White.copy(alpha = 0.12f) else MaterialTheme.colorScheme.surfaceVariant,
+                        shape = RoundedCornerShape(20.dp),
+                        border = BorderStroke(1.dp, if (isDark) Color.White.copy(alpha = 0.18f) else Color.Black.copy(alpha = 0.10f)),
+                        modifier = Modifier
+                            .bouncyClickable(pressedScale = 0.94f) { onRetryLyrics() }
                     ) {
-                        Icon(
-                            imageVector = Icons.Default.Refresh,
-                            contentDescription = "重新检索",
-                            tint = if (isDark) Color.White else MaterialTheme.colorScheme.onSurface,
-                            modifier = Modifier.size(16.dp)
-                        )
-                        Text(
-                            text = if (isTraditional) "重新檢索歌詞" else "重新检索歌词",
-                            color = if (isDark) Color.White else MaterialTheme.colorScheme.onSurface,
-                            fontSize = 13.sp,
-                            fontWeight = FontWeight.SemiBold,
-                            fontFamily = FontFamily.SansSerif
-                        )
+                        Row(
+                            modifier = Modifier.padding(horizontal = 14.dp, vertical = 8.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(6.dp)
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.Refresh,
+                                contentDescription = "重新检索",
+                                tint = if (isDark) Color.White else MaterialTheme.colorScheme.onSurface,
+                                modifier = Modifier.size(15.dp)
+                            )
+                            Text(
+                                text = if (isTraditional) "重新檢索" else "重新检索",
+                                color = if (isDark) Color.White else MaterialTheme.colorScheme.onSurface,
+                                fontSize = 13.sp,
+                                fontWeight = FontWeight.SemiBold,
+                                fontFamily = FontFamily.SansSerif
+                            )
+                        }
+                    }
+
+                    Surface(
+                        color = if (isDark) Color(0xFF1E2235) else Color(0xFFE8EBF5),
+                        shape = RoundedCornerShape(20.dp),
+                        border = BorderStroke(1.dp, if (isDark) Color(0xFF333852) else Color(0xFFD0D5E5)),
+                        modifier = Modifier
+                            .bouncyClickable(pressedScale = 0.94f) { onOpenManualSearch() }
+                    ) {
+                        Row(
+                            modifier = Modifier.padding(horizontal = 14.dp, vertical = 8.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(6.dp)
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.Search,
+                                contentDescription = "手动搜歌词",
+                                tint = if (isDark) Color(0xFF1ED760) else Color(0xFF0A8F3F),
+                                modifier = Modifier.size(15.dp)
+                            )
+                            Text(
+                                text = if (isTraditional) "手動搜歌詞" else "手动搜歌词",
+                                color = if (isDark) Color.White else MaterialTheme.colorScheme.onSurface,
+                                fontSize = 13.sp,
+                                fontWeight = FontWeight.SemiBold,
+                                fontFamily = FontFamily.SansSerif
+                            )
+                        }
                     }
                 }
             }

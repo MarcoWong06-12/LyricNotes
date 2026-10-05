@@ -66,6 +66,7 @@ fun LyricNotesSettingsSheet(
     onToggleDeCensor: () -> Unit,
     onTogglePlaybackControls: () -> Unit,
     onReloadLyrics: () -> Unit,
+    onOpenManualSearch: () -> Unit = {},
     onDismiss: () -> Unit
 ) {
     val context = LocalContext.current
@@ -869,7 +870,44 @@ fun LyricNotesSettingsSheet(
                 }
             }
 
-            // 6. 快捷操作
+            // 6. 搜索与更换歌词版本入口
+            Surface(
+                color = if (isDark) Color(0xFF1E2235) else Color(0xFFE8EBF5),
+                shape = RoundedCornerShape(14.dp),
+                border = BorderStroke(1.dp, if (isDark) Color(0xFF333852) else Color(0xFFD0D5E5)),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(48.dp)
+                    .bouncyClickable(
+                        pressedScale = 0.96f,
+                        onClick = {
+                            onDismiss()
+                            onOpenManualSearch()
+                        }
+                    )
+            ) {
+                Row(
+                    modifier = Modifier.fillMaxSize(),
+                    horizontalArrangement = Arrangement.Center,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.Search,
+                        contentDescription = null,
+                        tint = if (isDark) Color(0xFF1ED760) else Color(0xFF0A8F3F),
+                        modifier = Modifier.size(18.dp)
+                    )
+                    Spacer(modifier = Modifier.width(8.dp))
+                    Text(
+                        text = if (isTraditionalChinese) "更換歌詞版本 / 手動搜歌詞" else "更换歌词版本 / 手动搜歌词",
+                        fontSize = 14.sp,
+                        color = textPrimary,
+                        fontWeight = FontWeight.SemiBold
+                    )
+                }
+            }
+
+            // 7. 快捷操作
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.spacedBy(12.dp)

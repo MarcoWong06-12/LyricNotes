@@ -39,6 +39,13 @@ data class NowPlayingUiState(
     val showPlaybackControls: Boolean = true,
     val lyricOffsetMs: Long = -200L,
     val isQueueSheetOpen: Boolean = false,
+    val isManualSearchSheetOpen: Boolean = false,
+    val manualSearchQuery: String = "",
+    val manualCandidates: List<com.linernotes.app.domain.model.LyricCandidateItem> = emptyList(),
+    val isSearchingCandidates: Boolean = false,
+    val isApplyingCandidate: Boolean = false,
+    val hasManualBinding: Boolean = false,
+    val candidateSearchError: String? = null,
     val userMessage: String? = null
 )
 
@@ -345,4 +352,96 @@ class NowPlayingViewModel @Inject constructor(
     fun skipToQueueItem(item: QueueTrackItem) {
         nowPlayingRepository.skipToQueueItem(item)
     }
+
+    private var candidateSearchJob: kotlinx.coroutines.Job? = null
+
+    fun openManualSearchSheet() {
+        val curTrack = _uiState.value.nowPlayingData.playbackState
+        val defaultQuery = "${curTrack.title} ${curTrack.artist}".trim()
+        val hasBinding = nowPlayingRepository.hasManualBinding(curTrack.title, curTrack.artist)
+        _uiState.update {
+            it.copy(
+                isManualSearchSheetOpen = true,
+                isSettingsSheetOpen = false,
+                manualSearchQuery = defaultQuery,
+                manualCandidates = emptyList(),
+                isSearchingCandidates = false,
+                candidateSearchError = null,
+                hasManualBinding = hasBinding
+            )
+        }
+        if (defaultQuery.isNotBlank()) {
+            searchCandidates(defaultQuery)
+        }
+    }
+
+    fun closeManualSearchSheet() {
+        candidateSearchJob?.cancel()
+        _uiState.update { it.copy(isManualSearchSheetOpen = false) }
+    }
+
+    fun searchCandidates(query: String) {
+        candidateSearchJob?.cancel()
+        _uiState.update {
+            it.copy(
+                manualSearchQuery = query,
+                isSearchingCandidates = true,
+                candidateSearchError = null
+            )
+        }
+        candidateSearchJob = viewModelScope.launch {
+            try {
+                val results = nowPlayingRepository.searchLyricCandidates(query)
+                _uiState.update {
+                    it.copy(
+                        manualCandidates = results,
+                        isSearchingCandidates = false,
+                        candidateSearchError = if (results.isEmpty()) "未找到相关歌词版本" else null
+                    )
+                }
+            } catch (e: Exception) {
+                _uiState.update {
+                    it.copy(
+                        isSearchingCandidates = false,
+                        candidateSearchError = "搜索失败，请稍后重试"
+                    )
+                }
+            }
+        }
+    }
+
+    fun selectCandidate(candidate: com.linernotes.app.domain.model.LyricCandidateItem) {
+        val curTrack = _uiState.value.nowPlayingData.playbackState
+        _uiState.update { it.copy(isApplyingCandidate = true) }
+        viewModelScope.launch {
+            val success = nowPlayingRepository.applyManualCandidate(
+                candidate = candidate,
+                trackTitle = curTrack.title,
+                artistName = curTrack.artist
+            )
+            _uiState.update {
+                it.copy(
+                    isApplyingCandidate = false,
+                    isManualSearchSheetOpen = false,
+                    hasManualBinding = true,
+                    userMessage = if (success) "已切换并绑定该版本歌词" else "获取该版本歌词失败"
+                )
+            }
+        }
+    }
+
+    fun resetToAutoMatch() {
+        val curTrack = _uiState.value.nowPlayingData.playbackState
+        viewModelScope.launch {
+            nowPlayingRepository.resetManualLyricBinding(curTrack.title, curTrack.artist)
+            _uiState.update {
+                it.copy(
+                    isManualSearchSheetOpen = false,
+                    hasManualBinding = false,
+                    userMessage = "已恢复为智能自动匹配"
+                )
+            }
+        }
+    }
 }
+
