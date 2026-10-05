@@ -372,46 +372,7 @@ class TranslationService(
             res = res.replace("娶了一个", "迎娶了")
         }
 
-        // 3. 常见欧美说唱/街头金句与典型机翻笑话校正
-        if (origLower.contains("running for your jewels") || origLower.contains("runnin' for your jewels") || origLower.contains("for your jewels") || origLower.contains("for the jewels")) {
-            res = res.replace("为你的珠宝而奔跑", "抢夺洗劫你的金链首饰")
-                .replace("为你的珠宝奔跑", "冲着抢劫你的金饰")
-                .replace("为了你的珠宝而奔跑", "冲着洗劫你的金银首饰")
-        }
-        if (origLower.contains("how i'll leave ya") || origLower.contains("how i'll leave you") || origLower.contains("how i leave ya")) {
-            res = res.replace("我怎么离开你", "我会把你收拾成什么凄惨死样")
-                .replace("我如何离开你", "我会把你收拾成什么死样")
-                .replace("我是怎么离开你", "我会把你处置成什么下场")
-        }
-        if (origLower.contains("steady gunning") || origLower.contains("steady gunnin")) {
-            res = res.replace("稳扎稳打", "枪火连番扫射")
-                .replace("平稳射击", "火力全开扫射")
-        }
-        if (origLower.contains("busting at") || origLower.contains("bustin' at") || origLower.contains("bustin at")) {
-            res = res.replace("继续打击那些笨蛋", "继续狠狠收拾开火痛击那帮蠢货")
-                .replace("打击那些笨蛋", "狠狠收拾那帮蠢货")
-                .replace("打击那些傻瓜", "狠狠收拾那帮蠢货")
-        }
-        if (origLower.contains("mark-ass") || origLower.contains("mark ass")) {
-            res = res.replace("一些混蛋", "一帮软蛋窝囊废")
-                .replace("混蛋", "软蛋窝囊废")
-        }
-        if (origLower.contains("hit 'em up") || origLower.contains("hit em up")) {
-            res = res.replace("打他们", "痛击干翻他们")
-                .replace("击中他们", "狠狠痛击他们")
-        }
-        if (origLower.contains("when we ride") || origLower.contains("while we ride")) {
-            res = res.replace("当我们骑在", "当我们出动扫荡")
-                .replace("当我们骑", "当我们街头冲锋出动")
-        }
-        if (origLower.contains("fucked for life") || origLower.contains("f**ked for life")) {
-            res = res.replace("一辈子被操", "这辈子彻底完蛋")
-                .replace("终身被操", "这辈子彻底完蛋")
-        }
-        if (origLower.contains("bad boy killas") || origLower.contains("bad boy killa")) {
-            res = res.replace("坏男孩基拉", "坏男孩杀手")
-                .replace("坏男孩琪拉", "坏男孩杀手")
-        }
+        // 3. 通用 Hip-Hop / 流行文化高频俚语与行话校正
         if (origLower.contains("no cap")) {
             res = res.replace("没有帽子", "绝无虚言(不吹牛)")
                 .replace("没帽子", "真话不吹牛")
@@ -436,6 +397,7 @@ class TranslationService(
             res = res.replace("想要抽烟", "存心找茬挑事")
                 .replace("想要吸烟", "上门挑事开战")
         }
+
 
         return res
     }

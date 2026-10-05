@@ -77,32 +77,39 @@ class TranslationServiceTest {
     fun testRefineMusicSlang_hipHopIdioms() {
         val service = TranslationService()
 
-        // 1. running for your jewels
+        // 1. no cap
         val r1 = service.refineMusicSlang(
-            "当我们为你的珠宝而奔跑时，我们不断地来",
-            "We keep on coming while we running for your jewels"
+            "我说的是真的没有帽子",
+            "I'm telling the truth no cap"
         )
-        assertEquals("当我们抢夺洗劫你的金链首饰时，我们不断地来", r1)
+        assertEquals("我说的是真的绝无虚言(不吹牛)", r1)
 
-        // 2. how I'll leave ya
+        // 2. iced out
         val r2 = service.refineMusicSlang(
-            "小凯撒，去问问你的朋友我怎么离开你",
-            "Lil Caesar, go ask your homie how I'll leave ya"
+            "我的手腕结冰了",
+            "My wrist is iced out"
         )
-        assertEquals("小凯撒，去问问你的朋友我会把你收拾成什么凄惨死样", r2)
+        assertEquals("我的手腕满身闪耀钻石珠宝", r2)
 
-        // 3. steady gunning, busting at fools
+        // 3. drop top
         val r3 = service.refineMusicSlang(
-            "稳扎稳打，继续打击那些笨蛋，你知道规矩的",
-            "Steady gunning, keep on busting at them fools, you know the rules"
+            "开着一辆下沉顶部",
+            "Riding in a drop top"
         )
-        assertEquals("枪火连番扫射，继续狠狠收拾开火痛击那帮蠢货，你知道规矩的", r3)
+        assertEquals("开着一辆敞篷跑车", r3)
 
-        // 4. mark-ass
+        // 4. pull up
         val r4 = service.refineMusicSlang(
-            "大佬斯莫尔斯和少年犯M.A.F.I.A.都是些混蛋",
-            "Biggie Smalls and Junior M.A.F.I.A. is some mark-ass bitches"
+            "兄弟们开着豪车拉起",
+            "The homies pull up in foreigns"
         )
-        assertEquals("大佬斯莫尔斯和少年犯M.A.F.I.A.都是些软蛋窝囊废", r4)
+        assertEquals("兄弟们开着豪车驱车杀到", r4)
+
+        // 5. catch a body
+        val r5 = service.refineMusicSlang(
+            "不想抓住一具尸体",
+            "Don't wanna catch a body"
+        )
+        assertEquals("不想背上人命重案", r5)
     }
 }
