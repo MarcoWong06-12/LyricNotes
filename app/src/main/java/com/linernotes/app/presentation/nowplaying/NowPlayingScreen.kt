@@ -449,61 +449,76 @@ private fun NowPlayingTopBar(
         horizontalArrangement = Arrangement.SpaceBetween,
         verticalAlignment = Alignment.CenterVertically
     ) {
-        // 左侧：优雅收起/设置图标按钮 (Apple Music 标准顶部收起图标，高对比磨砂底色)
-        Surface(
-            color = pillBg,
-            shape = CircleShape,
-            border = BorderStroke(0.5.dp, pillBorder),
-            modifier = Modifier
-                .size(38.dp)
-                .bouncyIconClickable(
-                    onClick = onOpenSettings
-                )
-        ) {
-            Box(contentAlignment = Alignment.Center) {
-                Icon(
-                    imageVector = Icons.Default.KeyboardArrowDown,
-                    contentDescription = "收起/设置",
-                    tint = pillIconTint,
-                    modifier = Modifier.size(22.dp)
-                )
-            }
-        }
-
-        // 中间：极简优雅来源/状态信息 (加 weight(1f) 限制最大占用宽度，超长优雅截断，绝不挤压右侧按钮)
-        Column(
-            horizontalAlignment = Alignment.CenterHorizontally,
+        // 左侧：优雅收起/设置图标按钮 + 正在播放歌曲缩略信息 (1:1 复刻 Lyricify 靠左排布)
+        Row(
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(10.dp),
             modifier = Modifier
                 .weight(1f)
-                .padding(horizontal = 8.dp)
+                .padding(end = 8.dp)
         ) {
-            val topHeader = when {
-                !trackState.hasValidTrack -> "LyricNotes"
-                !trackState.album.isNullOrBlank() -> if (isTraditional) "來自專輯" else "来自专辑"
-                else -> if (isTraditional) "正在播放" else "正在播放"
+            Surface(
+                color = pillBg,
+                shape = CircleShape,
+                border = BorderStroke(0.5.dp, pillBorder),
+                modifier = Modifier
+                    .size(38.dp)
+                    .bouncyIconClickable(onClick = onOpenSettings)
+            ) {
+                Box(contentAlignment = Alignment.Center) {
+                    Icon(
+                        imageVector = Icons.Default.KeyboardArrowDown,
+                        contentDescription = "收起/设置",
+                        tint = pillIconTint,
+                        modifier = Modifier.size(22.dp)
+                    )
+                }
             }
-            Text(
-                text = topHeader,
-                color = if (isDark) Color.White.copy(alpha = 0.55f) else MaterialTheme.colorScheme.onBackground.copy(alpha = 0.60f),
-                fontSize = 11.sp,
-                fontFamily = FontFamily.SansSerif,
-                fontWeight = FontWeight.Medium,
-                letterSpacing = 0.6.sp,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis
-            )
+
             if (trackState.hasValidTrack) {
-                val subText = if (!trackState.album.isNullOrBlank()) trackState.album else trackState.title
-                val displaySub = if (isTraditional) ChineseConverter.toTraditional(subText) else subText
+                if (!trackState.coverUrl.isNullOrBlank()) {
+                    AsyncImage(
+                        model = trackState.coverUrl,
+                        contentDescription = null,
+                        contentScale = ContentScale.Crop,
+                        modifier = Modifier
+                            .size(38.dp)
+                            .clip(RoundedCornerShape(6.dp))
+                    )
+                }
+
+                Column(
+                    modifier = Modifier.weight(1f, fill = false),
+                    verticalArrangement = Arrangement.spacedBy(1.dp)
+                ) {
+                    val displayTitle = if (isTraditional) ChineseConverter.toTraditional(trackState.title) else trackState.title
+                    val rawArtist = if (trackState.artist.isNotBlank()) trackState.artist else if (!trackState.album.isNullOrBlank()) trackState.album else "Spotify"
+                    val displayArtist = if (isTraditional) ChineseConverter.toTraditional(rawArtist) else rawArtist
+                    Text(
+                        text = displayTitle,
+                        color = if (isDark) Color.White else MaterialTheme.colorScheme.onBackground,
+                        fontSize = 13.5.sp,
+                        fontWeight = FontWeight.Bold,
+                        fontFamily = FontFamily.SansSerif,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
+                    )
+                    Text(
+                        text = displayArtist,
+                        color = if (isDark) Color.White.copy(alpha = 0.60f) else MaterialTheme.colorScheme.onBackground.copy(alpha = 0.60f),
+                        fontSize = 11.5.sp,
+                        fontFamily = FontFamily.SansSerif,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
+                    )
+                }
+            } else {
                 Text(
-                    text = displaySub,
-                    color = if (isDark) Color.White.copy(alpha = 0.90f) else MaterialTheme.colorScheme.onBackground,
-                    fontSize = 12.sp,
-                    fontWeight = FontWeight.SemiBold,
-                    fontFamily = FontFamily.SansSerif,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
-                    textAlign = TextAlign.Center
+                    text = "LyricNotes",
+                    color = if (isDark) Color.White else MaterialTheme.colorScheme.onBackground,
+                    fontSize = 15.sp,
+                    fontWeight = FontWeight.Bold,
+                    fontFamily = FontFamily.SansSerif
                 )
             }
         }
@@ -885,8 +900,8 @@ private fun NowPlayingLyricsContent(
     Box(modifier = Modifier.fillMaxSize()) {
         LazyColumn(
             state = listState,
-            contentPadding = PaddingValues(top = 135.dp, bottom = 220.dp, start = 20.dp, end = 20.dp),
-            verticalArrangement = Arrangement.spacedBy(22.dp),
+            contentPadding = PaddingValues(top = 135.dp, bottom = 220.dp, start = 24.dp, end = 52.dp),
+            verticalArrangement = Arrangement.spacedBy(24.dp),
             modifier = Modifier
                 .fillMaxSize()
                 .graphicsLayer(compositingStrategy = CompositingStrategy.Offscreen)
@@ -1038,17 +1053,17 @@ private fun LyricLineRow(
     onClick: () -> Unit,
     onAnnotationClick: () -> Unit
 ) {
-    // 空间景深动力学与自由阅读增强 (符合 WCAG AAA 标准)：
-    // 1. 活跃行拥有绝对聚光灯聚焦：纯白/纯黑高对比度 (1.0f)，左侧灵动指示条展开，柔和背景胶囊聚焦；
-    // 2. 常规跟随状态下，非活跃行大幅柔化退居次席 (相邻行 0.38f，其余 0.22f)，层级分明，一眼锁定正在唱哪句；
-    // 3. 翻阅浏览模式下，视口中央行与周边行整体提升可读性 (0.70f~1.0f)，确保清晰易读。
+    // 空间景深动力学与自由阅读增强 (符合 WCAG AAA 标准，1:1 复刻 Lyricify 聚光灯对比)：
+    // 1. 活跃行拥有绝对聚光灯聚焦：纯白高对比度 (1.0f)，从左原点锚定缩放；
+    // 2. 常规跟随状态下，非活跃行大幅柔化退居次席 (相邻行 0.38f，其余 0.18f)；
+    // 3. 翻阅浏览模式下，视口中央行与周边行整体提升可读性。
     val targetOriginalAlpha = when {
         isBrowsing -> {
             when (distance) {
                 0 -> 1.0f
                 1 -> if (isDark) 0.85f else 0.82f
-                2 -> if (isDark) 0.72f else 0.70f
-                else -> if (isDark) 0.60f else 0.58f
+                2 -> if (isDark) 0.70f else 0.68f
+                else -> if (isDark) 0.55f else 0.50f
             }
         }
         isActive -> 1.0f
@@ -1056,7 +1071,7 @@ private fun LyricLineRow(
             when (distance) {
                 1 -> if (isDark) 0.40f else 0.38f
                 2 -> if (isDark) 0.26f else 0.24f
-                else -> if (isDark) 0.18f else 0.18f
+                else -> if (isDark) 0.18f else 0.16f
             }
         }
     }
@@ -1066,29 +1081,28 @@ private fun LyricLineRow(
             when (distance) {
                 0 -> 0.95f
                 1 -> if (isDark) 0.78f else 0.75f
-                2 -> if (isDark) 0.62f else 0.60f
-                else -> if (isDark) 0.50f else 0.48f
+                2 -> if (isDark) 0.60f else 0.58f
+                else -> if (isDark) 0.45f else 0.42f
             }
         }
-        isActive -> 0.95f
+        isActive -> 0.90f
         else -> {
             when (distance) {
                 1 -> if (isDark) 0.32f else 0.30f
                 2 -> if (isDark) 0.20f else 0.18f
-                else -> if (isDark) 0.14f else 0.14f
+                else -> if (isDark) 0.14f else 0.12f
             }
         }
     }
 
-    // 缩放策略：实时活跃行应用 1.06f 聚光灯聚焦，非活跃行轻微缩小 0.96f，层级更具纵深感
+    // 缩放策略：实时活跃行应用 1.05f 聚光灯聚焦，非活跃行 0.96f，左侧锚点 TransformOrigin(0f, 0.5f)
     val targetScale = when {
-        isBrowsing -> if (distance == 0) 1.03f else 0.98f
-        isActive -> 1.06f
+        isBrowsing -> if (distance == 0) 1.02f else 0.97f
+        isActive -> 1.05f
         else -> 0.96f
     }
 
-    // 关键：采用与视口垂直滚动物理弹簧（dampingRatio = 0.86f, stiffness = 180f）完全相同曲线
-    // 彻底根除“文字先闪亮放大、再慢速滑动”的脱节生硬感，实现 100% 呼应共振
+    // 采用与视口垂直滚动物理弹簧（dampingRatio = 0.86f, stiffness = 180f）完全相同曲线
     val lyricMotionSpring = remember {
         spring<Float>(
             dampingRatio = 0.86f,
@@ -1114,30 +1128,6 @@ private fun LyricLineRow(
         label = "lineScale"
     )
 
-    // 左侧活跃指示条动画：高度展开与透明度渐入 (3.5dp 宽固定槽位，零横向文字位移)
-    val targetIndicatorAlpha = if (isActive) 1.0f else 0.0f
-    val targetIndicatorScaleY = if (isActive) 1.0f else 0.25f
-
-    val animatedIndicatorAlpha by animateFloatAsState(
-        targetValue = targetIndicatorAlpha,
-        animationSpec = lyricMotionSpring,
-        label = "indAlpha"
-    )
-
-    val animatedIndicatorScaleY by animateFloatAsState(
-        targetValue = targetIndicatorScaleY,
-        animationSpec = lyricMotionSpring,
-        label = "indScaleY"
-    )
-
-    // 背景柔和聚光胶囊呼吸动画
-    val targetBgAlpha = if (isActive) (if (isDark) 0.07f else 0.045f) else 0.0f
-    val animatedBgAlpha by animateFloatAsState(
-        targetValue = targetBgAlpha,
-        animationSpec = lyricMotionSpring,
-        label = "bgAlpha"
-    )
-
     val displayOriginal = remember(line.original, isTraditional) {
         if (isTraditional) ChineseConverter.toTraditional(line.original) else line.original
     }
@@ -1147,80 +1137,55 @@ private fun LyricLineRow(
     }
 
     val lyricColor = if (isDark) Color.White else MaterialTheme.colorScheme.onBackground
-    val activeAccentColor = if (isDark) Color(0xFFFFB300) else MaterialTheme.colorScheme.primary
 
-    Row(
+    Column(
         modifier = Modifier
             .fillMaxWidth()
             .graphicsLayer {
                 scaleX = animatedScale
                 scaleY = animatedScale
-                transformOrigin = TransformOrigin(0f, 0.5f)
+                transformOrigin = TransformOrigin(0f, 0.5f) // 核心：严格以左边缘为基准原点，杜绝横向摇摆
             }
-            .background(
-                color = (if (isDark) Color.White else Color.Black).copy(alpha = animatedBgAlpha),
-                shape = RoundedCornerShape(14.dp)
-            )
-            .padding(horizontal = 8.dp, vertical = 6.dp)
             .bouncyItemClickable(pressedScale = 0.985f, onClick = onClick),
-        verticalAlignment = Alignment.Top
+        horizontalAlignment = Alignment.Start
     ) {
-        // 1. 左侧高亮指示条 (Active Line Capsule Anchor)
-        // 宽度恒定 3.5dp，外边距恒定 10dp：仅通过硬件 graphicsLayer 驱动 scaleY 与 alpha
-        // 彻底杜绝文字产生任何横向位移与跳动抖动！
-        Box(
-            modifier = Modifier
-                .padding(top = 5.dp, end = 10.dp)
-                .width(3.5.dp)
-                .height(26.dp)
-                .graphicsLayer {
-                    alpha = animatedIndicatorAlpha
-                    scaleY = animatedIndicatorScaleY
-                    transformOrigin = TransformOrigin(0.5f, 0.5f)
-                }
-                .background(
-                    color = activeAccentColor,
-                    shape = RoundedCornerShape(2.dp)
-                )
+        // 1. 原文歌词 (Lyricify 标志性紧凑加粗 Sans-Serif 纯净左对齐)
+        Text(
+            text = displayOriginal,
+            color = lyricColor,
+            fontSize = 25.sp,
+            fontWeight = FontWeight.Bold,
+            fontFamily = FontFamily.SansSerif,
+            lineHeight = 34.sp,
+            letterSpacing = (-0.4).sp,
+            textAlign = TextAlign.Start,
+            modifier = Modifier.graphicsLayer { alpha = animatedOriginalAlpha }
         )
 
-        // 2. 歌词主体与典故
-        Column(modifier = Modifier.weight(1f)) {
-            // 原文歌词：统一使用坚实一致的 FontWeight.Bold，杜绝因 Medium/Bold 突变导致的字宽重排与抽搐
+        // 2. 中文翻译 (紧随原文，左对齐，清晰辨识)
+        if (displayTranslation.isNotBlank()) {
+            Spacer(modifier = Modifier.height(4.dp))
             Text(
-                text = displayOriginal,
+                text = displayTranslation,
                 color = lyricColor,
-                fontSize = 24.sp,
+                fontSize = 15.5.sp,
                 fontWeight = FontWeight.Bold,
                 fontFamily = FontFamily.SansSerif,
-                lineHeight = 32.sp,
-                letterSpacing = (-0.3).sp,
-                modifier = Modifier.graphicsLayer { alpha = animatedOriginalAlpha }
+                lineHeight = 22.sp,
+                textAlign = TextAlign.Start,
+                modifier = Modifier.graphicsLayer { alpha = animatedTransAlpha }
             )
+        }
 
-            // 中文翻译：统一固定字号与字重，通过 graphicsLayer alpha 驱动渲染
-            if (displayTranslation.isNotBlank()) {
-                Spacer(modifier = Modifier.height(4.dp))
-                Text(
-                    text = displayTranslation,
-                    color = lyricColor,
-                    fontSize = 15.sp,
-                    fontWeight = FontWeight.SemiBold,
-                    fontFamily = FontFamily.SansSerif,
-                    lineHeight = 22.sp,
-                    modifier = Modifier.graphicsLayer { alpha = animatedTransAlpha }
-                )
-            }
-
-            // 典故微胶囊徽标 (作为自然脚注排布在歌词正下方，左对齐不挤压横向文本)
-            if (annotation != null) {
-                Spacer(modifier = Modifier.height(7.dp))
-                LyricAnnotationBadge(
-                    isActive = if (isBrowsing) isFocal else isActive,
-                    isDark = isDark,
-                    onClick = onAnnotationClick
-                )
-            }
+        // 3. 典故微胶囊徽标 (仅在活跃或用户翻阅聚焦行优雅展示，保持非活跃行纯净极简)
+        val showAnnotation = annotation != null && (isActive || (isBrowsing && isFocal))
+        if (showAnnotation) {
+            Spacer(modifier = Modifier.height(6.dp))
+            LyricAnnotationBadge(
+                isActive = true,
+                isDark = isDark,
+                onClick = onAnnotationClick
+            )
         }
     }
 }
