@@ -6,8 +6,10 @@ import android.app.NotificationChannel
 import android.app.NotificationManager
 import android.app.PendingIntent
 import android.app.Service
+import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
+import android.content.IntentFilter
 import android.content.res.Configuration
 import android.graphics.PixelFormat
 import android.graphics.Rect
@@ -73,18 +75,46 @@ class FloatingLyricsService : Service() {
     private var snapAnimator: ValueAnimator? = null
     private var dragCurrentX: Float = 0f
     private var dragCurrentY: Float = 0f
+    private var isViewAdded: Boolean = false
 
     private val serviceScope = CoroutineScope(SupervisorJob() + Dispatchers.Main)
     private val overlayLifecycleOwner = OverlayLifecycleOwner()
+
+    // 屏幕熄屏/亮屏广播监听：熄屏时挂起 Compose 渲染管线与 Marquee，极大降低后台音乐播放功耗
+    private val screenStateReceiver = object : BroadcastReceiver() {
+        override fun onReceive(context: Context?, intent: Intent?) {
+            when (intent?.action) {
+                Intent.ACTION_SCREEN_OFF -> overlayLifecycleOwner.onPause()
+                Intent.ACTION_SCREEN_ON -> overlayLifecycleOwner.onResume()
+            }
+        }
+    }
 
     override fun onBind(intent: Intent?): IBinder? = null
 
     override fun onCreate() {
         super.onCreate()
+        if (!Settings.canDrawOverlays(this)) {
+            _isRunningFlow.value = false
+            floatingPreferences.isEnabled = false
+            stopSelf()
+            return
+        }
+
         _isRunningFlow.value = true
         floatingPreferences.isEnabled = true
         createNotificationChannel()
         startForeground(NOTIFICATION_ID, buildNotification(floatingPreferences.isLocked))
+
+        try {
+            val filter = IntentFilter().apply {
+                addAction(Intent.ACTION_SCREEN_OFF)
+                addAction(Intent.ACTION_SCREEN_ON)
+            }
+            registerReceiver(screenStateReceiver, filter)
+        } catch (e: Exception) {
+            e.printStackTrace()
+        }
 
         overlayLifecycleOwner.onCreate()
         initOverlayWindow()
@@ -183,17 +213,20 @@ class FloatingLyricsService : Service() {
         val screenBounds = getScreenBounds()
         val density = resources.displayMetrics.density
         val insets = getSystemBarInsets()
+        val viewWidth = (COMPACT_WIDTH_DP * density).toInt()
+        val viewHeight = (52 * density).toInt()
+        val bounds = getSafeDragBounds(viewWidth, viewHeight)
+
+        // 安全双轴钳制：初次或历史坐标必须被严格限定在安全边距内，杜绝横竖屏切换后悬浮窗飞出屏幕失踪
         val initialX = if (floatingPreferences.lastPositionX >= 0) {
-            floatingPreferences.lastPositionX
+            floatingPreferences.lastPositionX.coerceIn(bounds.left, bounds.right)
         } else {
-            ((screenBounds.width() - (COMPACT_WIDTH_DP * density).toInt()) / 2).coerceAtLeast(0)
+            ((screenBounds.width() - viewWidth) / 2).coerceIn(bounds.left, bounds.right)
         }
         val initialY = if (floatingPreferences.lastPositionY >= 0) {
-            val viewHeight = (52 * density).toInt()
-            val bounds = getSafeDragBounds((COMPACT_WIDTH_DP * density).toInt(), viewHeight)
             floatingPreferences.lastPositionY.coerceIn(bounds.top, bounds.bottom)
         } else {
-            insets.top + (24 * density).toInt() // 动态避让状态栏及居中摄像头打孔
+            (insets.top + (24 * density).toInt()).coerceIn(bounds.top, bounds.bottom)
         }
 
         val windowType = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
@@ -203,8 +236,10 @@ class FloatingLyricsService : Service() {
             WindowManager.LayoutParams.TYPE_PHONE
         }
 
+        // 启用硬件加速 FLAG_HARDWARE_ACCELERATED，保证在高刷屏 (90Hz/120Hz) 上 Compose 渲染管线流畅不掉帧
         val baseFlags = WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or
-            WindowManager.LayoutParams.FLAG_LAYOUT_NO_LIMITS
+            WindowManager.LayoutParams.FLAG_LAYOUT_NO_LIMITS or
+            WindowManager.LayoutParams.FLAG_HARDWARE_ACCELERATED
 
         val initialFlags = if (floatingPreferences.isLocked) {
             baseFlags or WindowManager.LayoutParams.FLAG_NOT_TOUCHABLE
@@ -285,9 +320,8 @@ class FloatingLyricsService : Service() {
                     onDragEnd = { isExpanded ->
                         windowLayoutParams?.let { params ->
                             cancelSnapAnimation()
-                            // 自由悬浮停留：绝不强制吸附甩动到屏幕边缘，完美保留用户放置的位置
-                            floatingPreferences.lastPositionX = params.x
-                            floatingPreferences.lastPositionY = params.y
+                            // 自由悬浮停留：单次原子持久化坐标
+                            floatingPreferences.setLastPosition(params.x, params.y)
                         }
                     },
                     onExpandChanged = { isExpanded ->
@@ -315,8 +349,10 @@ class FloatingLyricsService : Service() {
 
         try {
             windowManager?.addView(composeView, windowLayoutParams)
+            isViewAdded = true
         } catch (e: Exception) {
             e.printStackTrace()
+            isViewAdded = false
             stopSelf()
         }
     }
@@ -342,8 +378,7 @@ class FloatingLyricsService : Service() {
                     windowManager?.updateViewLayout(composeView, params)
                 } catch (e: Exception) {}
             } else {
-                floatingPreferences.lastPositionX = params.x
-                floatingPreferences.lastPositionY = params.y
+                floatingPreferences.setLastPosition(params.x, params.y)
             }
         }
     }
@@ -375,8 +410,7 @@ class FloatingLyricsService : Service() {
             start()
         }
 
-        floatingPreferences.lastPositionX = targetX
-        floatingPreferences.lastPositionY = params.y
+        floatingPreferences.setLastPosition(targetX, params.y)
     }
 
     private fun updateLockState(locked: Boolean) {
@@ -385,7 +419,8 @@ class FloatingLyricsService : Service() {
         val lp = windowLayoutParams ?: return
 
         val baseFlags = WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or
-            WindowManager.LayoutParams.FLAG_LAYOUT_NO_LIMITS
+            WindowManager.LayoutParams.FLAG_LAYOUT_NO_LIMITS or
+            WindowManager.LayoutParams.FLAG_HARDWARE_ACCELERATED
 
         lp.flags = if (locked) {
             baseFlags or WindowManager.LayoutParams.FLAG_NOT_TOUCHABLE
@@ -456,6 +491,9 @@ class FloatingLyricsService : Service() {
 
             params.x = params.x.coerceIn(bounds.left, bounds.right)
             params.y = params.y.coerceIn(bounds.top, bounds.bottom)
+            dragCurrentX = params.x.toFloat()
+            dragCurrentY = params.y.toFloat()
+            floatingPreferences.setLastPosition(params.x, params.y)
 
             try {
                 windowManager?.updateViewLayout(composeView, params)
@@ -470,18 +508,34 @@ class FloatingLyricsService : Service() {
         _isRunningFlow.value = false
         floatingPreferences.isEnabled = false
         cancelSnapAnimation()
+        try {
+            unregisterReceiver(screenStateReceiver)
+        } catch (e: Exception) {}
         serviceScope.cancel()
-        overlayLifecycleOwner.onDestroy()
 
         composeView?.let { view ->
-            try {
-                windowManager?.removeView(view)
-            } catch (e: Exception) {
-                e.printStackTrace()
+            if (isViewAdded) {
+                try {
+                    view.disposeComposition()
+                    windowManager?.removeView(view)
+                } catch (e: Exception) {
+                    e.printStackTrace()
+                }
+                isViewAdded = false
             }
         }
+        overlayLifecycleOwner.onDestroy()
         composeView = null
         windowManager = null
+
+        // 彻底清除前台通知，避免某些定制 ROM 残留幽灵常驻条
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
+            stopForeground(STOP_FOREGROUND_REMOVE)
+        } else {
+            @Suppress("DEPRECATION")
+            stopForeground(true)
+        }
+        (getSystemService(Context.NOTIFICATION_SERVICE) as? NotificationManager)?.cancel(NOTIFICATION_ID)
     }
 
     /**
@@ -502,6 +556,18 @@ class FloatingLyricsService : Service() {
             lifecycleRegistry.handleLifecycleEvent(Lifecycle.Event.ON_CREATE)
             lifecycleRegistry.handleLifecycleEvent(Lifecycle.Event.ON_START)
             lifecycleRegistry.handleLifecycleEvent(Lifecycle.Event.ON_RESUME)
+        }
+
+        fun onPause() {
+            if (lifecycleRegistry.currentState.isAtLeast(Lifecycle.State.RESUMED)) {
+                lifecycleRegistry.handleLifecycleEvent(Lifecycle.Event.ON_PAUSE)
+            }
+        }
+
+        fun onResume() {
+            if (!lifecycleRegistry.currentState.isAtLeast(Lifecycle.State.RESUMED)) {
+                lifecycleRegistry.handleLifecycleEvent(Lifecycle.Event.ON_RESUME)
+            }
         }
 
         fun onDestroy() {
@@ -530,10 +596,14 @@ class FloatingLyricsService : Service() {
 
         fun start(context: Context) {
             val intent = Intent(context, FloatingLyricsService::class.java)
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-                context.startForegroundService(intent)
-            } else {
-                context.startService(intent)
+            try {
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                    context.startForegroundService(intent)
+                } else {
+                    context.startService(intent)
+                }
+            } catch (e: Exception) {
+                e.printStackTrace()
             }
         }
 

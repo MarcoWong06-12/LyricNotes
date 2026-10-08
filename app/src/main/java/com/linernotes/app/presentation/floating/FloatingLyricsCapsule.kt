@@ -146,25 +146,180 @@ fun FloatingLyricsCapsule(
 
     val baseBgColor = if (isLightColor) Color(0xFF12141C) else Color(0xFFF2F4F7)
     val primaryUiColor = if (isLightColor) Color.White else Color(0xFF1A1C24)
-    val capsuleWidth = if (isExpanded) 356.dp else capsuleWidthDp.dp
+    val configuration = androidx.compose.ui.platform.LocalConfiguration.current
+    val screenWidthDp = configuration.screenWidthDp
+    val safeMaxWidthDp = (screenWidthDp - 16).coerceAtLeast(240)
+    val effectiveCapsuleWidthDp = (if (isExpanded) 356 else capsuleWidthDp).coerceAtMost(safeMaxWidthDp)
+    val capsuleWidth = effectiveCapsuleWidthDp.dp
 
     if (floatingStyle == FloatingLyricsPreferences.STYLE_PURE_LYRICS) {
         // =========================================================================
         // 【纯净桌面悬浮歌词】(网易云经典风格 - 默认)
-        // 无底板无边框无封面，只有歌词悬浮，轻触即开即用微型控制栏，杜绝抽搐
+        // 无底板无边框无封面，只有歌词悬浮，轻触呼出工具条，歌词锚定不跳动
         // =========================================================================
         Column(
             horizontalAlignment = Alignment.CenterHorizontally,
             modifier = Modifier.width(capsuleWidth)
         ) {
-            // 1. 微型快捷播控工具条 (轻触歌词唤起，4秒无操作自动隐藏)
-            if (showControls && !isLocked) {
+            // 1. 纯净歌词文字主体 (锚定在顶部，轻触呼出下方微型工具条，拖拽移动，杜绝歌词跳动)
+            Box(
+                contentAlignment = Alignment.Center,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .then(
+                        if (backgroundAlpha > 0.05f) {
+                            Modifier
+                                .background(
+                                    color = baseBgColor.copy(alpha = backgroundAlpha),
+                                    shape = RoundedCornerShape(14.dp)
+                                )
+                                .padding(horizontal = 14.dp, vertical = 6.dp)
+                        } else {
+                            Modifier.padding(horizontal = 6.dp, vertical = 4.dp)
+                        }
+                    )
+                    .then(
+                        if (!isLocked) {
+                            Modifier.pointerInput(Unit) {
+                                awaitEachGesture {
+                                    val down = awaitFirstDown(requireUnconsumed = false)
+                                    var isDrag = false
+                                    var totalDrag = Offset.Zero
+                                    val touchSlop = viewConfiguration.touchSlop
+
+                                    try {
+                                        while (true) {
+                                            val event = awaitPointerEvent()
+                                            val change = event.changes.firstOrNull { it.id == down.id } ?: break
+
+                                            if (change.changedToUp()) {
+                                                if (!isDrag) {
+                                                    haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                                                    showControls = !showControls
+                                                } else {
+                                                    onDragEnd(false)
+                                                    isDrag = false
+                                                }
+                                                change.consume()
+                                                break
+                                            }
+
+                                            val positionChange = change.positionChange()
+                                            if (!isDrag) {
+                                                totalDrag += positionChange
+                                                if (totalDrag.getDistance() > touchSlop) {
+                                                    isDrag = true
+                                                    onDragStart()
+                                                    change.consume()
+                                                    if (positionChange != Offset.Zero) {
+                                                        onDrag(positionChange.x, positionChange.y)
+                                                    }
+                                                }
+                                            } else {
+                                                change.consume()
+                                                if (positionChange != Offset.Zero) {
+                                                    onDrag(positionChange.x, positionChange.y)
+                                                }
+                                            }
+                                        }
+                                    } finally {
+                                        if (isDrag) {
+                                            onDragEnd(false)
+                                        }
+                                    }
+                                }
+                            }
+                        } else Modifier
+                    )
+            ) {
+                Column(
+                    verticalArrangement = Arrangement.Center,
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    if (displayMode == FloatingLyricsPreferences.DISPLAY_MODE_MARQUEE) {
+                        Text(
+                            text = originalText,
+                            color = lyricColor,
+                            fontSize = (15.5f * fontScale).sp,
+                            fontWeight = FontWeight.Bold,
+                            fontFamily = FontFamily.SansSerif,
+                            textAlign = TextAlign.Center,
+                            maxLines = 1,
+                            style = TextStyle(shadow = textShadow),
+                            modifier = Modifier.basicMarquee(
+                                iterations = Int.MAX_VALUE,
+                                initialDelayMillis = 1200,
+                                repeatDelayMillis = 1500,
+                                velocity = 32.dp
+                            )
+                        )
+
+                        if (!secondaryText.isNullOrBlank()) {
+                            Spacer(modifier = Modifier.height(2.5.dp))
+                            Text(
+                                text = secondaryText,
+                                color = secondaryColor,
+                                fontSize = (12.5f * fontScale).sp,
+                                fontWeight = FontWeight.Medium,
+                                fontFamily = FontFamily.SansSerif,
+                                textAlign = TextAlign.Center,
+                                maxLines = 1,
+                                style = TextStyle(shadow = textShadow),
+                                modifier = Modifier.basicMarquee(
+                                    iterations = Int.MAX_VALUE,
+                                    initialDelayMillis = 1200,
+                                    repeatDelayMillis = 1500,
+                                    velocity = 28.dp
+                                )
+                            )
+                        }
+                    } else {
+                        // 经典折行全显模式 (无截断)
+                        Text(
+                            text = originalText,
+                            color = lyricColor,
+                            fontSize = (15.5f * fontScale).sp,
+                            lineHeight = (21f * fontScale).sp,
+                            fontWeight = FontWeight.Bold,
+                            fontFamily = FontFamily.SansSerif,
+                            textAlign = TextAlign.Center,
+                            maxLines = 2,
+                            overflow = TextOverflow.Ellipsis,
+                            style = TextStyle(shadow = textShadow)
+                        )
+
+                        if (!secondaryText.isNullOrBlank()) {
+                            Spacer(modifier = Modifier.height(3.dp))
+                            Text(
+                                text = secondaryText,
+                                color = secondaryColor,
+                                fontSize = (12.5f * fontScale).sp,
+                                lineHeight = (17f * fontScale).sp,
+                                fontWeight = FontWeight.Medium,
+                                fontFamily = FontFamily.SansSerif,
+                                textAlign = TextAlign.Center,
+                                maxLines = 2,
+                                overflow = TextOverflow.Ellipsis,
+                                style = TextStyle(shadow = textShadow)
+                            )
+                        }
+                    }
+                }
+            }
+
+            // 2. 微型快捷播控工具条 (轻触歌词在下方平滑展开，4秒无操作自动收起，杜绝歌词位置上下跳跃)
+            AnimatedVisibility(
+                visible = showControls && !isLocked,
+                enter = fadeIn(tween(160)) + expandVertically(tween(180)),
+                exit = fadeOut(tween(120)) + shrinkVertically(tween(140))
+            ) {
                 Surface(
                     color = Color(0xFF13151F).copy(alpha = 0.95f),
                     shape = RoundedCornerShape(16.dp),
                     border = BorderStroke(0.6.dp, Color.White.copy(alpha = 0.22f)),
                     shadowElevation = 8.dp,
-                    modifier = Modifier.padding(bottom = 6.dp)
+                    modifier = Modifier.padding(top = 6.dp)
                 ) {
                     Row(
                         verticalAlignment = Alignment.CenterVertically,
@@ -295,153 +450,6 @@ fun FloatingLyricsCapsule(
                     }
                 }
             }
-
-            // 2. 纯净歌词文字主体 (支持拖拽移动与轻触呼出工具条)
-            Box(
-                contentAlignment = Alignment.Center,
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .then(
-                        if (backgroundAlpha > 0.05f) {
-                            Modifier
-                                .background(
-                                    color = baseBgColor.copy(alpha = backgroundAlpha),
-                                    shape = RoundedCornerShape(14.dp)
-                                )
-                                .padding(horizontal = 14.dp, vertical = 6.dp)
-                        } else {
-                            Modifier.padding(horizontal = 6.dp, vertical = 4.dp)
-                        }
-                    )
-                    .then(
-                        if (!isLocked) {
-                            Modifier.pointerInput(Unit) {
-                                awaitEachGesture {
-                                    val down = awaitFirstDown(requireUnconsumed = false)
-                                    var isDrag = false
-                                    var totalDrag = Offset.Zero
-                                    val touchSlop = viewConfiguration.touchSlop
-
-                                    try {
-                                        while (true) {
-                                            val event = awaitPointerEvent()
-                                            val change = event.changes.firstOrNull { it.id == down.id } ?: break
-
-                                            if (change.changedToUp()) {
-                                                if (!isDrag) {
-                                                    haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
-                                                    showControls = !showControls
-                                                } else {
-                                                    onDragEnd(false)
-                                                    isDrag = false
-                                                }
-                                                change.consume()
-                                                break
-                                            }
-
-                                            val positionChange = change.positionChange()
-                                            if (!isDrag) {
-                                                totalDrag += positionChange
-                                                if (totalDrag.getDistance() > touchSlop) {
-                                                    isDrag = true
-                                                    onDragStart()
-                                                    change.consume()
-                                                    if (positionChange != Offset.Zero) {
-                                                        onDrag(positionChange.x, positionChange.y)
-                                                    }
-                                                }
-                                            } else {
-                                                change.consume()
-                                                if (positionChange != Offset.Zero) {
-                                                    onDrag(positionChange.x, positionChange.y)
-                                                }
-                                            }
-                                        }
-                                    } finally {
-                                        if (isDrag) {
-                                            onDragEnd(false)
-                                        }
-                                    }
-                                }
-                            }
-                        } else Modifier
-                    )
-            ) {
-                Column(
-                    verticalArrangement = Arrangement.Center,
-                    horizontalAlignment = Alignment.CenterHorizontally,
-                    modifier = Modifier.fillMaxWidth()
-                ) {
-                    if (displayMode == FloatingLyricsPreferences.DISPLAY_MODE_MARQUEE) {
-                        Text(
-                            text = originalText,
-                            color = lyricColor,
-                            fontSize = (15.5f * fontScale).sp,
-                            fontWeight = FontWeight.Bold,
-                            fontFamily = FontFamily.SansSerif,
-                            textAlign = TextAlign.Center,
-                            maxLines = 1,
-                            style = TextStyle(shadow = textShadow),
-                            modifier = Modifier.basicMarquee(
-                                iterations = Int.MAX_VALUE,
-                                initialDelayMillis = 1200,
-                                repeatDelayMillis = 1500,
-                                velocity = 32.dp
-                            )
-                        )
-
-                        if (!secondaryText.isNullOrBlank()) {
-                            Spacer(modifier = Modifier.height(2.5.dp))
-                            Text(
-                                text = secondaryText,
-                                color = secondaryColor,
-                                fontSize = (12.5f * fontScale).sp,
-                                fontWeight = FontWeight.Medium,
-                                fontFamily = FontFamily.SansSerif,
-                                textAlign = TextAlign.Center,
-                                maxLines = 1,
-                                style = TextStyle(shadow = textShadow),
-                                modifier = Modifier.basicMarquee(
-                                    iterations = Int.MAX_VALUE,
-                                    initialDelayMillis = 1200,
-                                    repeatDelayMillis = 1500,
-                                    velocity = 28.dp
-                                )
-                            )
-                        }
-                    } else {
-                        // 网易云居中折行全显模式 (默认推荐，无截断)
-                        Text(
-                            text = originalText,
-                            color = lyricColor,
-                            fontSize = (15.5f * fontScale).sp,
-                            lineHeight = (21f * fontScale).sp,
-                            fontWeight = FontWeight.Bold,
-                            fontFamily = FontFamily.SansSerif,
-                            textAlign = TextAlign.Center,
-                            maxLines = 2,
-                            overflow = TextOverflow.Ellipsis,
-                            style = TextStyle(shadow = textShadow)
-                        )
-
-                        if (!secondaryText.isNullOrBlank()) {
-                            Spacer(modifier = Modifier.height(3.dp))
-                            Text(
-                                text = secondaryText,
-                                color = secondaryColor,
-                                fontSize = (12.5f * fontScale).sp,
-                                lineHeight = (17f * fontScale).sp,
-                                fontWeight = FontWeight.Medium,
-                                fontFamily = FontFamily.SansSerif,
-                                textAlign = TextAlign.Center,
-                                maxLines = 2,
-                                overflow = TextOverflow.Ellipsis,
-                                style = TextStyle(shadow = textShadow)
-                            )
-                        }
-                    }
-                }
-            }
         }
     } else {
         // =========================================================================
@@ -459,23 +467,7 @@ fun FloatingLyricsCapsule(
                 else Color.Black.copy(alpha = if (isLocked) 0.15f else 0.25f)
             ),
             shadowElevation = if (isLocked) 2.dp else 10.dp,
-            modifier = Modifier
-                .width(capsuleWidth)
-                .then(
-                    if (!isLocked) {
-                        Modifier.pointerInput(Unit) {
-                            detectDragGestures(
-                                onDragStart = { onDragStart() },
-                                onDrag = { change, dragAmount ->
-                                    change.consume()
-                                    onDrag(dragAmount.x, dragAmount.y)
-                                },
-                                onDragEnd = { onDragEnd(isExpanded) },
-                                onDragCancel = { onDragEnd(isExpanded) }
-                            )
-                        }
-                    } else Modifier
-                )
+            modifier = Modifier.width(capsuleWidth)
         ) {
             AnimatedContent(
                 targetState = isExpanded,
@@ -483,17 +475,62 @@ fun FloatingLyricsCapsule(
                 label = "capsuleExpansion"
             ) { expanded ->
                 if (!expanded) {
-                    // 胶囊紧凑态 (已移除 animateContentSize，彻底解决 IPC 抽搐)
+                    // 胶囊紧凑态 (拖拽平滑移动，轻触展开大卡片，彻底消除误触冲突)
                     Row(
                         verticalAlignment = Alignment.CenterVertically,
                         modifier = Modifier
                             .padding(horizontal = 13.dp, vertical = 8.dp)
                             .then(
                                 if (!isLocked) {
-                                    Modifier.clickable {
-                                        haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
-                                        isExpanded = true
-                                        onExpandChanged(true)
+                                    Modifier.pointerInput(Unit) {
+                                        awaitEachGesture {
+                                            val down = awaitFirstDown(requireUnconsumed = false)
+                                            var isDrag = false
+                                            var totalDrag = Offset.Zero
+                                            val touchSlop = viewConfiguration.touchSlop
+
+                                            try {
+                                                while (true) {
+                                                    val event = awaitPointerEvent()
+                                                    val change = event.changes.firstOrNull { it.id == down.id } ?: break
+
+                                                    if (change.changedToUp()) {
+                                                        if (!isDrag) {
+                                                            haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                                                            isExpanded = true
+                                                            onExpandChanged(true)
+                                                        } else {
+                                                            onDragEnd(false)
+                                                            isDrag = false
+                                                        }
+                                                        change.consume()
+                                                        break
+                                                    }
+
+                                                    val positionChange = change.positionChange()
+                                                    if (!isDrag) {
+                                                        totalDrag += positionChange
+                                                        if (totalDrag.getDistance() > touchSlop) {
+                                                            isDrag = true
+                                                            onDragStart()
+                                                            change.consume()
+                                                            if (positionChange != Offset.Zero) {
+                                                                onDrag(positionChange.x, positionChange.y)
+                                                            }
+                                                        }
+                                                    } else {
+                                                        change.consume()
+                                                        if (positionChange != Offset.Zero) {
+                                                            onDrag(positionChange.x, positionChange.y)
+                                                        }
+                                                    }
+                                                }
+                                            } finally {
+                                                if (isDrag) {
+                                                    onDragEnd(false)
+                                                }
+                                            }
+                                        }
                                     }
                                 } else Modifier
                             )
@@ -778,7 +815,22 @@ fun FloatingLyricsCapsule(
                             verticalArrangement = Arrangement.Center,
                             modifier = Modifier
                                 .fillMaxWidth()
-                                .heightIn(min = 52.dp, max = 96.dp)
+                                .heightIn(min = 52.dp, max = (110 * fontScale).dp)
+                                .then(
+                                    if (!isLocked) {
+                                        Modifier.pointerInput(Unit) {
+                                            detectDragGestures(
+                                                onDragStart = { onDragStart() },
+                                                onDrag = { change, dragAmount ->
+                                                    change.consume()
+                                                    onDrag(dragAmount.x, dragAmount.y)
+                                                },
+                                                onDragEnd = { onDragEnd(true) },
+                                                onDragCancel = { onDragEnd(true) }
+                                            )
+                                        }
+                                    } else Modifier
+                                )
                         ) {
                             Text(
                                 text = originalText,
@@ -809,8 +861,21 @@ fun FloatingLyricsCapsule(
 
                         Spacer(modifier = Modifier.height(10.dp))
 
+                        val currentPositionMs by produceState(
+                            initialValue = state.getEstimatedPositionMs(),
+                            key1 = state.isPlaying,
+                            key2 = isExpanded
+                        ) {
+                            if (isExpanded && state.isPlaying) {
+                                while (true) {
+                                    value = state.getEstimatedPositionMs()
+                                    delay(250L)
+                                }
+                            }
+                        }
+
                         val currentProgress = if (state.durationMs > 0) {
-                            (state.getEstimatedPositionMs().toFloat() / state.durationMs.toFloat()).coerceIn(0f, 1f)
+                            (currentPositionMs.toFloat() / state.durationMs.toFloat()).coerceIn(0f, 1f)
                         } else 0f
                         LinearProgressIndicator(
                             progress = { currentProgress },

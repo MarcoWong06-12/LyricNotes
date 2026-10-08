@@ -121,6 +121,13 @@ class FloatingLyricsPreferences @Inject constructor(
         get() = prefs.getInt(KEY_POS_Y, -1)
         set(value) = prefs.edit().putInt(KEY_POS_Y, value).apply()
 
+    fun setLastPosition(x: Int, y: Int) {
+        prefs.edit()
+            .putInt(KEY_POS_X, x)
+            .putInt(KEY_POS_Y, y)
+            .apply()
+    }
+
     // 9. 歌词展示模式：0 = 居中自动折行（网易云经典全显），1 = 单行跑马灯平滑滚动
     private val _displayModeFlow = MutableStateFlow(prefs.getInt(KEY_DISPLAY_MODE, DISPLAY_MODE_WRAP))
     val displayModeFlow: StateFlow<Int> = _displayModeFlow.asStateFlow()
