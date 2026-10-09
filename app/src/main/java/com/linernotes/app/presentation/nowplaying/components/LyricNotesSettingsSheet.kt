@@ -37,6 +37,8 @@ import androidx.compose.ui.unit.TextUnit
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import coil.compose.AsyncImage
+import com.linernotes.app.core.i18n.AppLanguage
+import com.linernotes.app.core.i18n.LocalStrings
 import com.linernotes.app.core.playback.TrackPlaybackState
 import com.linernotes.app.presentation.common.*
 import com.linernotes.app.presentation.nowplaying.FuriganaDisplayMode
@@ -74,6 +76,7 @@ fun LyricNotesSettingsSheet(
     onDismiss: () -> Unit
 ) {
     val context = LocalContext.current
+    val strings = LocalStrings.current
     val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
 
     val isDark = MaterialTheme.colorScheme.background.luminance() < 0.5f
@@ -157,7 +160,7 @@ fun LyricNotesSettingsSheet(
 
                     Column(modifier = Modifier.weight(1f)) {
                         Text(
-                            text = if (trackState.hasValidTrack) trackState.title else "未检测到播放曲目",
+                            text = if (trackState.hasValidTrack) trackState.title else strings.noTrackDetected,
                             color = textPrimary,
                             fontSize = 16.sp,
                             fontWeight = FontWeight.Bold,
@@ -167,7 +170,7 @@ fun LyricNotesSettingsSheet(
                         )
                         Spacer(modifier = Modifier.height(2.dp))
                         Text(
-                            text = if (trackState.hasValidTrack) trackState.artist else "等待音乐播放",
+                            text = if (trackState.hasValidTrack) trackState.artist else strings.waitingForPlaybackTitle,
                             color = textSecondary,
                             fontSize = 13.sp,
                             fontFamily = FontFamily.SansSerif,
@@ -207,7 +210,7 @@ fun LyricNotesSettingsSheet(
                     verticalArrangement = Arrangement.spacedBy(10.dp)
                 ) {
                     Text(
-                        text = "外观主题",
+                        text = strings.themeModeLabel,
                         color = textPrimary,
                         fontSize = 15.sp,
                         fontWeight = FontWeight.Bold,
@@ -219,21 +222,21 @@ fun LyricNotesSettingsSheet(
                         horizontalArrangement = Arrangement.spacedBy(8.dp)
                     ) {
                         SegmentPill(
-                            title = "跟随系统",
+                            title = strings.themeModeSystem,
                             isSelected = themeMode == com.linernotes.app.core.preference.AiPreferences.ThemeMode.SYSTEM.code,
                             onClick = { onSetThemeMode(com.linernotes.app.core.preference.AiPreferences.ThemeMode.SYSTEM.code) },
                             isDark = isDark,
                             modifier = Modifier.weight(1f)
                         )
                         SegmentPill(
-                            title = "深色模式",
+                            title = strings.themeModeDark,
                             isSelected = themeMode == com.linernotes.app.core.preference.AiPreferences.ThemeMode.DARK.code,
                             onClick = { onSetThemeMode(com.linernotes.app.core.preference.AiPreferences.ThemeMode.DARK.code) },
                             isDark = isDark,
                             modifier = Modifier.weight(1f)
                         )
                         SegmentPill(
-                            title = "浅色模式",
+                            title = strings.themeModeLight,
                             isSelected = themeMode == com.linernotes.app.core.preference.AiPreferences.ThemeMode.LIGHT.code,
                             onClick = { onSetThemeMode(com.linernotes.app.core.preference.AiPreferences.ThemeMode.LIGHT.code) },
                             isDark = isDark,
@@ -248,8 +251,8 @@ fun LyricNotesSettingsSheet(
                     )
 
                     SettingsSwitchRow(
-                        title = "纯黑 OLED 极暗模式",
-                        subtitle = "深色下彻底关闭背景像素发光 (0 nits)，更深邃省电",
+                        title = strings.amoledModeLabel,
+                        subtitle = strings.amoledModeDesc,
                         checked = isAmoledMode,
                         isDark = isDark,
                         onCheckedChange = { onSetAmoledMode(!isAmoledMode) }
@@ -257,7 +260,7 @@ fun LyricNotesSettingsSheet(
                 }
             }
 
-            // 界面语言与简繁选择卡片
+            // 界面语言选择卡片
             Surface(
                 color = cardBg,
                 shape = RoundedCornerShape(18.dp),
@@ -269,7 +272,7 @@ fun LyricNotesSettingsSheet(
                     verticalArrangement = Arrangement.spacedBy(10.dp)
                 ) {
                     Text(
-                        text = "界面语言与简繁",
+                        text = strings.appLanguageLabel,
                         color = textPrimary,
                         fontSize = 15.sp,
                         fontWeight = FontWeight.Bold,
@@ -281,23 +284,36 @@ fun LyricNotesSettingsSheet(
                         horizontalArrangement = Arrangement.spacedBy(8.dp)
                     ) {
                         SegmentPill(
-                            title = "跟随系统",
-                            isSelected = appLanguage == com.linernotes.app.core.i18n.AppLanguage.SYSTEM.code,
-                            onClick = { onSetAppLanguage(com.linernotes.app.core.i18n.AppLanguage.SYSTEM.code) },
+                            title = strings.themeModeSystem,
+                            isSelected = appLanguage == AppLanguage.SYSTEM.code,
+                            onClick = { onSetAppLanguage(AppLanguage.SYSTEM.code) },
                             isDark = isDark,
                             modifier = Modifier.weight(1f)
                         )
                         SegmentPill(
                             title = "简体中文",
-                            isSelected = appLanguage == com.linernotes.app.core.i18n.AppLanguage.ZH_CN.code,
-                            onClick = { onSetAppLanguage(com.linernotes.app.core.i18n.AppLanguage.ZH_CN.code) },
+                            isSelected = appLanguage == AppLanguage.ZH_CN.code,
+                            onClick = { onSetAppLanguage(AppLanguage.ZH_CN.code) },
+                            isDark = isDark,
+                            modifier = Modifier.weight(1f)
+                        )
+                    }
+
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        SegmentPill(
+                            title = "繁體中文",
+                            isSelected = appLanguage == AppLanguage.ZH_TW.code,
+                            onClick = { onSetAppLanguage(AppLanguage.ZH_TW.code) },
                             isDark = isDark,
                             modifier = Modifier.weight(1f)
                         )
                         SegmentPill(
-                            title = "繁體中文",
-                            isSelected = appLanguage == com.linernotes.app.core.i18n.AppLanguage.ZH_TW.code,
-                            onClick = { onSetAppLanguage(com.linernotes.app.core.i18n.AppLanguage.ZH_TW.code) },
+                            title = "English",
+                            isSelected = appLanguage == AppLanguage.EN.code,
+                            onClick = { onSetAppLanguage(AppLanguage.EN.code) },
                             isDark = isDark,
                             modifier = Modifier.weight(1f)
                         )
@@ -332,7 +348,7 @@ fun LyricNotesSettingsSheet(
                         ) {
                             Text("💡", fontSize = 20.sp)
                             Text(
-                                text = "Genius 歌曲背景故事",
+                                text = strings.songStoryTitle,
                                 color = storyColor,
                                 fontSize = 15.sp,
                                 fontWeight = FontWeight.Bold,
@@ -380,7 +396,7 @@ fun LyricNotesSettingsSheet(
                             Text(if (isLoadingGenius) "⏳" else "💡", fontSize = 18.sp)
                             Column {
                                 Text(
-                                    text = "Genius 典故与背景故事",
+                                    text = strings.songStoryAndTrivia,
                                     color = textPrimary,
                                     fontSize = 14.sp,
                                     fontWeight = FontWeight.SemiBold
@@ -420,7 +436,7 @@ fun LyricNotesSettingsSheet(
                                         color = Color(0xFF1ED760)
                                     )
                                     Text(
-                                        text = "检索中...",
+                                        text = strings.searchingStatus,
                                         color = Color(0xFF1ED760),
                                         fontSize = 12.5.sp,
                                         fontWeight = FontWeight.Bold
@@ -433,7 +449,7 @@ fun LyricNotesSettingsSheet(
                                         modifier = Modifier.size(13.dp)
                                     )
                                     Text(
-                                        text = "重试",
+                                        text = strings.retryBtn,
                                         color = Color(0xFF1ED760),
                                         fontSize = 12.5.sp,
                                         fontWeight = FontWeight.Bold
@@ -459,7 +475,7 @@ fun LyricNotesSettingsSheet(
                         verticalAlignment = Alignment.CenterVertically
                     ) {
                         Text(
-                            text = "时间轴补偿",
+                            text = strings.timelineOffsetLabel,
                             color = textPrimary,
                             fontSize = 15.sp,
                             fontWeight = FontWeight.Bold,
@@ -532,7 +548,7 @@ fun LyricNotesSettingsSheet(
                             Text("🫧", fontSize = 19.sp)
                             Column {
                                 Text(
-                                    text = "桌面悬浮歌词",
+                                    text = strings.floatingLyricsTitle,
                                     color = textPrimary,
                                     fontSize = 15.sp,
                                     fontWeight = FontWeight.Bold,
@@ -540,7 +556,7 @@ fun LyricNotesSettingsSheet(
                                 )
                                 if (!isOverlayGranted) {
                                     Text(
-                                        text = "需授予悬浮窗权限",
+                                        text = strings.floatingPermissionDesc,
                                         color = if (isDark) Color(0xFFFFB74D) else Color(0xFFE65100),
                                         fontSize = 12.sp,
                                         fontFamily = FontFamily.SansSerif
@@ -580,7 +596,7 @@ fun LyricNotesSettingsSheet(
                     // 4.0 悬浮歌词形态
                     Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                         Text(
-                            text = "显示形态",
+                            text = strings.floatingStyleLabel,
                             color = textPrimary,
                             fontSize = 13.5.sp,
                             fontWeight = FontWeight.SemiBold,
@@ -592,8 +608,8 @@ fun LyricNotesSettingsSheet(
                             horizontalArrangement = Arrangement.spacedBy(8.dp)
                         ) {
                             val styleOptions = listOf(
-                                FloatingLyricsPreferences.STYLE_PURE_LYRICS to "纯净歌词",
-                                FloatingLyricsPreferences.STYLE_CAPSULE_CARD to "卡片胶囊"
+                                FloatingLyricsPreferences.STYLE_PURE_LYRICS to strings.floatingPureLyrics,
+                                FloatingLyricsPreferences.STYLE_CAPSULE_CARD to strings.floatingCapsuleCard
                             )
                             styleOptions.forEach { (styleVal, label) ->
                                 FluidOptionPill(
@@ -617,7 +633,7 @@ fun LyricNotesSettingsSheet(
                             verticalAlignment = Alignment.CenterVertically
                         ) {
                             Text(
-                                text = "背景不透明度",
+                                text = strings.floatingBgAlphaLabel,
                                 color = textPrimary,
                                 fontSize = 13.5.sp,
                                 fontWeight = FontWeight.SemiBold,
@@ -661,7 +677,7 @@ fun LyricNotesSettingsSheet(
                     // 4.2 长歌词排版
                     Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                         Text(
-                            text = "排版方式",
+                            text = strings.floatingWrapModeLabel,
                             color = textPrimary,
                             fontSize = 13.5.sp,
                             fontWeight = FontWeight.SemiBold,
@@ -673,8 +689,8 @@ fun LyricNotesSettingsSheet(
                             horizontalArrangement = Arrangement.spacedBy(8.dp)
                         ) {
                             val modeOptions = listOf(
-                                FloatingLyricsPreferences.DISPLAY_MODE_WRAP to "智能折行",
-                                FloatingLyricsPreferences.DISPLAY_MODE_MARQUEE to "跑马灯"
+                                FloatingLyricsPreferences.DISPLAY_MODE_WRAP to strings.floatingModeWrap,
+                                FloatingLyricsPreferences.DISPLAY_MODE_MARQUEE to strings.floatingModeMarquee
                             )
                             modeOptions.forEach { (modeVal, label) ->
                                 FluidOptionPill(
@@ -693,7 +709,7 @@ fun LyricNotesSettingsSheet(
                     // 4.3 悬浮文字对齐
                     Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                         Text(
-                            text = "文字对齐",
+                            text = strings.floatingTextAlignLabel,
                             color = textPrimary,
                             fontSize = 13.5.sp,
                             fontWeight = FontWeight.SemiBold,
@@ -705,8 +721,8 @@ fun LyricNotesSettingsSheet(
                             horizontalArrangement = Arrangement.spacedBy(8.dp)
                         ) {
                             val alignOptions = listOf(
-                                FloatingLyricsPreferences.ALIGNMENT_CENTER to "居中对齐",
-                                FloatingLyricsPreferences.ALIGNMENT_LEFT to "靠左对齐"
+                                FloatingLyricsPreferences.ALIGNMENT_CENTER to strings.alignCenter,
+                                FloatingLyricsPreferences.ALIGNMENT_LEFT to strings.alignLeft
                             )
                             alignOptions.forEach { (alignVal, label) ->
                                 FluidOptionPill(
@@ -730,7 +746,7 @@ fun LyricNotesSettingsSheet(
                             verticalAlignment = Alignment.CenterVertically
                         ) {
                             Text(
-                                text = "视窗宽度",
+                                text = strings.floatingWidthLabel,
                                 color = textPrimary,
                                 fontSize = 13.5.sp,
                                 fontWeight = FontWeight.SemiBold,
@@ -777,7 +793,7 @@ fun LyricNotesSettingsSheet(
                             verticalAlignment = Alignment.CenterVertically
                         ) {
                             Text(
-                                text = "字体大小",
+                                text = strings.floatingFontScaleLabel,
                                 color = textPrimary,
                                 fontSize = 13.5.sp,
                                 fontWeight = FontWeight.SemiBold,
@@ -821,7 +837,7 @@ fun LyricNotesSettingsSheet(
                     // 4.5 歌词文字颜色
                     Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                         Text(
-                            text = "文字颜色",
+                            text = strings.floatingTextColorLabel,
                             color = textPrimary,
                             fontSize = 13.5.sp,
                             fontWeight = FontWeight.SemiBold,
@@ -889,7 +905,7 @@ fun LyricNotesSettingsSheet(
 
                     // 4.6 锁定触摸穿透
                     SettingsSwitchRow(
-                        title = "锁定触摸穿透",
+                        title = strings.floatingLockTouch,
                         checked = isLocked,
                         isDark = isDark,
                         onCheckedChange = {
@@ -901,7 +917,7 @@ fun LyricNotesSettingsSheet(
 
                     // 4.7 应用在前台时隐藏悬浮窗
                     SettingsSwitchRow(
-                        title = "应用在前台时隐藏",
+                        title = strings.floatingHideInForeground,
                         checked = hideInForeground,
                         isDark = isDark,
                         onCheckedChange = {
@@ -920,7 +936,7 @@ fun LyricNotesSettingsSheet(
             ) {
                 Column(modifier = Modifier.padding(horizontal = 16.dp, vertical = 6.dp)) {
                     SettingsSwitchRow(
-                        title = "底部播放控制栏",
+                        title = strings.showControlsLabel,
                         checked = showPlaybackControls,
                         isDark = isDark,
                         onCheckedChange = { onTogglePlaybackControls() }
@@ -929,7 +945,7 @@ fun LyricNotesSettingsSheet(
                     HorizontalDivider(color = dividerColor, thickness = 0.5.dp)
 
                     SettingsSwitchRow(
-                        title = "脏字审查还原",
+                        title = strings.deCensorLabel,
                         checked = isDeCensorEnabled,
                         isDark = isDark,
                         onCheckedChange = { onToggleDeCensor() }
@@ -938,7 +954,7 @@ fun LyricNotesSettingsSheet(
                     HorizontalDivider(color = dividerColor, thickness = 0.5.dp)
 
                     SettingsSwitchRow(
-                        title = "繁体中文显示",
+                        title = strings.traditionalChineseLabel,
                         checked = isTraditionalChinese,
                         isDark = isDark,
                         onCheckedChange = { onToggleTraditionalChinese() }
@@ -951,7 +967,7 @@ fun LyricNotesSettingsSheet(
                         verticalArrangement = Arrangement.spacedBy(8.dp)
                     ) {
                         Text(
-                            text = "全屏歌词对齐",
+                            text = strings.lyricAlignmentLabel,
                             color = textPrimary,
                             fontSize = 14.5.sp,
                             fontWeight = FontWeight.SemiBold,
@@ -962,14 +978,14 @@ fun LyricNotesSettingsSheet(
                             horizontalArrangement = Arrangement.spacedBy(8.dp)
                         ) {
                             FluidOptionPill(
-                                label = "靠左对齐 (默认)",
+                                label = strings.alignLeftDefault,
                                 isSelected = lyricAlignment == com.linernotes.app.core.preference.AiPreferences.LYRIC_ALIGN_LEFT,
                                 isDark = isDark,
                                 onClick = { onSetLyricAlignment(com.linernotes.app.core.preference.AiPreferences.LYRIC_ALIGN_LEFT) },
                                 modifier = Modifier.weight(1f)
                             )
                             FluidOptionPill(
-                                label = "居中对齐",
+                                label = strings.alignCenter,
                                 isSelected = lyricAlignment == com.linernotes.app.core.preference.AiPreferences.LYRIC_ALIGN_CENTER,
                                 isDark = isDark,
                                 onClick = { onSetLyricAlignment(com.linernotes.app.core.preference.AiPreferences.LYRIC_ALIGN_CENTER) },
@@ -989,7 +1005,7 @@ fun LyricNotesSettingsSheet(
             ) {
                 Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
                     Text(
-                        text = "日语假名注音",
+                        text = strings.furiganaTitle,
                         color = textPrimary,
                         fontSize = 15.sp,
                         fontWeight = FontWeight.Bold,
@@ -1001,21 +1017,21 @@ fun LyricNotesSettingsSheet(
                         horizontalArrangement = Arrangement.spacedBy(8.dp)
                     ) {
                         FuriganaPill(
-                            title = "关闭",
+                            title = strings.furiganaOff,
                             isSelected = furiganaMode == FuriganaDisplayMode.OFF,
                             isDark = isDark,
                             onClick = { onSetFuriganaMode(FuriganaDisplayMode.OFF) },
                             modifier = Modifier.weight(1f)
                         )
                         FuriganaPill(
-                            title = "平假名注音",
+                            title = strings.furiganaHiragana,
                             isSelected = furiganaMode == FuriganaDisplayMode.HIRAGANA,
                             isDark = isDark,
                             onClick = { onSetFuriganaMode(FuriganaDisplayMode.HIRAGANA) },
                             modifier = Modifier.weight(1f)
                         )
                         FuriganaPill(
-                            title = "罗马音",
+                            title = strings.furiganaRomaji,
                             isSelected = furiganaMode == FuriganaDisplayMode.ROMAJI,
                             isDark = isDark,
                             onClick = { onSetFuriganaMode(FuriganaDisplayMode.ROMAJI) },
@@ -1054,7 +1070,7 @@ fun LyricNotesSettingsSheet(
                     )
                     Spacer(modifier = Modifier.width(8.dp))
                     Text(
-                        text = if (isTraditionalChinese) "更換歌詞版本 / 手動搜歌詞" else "更换歌词版本 / 手动搜歌词",
+                        text = strings.searchLyricVersionBtn,
                         fontSize = 14.sp,
                         color = textPrimary,
                         fontWeight = FontWeight.SemiBold
@@ -1092,7 +1108,7 @@ fun LyricNotesSettingsSheet(
                     ) {
                         Icon(imageVector = Icons.Default.Refresh, contentDescription = null, tint = textPrimary, modifier = Modifier.size(16.dp))
                         Spacer(modifier = Modifier.width(6.dp))
-                        Text("重新匹配双语歌词", fontSize = 13.sp, color = textPrimary, fontWeight = FontWeight.Medium)
+                        Text(strings.rematchLyricsBtn, fontSize = 13.sp, color = textPrimary, fontWeight = FontWeight.Medium)
                     }
                 }
 
@@ -1110,7 +1126,7 @@ fun LyricNotesSettingsSheet(
                         )
                 ) {
                     Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                        Text("打开音乐应用", fontSize = 13.5.sp, color = Color.Black, fontWeight = FontWeight.Bold)
+                        Text(strings.openMusicAppBtn, fontSize = 13.5.sp, color = Color.Black, fontWeight = FontWeight.Bold)
                     }
                 }
             }

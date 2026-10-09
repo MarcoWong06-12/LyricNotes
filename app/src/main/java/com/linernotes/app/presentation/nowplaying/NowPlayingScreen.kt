@@ -55,6 +55,7 @@ import androidx.hilt.navigation.compose.hiltViewModel
 import kotlinx.coroutines.launch
 import coil.compose.AsyncImage
 import coil.request.ImageRequest
+import com.linernotes.app.core.i18n.LocalStrings
 import com.linernotes.app.core.playback.MediaPlaybackSyncService
 import com.linernotes.app.core.playback.QueueTrackItem
 import com.linernotes.app.core.playback.TrackPlaybackState
@@ -673,6 +674,8 @@ private fun NowPlayingLyricsContent(
     onRetryLyrics: () -> Unit = {},
     onOpenManualSearch: () -> Unit = {}
 ) {
+    val strings = LocalStrings.current
+
     if (isLoadingLyrics && lyrics.isEmpty()) {
         Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
             Column(
@@ -685,7 +688,7 @@ private fun NowPlayingLyricsContent(
                     modifier = Modifier.size(28.dp)
                 )
                 Text(
-                    text = if (isTraditional) "正在同步多源歌詞..." else "正在同步多源歌词...",
+                    text = strings.syncingLyricsStatus,
                     color = if (isDark) Color.White.copy(alpha = 0.75f) else MaterialTheme.colorScheme.onBackground.copy(alpha = 0.75f),
                     fontSize = 13.5.sp,
                     fontFamily = FontFamily.SansSerif,
@@ -704,7 +707,7 @@ private fun NowPlayingLyricsContent(
                 modifier = Modifier.padding(horizontal = 24.dp)
             ) {
                 Text(
-                    text = if (isTraditional) "暫無帶時間軸的歌詞" else "暂无带时间轴的歌词",
+                    text = strings.noTimedLyricsFound,
                     color = if (isDark) Color.White.copy(alpha = 0.55f) else MaterialTheme.colorScheme.onBackground.copy(alpha = 0.60f),
                     fontSize = 15.sp,
                     fontFamily = FontFamily.SansSerif
@@ -728,12 +731,12 @@ private fun NowPlayingLyricsContent(
                         ) {
                             Icon(
                                 imageVector = Icons.Default.Refresh,
-                                contentDescription = "重新检索",
+                                contentDescription = strings.retryBtn,
                                 tint = if (isDark) Color.White else MaterialTheme.colorScheme.onSurface,
                                 modifier = Modifier.size(15.dp)
                             )
                             Text(
-                                text = if (isTraditional) "重新檢索" else "重新检索",
+                                text = strings.retryBtn,
                                 color = if (isDark) Color.White else MaterialTheme.colorScheme.onSurface,
                                 fontSize = 13.sp,
                                 fontWeight = FontWeight.SemiBold,
@@ -756,12 +759,12 @@ private fun NowPlayingLyricsContent(
                         ) {
                             Icon(
                                 imageVector = Icons.Default.Search,
-                                contentDescription = "手动搜歌词",
+                                contentDescription = strings.manualSearchLyricsBtn,
                                 tint = if (isDark) Color(0xFF1ED760) else Color(0xFF0A8F3F),
                                 modifier = Modifier.size(15.dp)
                             )
                             Text(
-                                text = if (isTraditional) "手動搜歌詞" else "手动搜歌词",
+                                text = strings.manualSearchLyricsBtn,
                                 color = if (isDark) Color.White else MaterialTheme.colorScheme.onSurface,
                                 fontSize = 13.sp,
                                 fontWeight = FontWeight.SemiBold,
@@ -1041,12 +1044,12 @@ private fun NowPlayingLyricsContent(
                 ) {
                     Icon(
                         imageVector = if (isScrolledAbove) Icons.Default.KeyboardArrowDown else Icons.Default.KeyboardArrowUp,
-                        contentDescription = "回到播放位置",
+                        contentDescription = strings.returnToPlayingPosition,
                         tint = if (isDark) Color(0xFFFFD54F) else MaterialTheme.colorScheme.primary,
                         modifier = Modifier.size(15.dp)
                     )
                     Text(
-                        text = if (isTraditional) "回到播放位置" else "回到播放位置",
+                        text = strings.returnToPlayingPosition,
                         color = if (isDark) Color.White.copy(alpha = 0.92f) else MaterialTheme.colorScheme.onSurface,
                         fontSize = 12.sp,
                         fontWeight = FontWeight.SemiBold,
@@ -1512,7 +1515,7 @@ private fun NowPlayingFloatingGlassPlayer(
                             )
                             Spacer(modifier = Modifier.height(1.dp))
                             Text(
-                                text = if (trackState.hasValidTrack) displayArtist else (if (isTraditional) "等待播放" else "等待播放"),
+                                text = if (trackState.hasValidTrack) displayArtist else LocalStrings.current.waitingForPlaybackShort,
                                 color = onPlayerTextSec,
                                 fontSize = 11.sp,
                                 fontFamily = FontFamily.SansSerif,
@@ -1773,6 +1776,8 @@ private fun NowPlayingIdleContent(
     onGrantPermission: () -> Unit,
     onLaunchSpotify: () -> Unit
 ) {
+    val strings = LocalStrings.current
+
     Column(
         modifier = Modifier
             .fillMaxSize()
@@ -1811,7 +1816,7 @@ private fun NowPlayingIdleContent(
         Spacer(modifier = Modifier.height(8.dp))
 
         Text(
-            text = "开始播放音乐，实时双语歌词与\n典故注解将自动呈现在屏幕上",
+            text = strings.waitingForPlaybackSubtitle,
             color = if (isDark) Color.White.copy(alpha = 0.60f) else MaterialTheme.colorScheme.onBackground.copy(alpha = 0.65f),
             fontSize = 14.sp,
             textAlign = TextAlign.Center,
@@ -1835,14 +1840,14 @@ private fun NowPlayingIdleContent(
                 ) {
                     Column(modifier = Modifier.weight(1f)) {
                         Text(
-                            text = "开启通知使用权",
+                            text = strings.openNotificationPermission,
                             color = if (isDark) Color.White else MaterialTheme.colorScheme.onSurface,
                             fontSize = 14.sp,
                             fontWeight = FontWeight.Bold,
                             fontFamily = FontFamily.SansSerif
                         )
                         Text(
-                            text = "用于获取正在播放进度与歌词同屏联动",
+                            text = strings.openNotificationPermissionDesc,
                             color = if (isDark) Color.White.copy(alpha = 0.50f) else MaterialTheme.colorScheme.onSurface.copy(alpha = 0.60f),
                             fontSize = 11.5.sp,
                             fontFamily = FontFamily.SansSerif
@@ -1859,7 +1864,7 @@ private fun NowPlayingIdleContent(
                             )
                     ) {
                         Text(
-                            text = "去开启",
+                            text = strings.grantPermissionAction,
                             color = Color.Black,
                             fontSize = 12.sp,
                             fontWeight = FontWeight.Bold,
@@ -1897,7 +1902,7 @@ private fun NowPlayingIdleContent(
                         modifier = Modifier.size(20.dp)
                     )
                     Text(
-                        text = "打开音乐播放器",
+                        text = strings.openMusicAppBtn,
                         color = Color.Black,
                         fontSize = 15.sp,
                         fontWeight = FontWeight.Bold,
