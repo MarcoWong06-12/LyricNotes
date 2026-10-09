@@ -95,7 +95,7 @@ object LyricAligner {
 
         if (transLines.isEmpty() || transLines.all { it.isBlank() }) {
             // 没有翻译时，纯净展示原文
-            return origLines.mapIndexed { index, line ->
+            val rawLines = origLines.mapIndexed { index, line ->
                 BilingualLyricLine(
                     lineNumber = index + 1,
                     original = line,
@@ -104,6 +104,7 @@ object LyricAligner {
                     startTimeMs = origTimes.getOrNull(index)
                 )
             }
+            return enrichWithWordTimestamps(rawLines)
         }
 
         // 1. 优先检查译文中是否含有行号标记（如 "1. "、"[#1] " 等），实现确定性绝对锚定
@@ -152,7 +153,7 @@ object LyricAligner {
                     )
                 }
             }
-            return result
+            return enrichWithWordTimestamps(result)
         }
 
         // 2. 提取原歌词与译文的全部非空演唱正文行
@@ -200,7 +201,29 @@ object LyricAligner {
                 )
             )
         }
-        return result
+        return enrichWithWordTimestamps(result)
+    }
+
+    /**
+     * 为每行歌词注入逐字/逐音节时间戳模型，支持 YRC/QRC/Enhanced LRC 及标准 LRC 物理加权插值
+     */
+    private fun enrichWithWordTimestamps(lines: List<BilingualLyricLine>): List<BilingualLyricLine> {
+        return lines.mapIndexed { index, line ->
+            if (line.startTimeMs == null || line.isStanzaBreak || line.original.isBlank()) {
+                line
+            } else {
+                val nextTime = lines.subList(index + 1, lines.size)
+                    .firstOrNull { it.startTimeMs != null && !it.isStanzaBreak && it.original.isNotBlank() }
+                    ?.startTimeMs
+                val cleanOrig = LyricWordParser.cleanInlineTimestamps(line.original)
+                val words = LyricWordParser.parseLineWords(line.original, line.startTimeMs, nextTime)
+                line.copy(
+                    original = cleanOrig,
+                    endTimeMs = nextTime,
+                    words = words
+                )
+            }
+        }
     }
 
     private data class AlignIndexedLine(val index: Int, val text: String, val timeMs: Long?)

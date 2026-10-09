@@ -52,6 +52,32 @@ class AiPreferences @Inject constructor(
             _lyricAlignmentFlow.value = value
         }
 
+    // 动态流体极光背景 (Dynamic Fluid Aurora Canvas)：基于专辑封面色彩自适应流动，营造舞台光场
+    private val _isDynamicAuroraEnabledFlow = kotlinx.coroutines.flow.MutableStateFlow(
+        prefs.getBoolean("is_dynamic_aurora_enabled", true)
+    )
+    val isDynamicAuroraEnabledFlow: kotlinx.coroutines.flow.StateFlow<Boolean> = _isDynamicAuroraEnabledFlow
+
+    var isDynamicAuroraEnabled: Boolean
+        get() = _isDynamicAuroraEnabledFlow.value
+        set(value) {
+            prefs.edit().putBoolean("is_dynamic_aurora_enabled", value).apply()
+            _isDynamicAuroraEnabledFlow.value = value
+        }
+
+    // 逐字流光歌词动效 (Word-by-word Karaoke Sweep)：Apple Music 风格逐字光效高亮与律动扫光
+    private val _isWordByWordEnabledFlow = kotlinx.coroutines.flow.MutableStateFlow(
+        prefs.getBoolean("is_word_by_word_enabled", true)
+    )
+    val isWordByWordEnabledFlow: kotlinx.coroutines.flow.StateFlow<Boolean> = _isWordByWordEnabledFlow
+
+    var isWordByWordEnabled: Boolean
+        get() = _isWordByWordEnabledFlow.value
+        set(value) {
+            prefs.edit().putBoolean("is_word_by_word_enabled", value).apply()
+            _isWordByWordEnabledFlow.value = value
+        }
+
     companion object {
         const val LYRIC_ALIGN_LEFT = 0
         const val LYRIC_ALIGN_CENTER = 1

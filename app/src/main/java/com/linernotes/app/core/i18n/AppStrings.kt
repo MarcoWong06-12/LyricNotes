@@ -197,6 +197,10 @@ data class AppStrings(
     // 正在播放与设置抽屉 (Now Playing & Settings)
     val amoledModeLabel: String = "纯黑 OLED 极暗模式",
     val amoledModeDesc: String = "深色下彻底关闭背景像素发光 (0 nits)，更深邃省电",
+    val dynamicAuroraLabel: String = "动态流体极光背景",
+    val dynamicAuroraDesc: String = "随音乐封面色彩自适应流动，营造沉浸舞台光场",
+    val wordByWordLabel: String = "逐字流光歌词",
+    val wordByWordDesc: String = "Apple Music 风格逐字光效高亮与律动扫光",
     val lyricAlignmentLabel: String = "全屏歌词对齐",
     val alignLeft: String = "靠左对齐",
     val alignCenter: String = "居中对齐",
@@ -570,6 +574,10 @@ val ZhHantStrings = AppStrings(
 
     amoledModeLabel = "純黑 OLED 極暗模式",
     amoledModeDesc = "深色下徹底關閉背景像素發光 (0 nits)，更深邃省電",
+    dynamicAuroraLabel = "動態流體極光背景",
+    dynamicAuroraDesc = "隨音樂封面色彩自適應流動，營造沉浸舞台光場",
+    wordByWordLabel = "逐字流光歌詞",
+    wordByWordDesc = "Apple Music 風格逐字光效高亮與律動掃光",
     lyricAlignmentLabel = "全螢幕歌詞對齊",
     alignLeft = "靠左對齊",
     alignCenter = "置中對齊",
@@ -801,6 +809,10 @@ val EnStrings = AppStrings(
 
     amoledModeLabel = "Pure Black AMOLED Mode",
     amoledModeDesc = "Shuts off background pixels (0 nits) in dark mode for true black & battery saving",
+    dynamicAuroraLabel = "Dynamic Fluid Aurora",
+    dynamicAuroraDesc = "Fluid ambient stage glow harmonized with album cover art",
+    wordByWordLabel = "Word-by-word Lyrics",
+    wordByWordDesc = "Apple Music-style word-by-word karaoke glow & highlights",
     lyricAlignmentLabel = "In-App Lyric Alignment",
     alignLeft = "Align Left",
     alignCenter = "Align Center",
@@ -1032,6 +1044,10 @@ val JaStrings = AppStrings(
 
     amoledModeLabel = "純黒 OLED 極暗モード",
     amoledModeDesc = "ダークテーマで背景ピクセルを消灯(0 nits)、超省電力",
+    dynamicAuroraLabel = "動的オーロラ背景",
+    dynamicAuroraDesc = "アルバムアートの色彩に合わせて流れる幻想的な背景",
+    wordByWordLabel = "歌詞の単語ごとのエフェクト",
+    wordByWordDesc = "Apple Musicスタイルの単語ごとの光彩とハイライト",
     lyricAlignmentLabel = "全画面歌詞の配置",
     alignLeft = "左揃え",
     alignCenter = "中央揃え",

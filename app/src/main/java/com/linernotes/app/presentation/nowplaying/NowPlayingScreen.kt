@@ -45,6 +45,7 @@ import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalHapticFeedback
+import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
@@ -134,6 +135,7 @@ fun NowPlayingScreen(
             coverUrl = trackState.coverUrl,
             isDark = isDark,
             isAmoledMode = state.isAmoledMode,
+            isDynamicAurora = state.isDynamicAuroraEnabled,
             modifier = Modifier.fillMaxSize()
         )
 
@@ -177,6 +179,9 @@ fun NowPlayingScreen(
                     isTraditional = state.isTraditionalChinese,
                     isLoadingLyrics = nowData.isLoadingLyrics,
                     isDark = isDark,
+                    trackState = trackState,
+                    lyricOffsetMs = state.lyricOffsetMs,
+                    isWordByWordEnabled = state.isWordByWordEnabled,
                     lyricAlignment = state.lyricAlignment,
                     showPlaybackControls = state.showPlaybackControls,
                     onLineClicked = onLineClicked,
@@ -355,6 +360,8 @@ fun NowPlayingScreen(
                 appLanguage = state.appLanguage,
                 isAmoledMode = state.isAmoledMode,
                 lyricAlignment = state.lyricAlignment,
+                isDynamicAuroraEnabled = state.isDynamicAuroraEnabled,
+                isWordByWordEnabled = state.isWordByWordEnabled,
                 isDeCensorEnabled = state.isDeCensorEnabled,
                 showPlaybackControls = state.showPlaybackControls,
                 lyricOffsetMs = state.lyricOffsetMs,
@@ -368,6 +375,8 @@ fun NowPlayingScreen(
                 onSetAppLanguage = { viewModel.setAppLanguage(it) },
                 onSetAmoledMode = { viewModel.setAmoledMode(it) },
                 onSetLyricAlignment = { viewModel.setLyricAlignment(it) },
+                onSetDynamicAuroraEnabled = { viewModel.setDynamicAuroraEnabled(it) },
+                onSetWordByWordEnabled = { viewModel.setWordByWordEnabled(it) },
                 onToggleDeCensor = { viewModel.toggleDeCensor() },
                 onTogglePlaybackControls = { viewModel.togglePlaybackControls() },
                 onReloadLyrics = { viewModel.reloadLyrics() },
@@ -684,6 +693,9 @@ private fun NowPlayingLyricsContent(
     isTraditional: Boolean,
     isLoadingLyrics: Boolean,
     isDark: Boolean,
+    trackState: TrackPlaybackState,
+    lyricOffsetMs: Long = 0L,
+    isWordByWordEnabled: Boolean = true,
     lyricAlignment: Int = AiPreferences.LYRIC_ALIGN_LEFT,
     showPlaybackControls: Boolean = true,
     onLineClicked: (BilingualLyricLine) -> Unit,
@@ -797,6 +809,19 @@ private fun NowPlayingLyricsContent(
 
     val listState = rememberLazyListState()
     val coroutineScope = rememberCoroutineScope()
+
+    // 60fps 高精度毫秒级播放进度采样器 (驱动活跃行 Apple Music 风格逐字光效扫掠)
+    var currentEstimatedPosition by remember { mutableLongStateOf(0L) }
+    LaunchedEffect(isPlaying, trackState, lyricOffsetMs) {
+        if (isPlaying) {
+            while (isActive) {
+                currentEstimatedPosition = (trackState.getEstimatedPositionMs() + lyricOffsetMs).coerceAtLeast(0L)
+                delay(16) // 60fps 丝滑插值更新
+            }
+        } else {
+            currentEstimatedPosition = (trackState.getEstimatedPositionMs() + lyricOffsetMs).coerceAtLeast(0L)
+        }
+    }
 
     // 采用统一流体物理弹簧规范 (450ms 优雅磁吸无机械顿挫)
     val lyricFluidSpring = remember {
@@ -979,6 +1004,8 @@ private fun NowPlayingLyricsContent(
                     annotation = annotation,
                     isTraditional = isTraditional,
                     isDark = isDark,
+                    isWordByWordEnabled = isWordByWordEnabled,
+                    currentPositionMsProvider = { currentEstimatedPosition },
                     lyricAlignment = lyricAlignment,
                     onClick = {
                         userScrolledAway = false
@@ -1102,6 +1129,8 @@ private fun LyricLineRow(
     annotation: LyricAnnotationEntity?,
     isTraditional: Boolean,
     isDark: Boolean,
+    isWordByWordEnabled: Boolean = true,
+    currentPositionMsProvider: () -> Long = { 0L },
     lyricAlignment: Int = AiPreferences.LYRIC_ALIGN_LEFT,
     onClick: () -> Unit,
     onAnnotationClick: () -> Unit
@@ -1227,19 +1256,29 @@ private fun LyricLineRow(
         horizontalAlignment = if (isAlignLeft) Alignment.Start else Alignment.CenterHorizontally
     ) {
         // 1. 原文歌词 (紧凑加粗 Sans-Serif 纯净对齐)
-        Text(
-            text = displayOriginal,
-            color = lyricColor,
-            fontSize = 25.sp,
-            fontWeight = FontWeight.Bold,
-            fontFamily = FontFamily.SansSerif,
-            lineHeight = 34.sp,
-            letterSpacing = (-0.4).sp,
-            textAlign = if (isAlignLeft) TextAlign.Start else TextAlign.Center,
-            modifier = Modifier
-                .fillMaxWidth()
-                .graphicsLayer { alpha = animatedOriginalAlpha }
-        )
+        if (isActive && isWordByWordEnabled && line.words.isNotEmpty()) {
+            WordByWordLyricLine(
+                words = line.words,
+                currentPositionMs = currentPositionMsProvider(),
+                lyricColor = lyricColor,
+                isAlignLeft = isAlignLeft,
+                isTraditional = isTraditional
+            )
+        } else {
+            Text(
+                text = displayOriginal,
+                color = lyricColor,
+                fontSize = 25.sp,
+                fontWeight = FontWeight.Bold,
+                fontFamily = FontFamily.SansSerif,
+                lineHeight = 34.sp,
+                letterSpacing = (-0.4).sp,
+                textAlign = if (isAlignLeft) TextAlign.Start else TextAlign.Center,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .graphicsLayer { alpha = animatedOriginalAlpha }
+            )
+        }
 
         // 2. 中文翻译 (紧随原文，纯净对齐，清晰辨识)
         if (displayTranslation.isNotBlank()) {
@@ -1267,6 +1306,98 @@ private fun LyricLineRow(
                 isDark = isDark,
                 onClick = onAnnotationClick
             )
+        }
+    }
+}
+
+/**
+ * Apple Music 风格逐字流光歌词渲染组件 (Word-by-word Karaoke Sweep)
+ *
+ * 1. 采用 FlowRow 自适应文本容器，纯净支持长歌词自动折行与多端设备无损排版；
+ * 2. 已演唱字/词：纯白高亮 100% 不透明度 (Color.White)；
+ * 3. 正在演唱字/词：应用高精度水平渐变笔刷 (Horizontal Gradient Brush)，随毫秒级进度向右流光扫掠，
+ *    辅以柔和微弹性缩放 (1.04f)；
+ * 4. 待演唱字/词：保留 35% 柔和底色，形成鲜明前瞻视线引导。
+ */
+@OptIn(ExperimentalLayoutApi::class)
+@Composable
+private fun WordByWordLyricLine(
+    words: List<com.linernotes.app.domain.model.LyricWord>,
+    currentPositionMs: Long,
+    lyricColor: Color,
+    isAlignLeft: Boolean,
+    isTraditional: Boolean,
+    modifier: Modifier = Modifier
+) {
+    FlowRow(
+        modifier = modifier.fillMaxWidth(),
+        horizontalArrangement = if (isAlignLeft) Arrangement.Start else Arrangement.Center,
+        verticalArrangement = Arrangement.spacedBy(0.dp)
+    ) {
+        for (word in words) {
+            val rawText = word.text
+            val displayText = if (isTraditional) ChineseConverter.toTraditional(rawText) else rawText
+            val wordStart = word.startTimeMs
+            val wordDuration = word.durationMs.coerceAtLeast(1L)
+            val wordEnd = wordStart + wordDuration
+
+            val isPassed = currentPositionMs >= wordEnd
+            val isUpcoming = currentPositionMs < wordStart
+            val isCurrent = !isPassed && !isUpcoming
+
+            val progress = if (isCurrent) {
+                ((currentPositionMs - wordStart).toFloat() / wordDuration.toFloat()).coerceIn(0f, 1f)
+            } else if (isPassed) 1f else 0f
+
+            val unhighlightedColor = lyricColor.copy(alpha = 0.35f)
+            val highlightedColor = lyricColor
+
+            if (isPassed) {
+                Text(
+                    text = displayText,
+                    color = highlightedColor,
+                    fontSize = 25.sp,
+                    fontWeight = FontWeight.Bold,
+                    fontFamily = FontFamily.SansSerif,
+                    lineHeight = 34.sp,
+                    letterSpacing = (-0.4).sp
+                )
+            } else if (isUpcoming) {
+                Text(
+                    text = displayText,
+                    color = unhighlightedColor,
+                    fontSize = 25.sp,
+                    fontWeight = FontWeight.Bold,
+                    fontFamily = FontFamily.SansSerif,
+                    lineHeight = 34.sp,
+                    letterSpacing = (-0.4).sp
+                )
+            } else {
+                // 正在演唱的词：高光流光笔刷扫掠 + 柔和 1.04f 弹性微放大
+                val sweepBrush = Brush.horizontalGradient(
+                    0.0f to highlightedColor,
+                    progress to highlightedColor,
+                    (progress + 0.12f).coerceAtMost(1f) to unhighlightedColor,
+                    1.0f to unhighlightedColor
+                )
+                Text(
+                    text = displayText,
+                    style = TextStyle(
+                        brush = sweepBrush,
+                        fontSize = 25.sp,
+                        fontWeight = FontWeight.Bold,
+                        fontFamily = FontFamily.SansSerif,
+                        lineHeight = 34.sp,
+                        letterSpacing = (-0.4).sp
+                    ),
+                    modifier = Modifier.graphicsLayer {
+                        val pulse = 1.0f + (0.04f * kotlin.math.sin(progress * Math.PI.toFloat()))
+                        scaleX = pulse
+                        scaleY = pulse
+                        transformOrigin = TransformOrigin(0f, 0.5f)
+                    }
+                )
+            }
         }
     }
 }

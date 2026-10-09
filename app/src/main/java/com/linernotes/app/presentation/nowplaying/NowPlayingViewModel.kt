@@ -37,6 +37,8 @@ data class NowPlayingUiState(
     val appLanguage: String = com.linernotes.app.core.i18n.AppLanguage.SYSTEM.code,
     val isAmoledMode: Boolean = false,
     val lyricAlignment: Int = AiPreferences.LYRIC_ALIGN_LEFT,
+    val isDynamicAuroraEnabled: Boolean = true,
+    val isWordByWordEnabled: Boolean = true,
     val isDeCensorEnabled: Boolean = true,
     val showPlaybackControls: Boolean = true,
     val lyricOffsetMs: Long = -200L,
@@ -63,7 +65,9 @@ class NowPlayingViewModel @Inject constructor(
             themeMode = aiPreferences.themeMode,
             appLanguage = aiPreferences.appLanguage,
             isAmoledMode = aiPreferences.isAmoledMode,
-            lyricAlignment = aiPreferences.lyricAlignment
+            lyricAlignment = aiPreferences.lyricAlignment,
+            isDynamicAuroraEnabled = aiPreferences.isDynamicAuroraEnabled,
+            isWordByWordEnabled = aiPreferences.isWordByWordEnabled
         )
     )
     val uiState: StateFlow<NowPlayingUiState> = _uiState.asStateFlow()
@@ -120,6 +124,18 @@ class NowPlayingViewModel @Inject constructor(
         viewModelScope.launch {
             aiPreferences.lyricAlignmentFlow.collect { align ->
                 _uiState.update { it.copy(lyricAlignment = align) }
+            }
+        }
+
+        viewModelScope.launch {
+            aiPreferences.isDynamicAuroraEnabledFlow.collect { aurora ->
+                _uiState.update { it.copy(isDynamicAuroraEnabled = aurora) }
+            }
+        }
+
+        viewModelScope.launch {
+            aiPreferences.isWordByWordEnabledFlow.collect { wbw ->
+                _uiState.update { it.copy(isWordByWordEnabled = wbw) }
             }
         }
     }
@@ -198,6 +214,14 @@ class NowPlayingViewModel @Inject constructor(
 
     fun setLyricAlignment(alignment: Int) {
         aiPreferences.lyricAlignment = alignment
+    }
+
+    fun setDynamicAuroraEnabled(enabled: Boolean) {
+        aiPreferences.isDynamicAuroraEnabled = enabled
+    }
+
+    fun setWordByWordEnabled(enabled: Boolean) {
+        aiPreferences.isWordByWordEnabled = enabled
     }
 
     fun setAppLanguage(langCode: String) {

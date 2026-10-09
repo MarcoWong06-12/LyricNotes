@@ -56,6 +56,8 @@ fun LyricNotesSettingsSheet(
     appLanguage: String = com.linernotes.app.core.i18n.AppLanguage.SYSTEM.code,
     isAmoledMode: Boolean = false,
     lyricAlignment: Int = com.linernotes.app.core.preference.AiPreferences.LYRIC_ALIGN_LEFT,
+    isDynamicAuroraEnabled: Boolean = true,
+    isWordByWordEnabled: Boolean = true,
     isDeCensorEnabled: Boolean,
     showPlaybackControls: Boolean,
     lyricOffsetMs: Long,
@@ -69,6 +71,8 @@ fun LyricNotesSettingsSheet(
     onSetAppLanguage: (String) -> Unit = {},
     onSetAmoledMode: (Boolean) -> Unit = {},
     onSetLyricAlignment: (Int) -> Unit = {},
+    onSetDynamicAuroraEnabled: (Boolean) -> Unit = {},
+    onSetWordByWordEnabled: (Boolean) -> Unit = {},
     onToggleDeCensor: () -> Unit,
     onTogglePlaybackControls: () -> Unit,
     onReloadLyrics: () -> Unit,
@@ -256,6 +260,20 @@ fun LyricNotesSettingsSheet(
                         checked = isAmoledMode,
                         isDark = isDark,
                         onCheckedChange = { onSetAmoledMode(!isAmoledMode) }
+                    )
+
+                    HorizontalDivider(
+                        color = dividerColor,
+                        thickness = 0.5.dp,
+                        modifier = Modifier.padding(vertical = 4.dp)
+                    )
+
+                    SettingsSwitchRow(
+                        title = strings.dynamicAuroraLabel,
+                        subtitle = strings.dynamicAuroraDesc,
+                        checked = isDynamicAuroraEnabled,
+                        isDark = isDark,
+                        onCheckedChange = { onSetDynamicAuroraEnabled(!isDynamicAuroraEnabled) }
                     )
                 }
             }
@@ -935,6 +953,16 @@ fun LyricNotesSettingsSheet(
                 modifier = Modifier.fillMaxWidth()
             ) {
                 Column(modifier = Modifier.padding(horizontal = 16.dp, vertical = 6.dp)) {
+                    SettingsSwitchRow(
+                        title = strings.wordByWordLabel,
+                        subtitle = strings.wordByWordDesc,
+                        checked = isWordByWordEnabled,
+                        isDark = isDark,
+                        onCheckedChange = { onSetWordByWordEnabled(!isWordByWordEnabled) }
+                    )
+
+                    HorizontalDivider(color = dividerColor, thickness = 0.5.dp)
+
                     SettingsSwitchRow(
                         title = strings.showControlsLabel,
                         checked = showPlaybackControls,
