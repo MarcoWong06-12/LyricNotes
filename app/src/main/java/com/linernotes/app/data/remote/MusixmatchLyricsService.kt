@@ -21,7 +21,7 @@ object MusixmatchLyricsService {
     @Volatile
     private var cachedUserToken: String? = null
 
-    private val TIMESTAMP_LINE_REGEX = Regex("""^(\[\d{2}:\d{2}(?:\.\d{1,3})?\])(.*)$""")
+    private val TIMESTAMP_LINE_REGEX = Regex("""^(\[\d{1,2}:\d{2}(?:\.\d{1,3})?\])(.*)$""")
 
     private fun generateT(): String = UUID.randomUUID().toString().replace("-", "")
 

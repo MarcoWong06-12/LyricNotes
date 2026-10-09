@@ -111,24 +111,40 @@ class NowPlayingRepository @Inject constructor(
     }
 
     private fun handlePlaybackStateUpdate(state: TrackPlaybackState) {
-        _nowPlayingData.update { current ->
-            val activeLine = if (current.lyrics.isNotEmpty()) {
-                val currentPos = (state.getEstimatedPositionMs() + lyricOffsetMs).coerceAtLeast(0L)
-                calculateActiveLineIndex(current.lyrics, currentPos)
-            } else current.currentLineIndex
-
-            current.copy(
-                playbackState = state,
-                currentLineIndex = activeLine
-            )
+        if (!state.hasValidTrack) {
+            _nowPlayingData.update { current ->
+                current.copy(
+                    playbackState = state,
+                    currentLineIndex = -1
+                )
+            }
+            return
         }
 
-        if (!state.hasValidTrack) return
-
         val songKey = "${state.artist.trim().lowercase()} - ${state.title.trim().lowercase()}"
-        if (songKey != currentSongKey) {
+        val isNewSong = songKey != currentSongKey
+
+        if (isNewSong) {
             currentSongKey = songKey
+            _nowPlayingData.update { current ->
+                current.copy(
+                    playbackState = state,
+                    currentLineIndex = -1
+                )
+            }
             loadSongLyricsAndGenius(state.title, state.artist, songKey)
+        } else {
+            _nowPlayingData.update { current ->
+                val activeLine = if (current.lyrics.isNotEmpty()) {
+                    val currentPos = (state.getEstimatedPositionMs() + lyricOffsetMs).coerceAtLeast(0L)
+                    calculateActiveLineIndex(current.lyrics, currentPos)
+                } else current.currentLineIndex
+
+                current.copy(
+                    playbackState = state,
+                    currentLineIndex = activeLine
+                )
+            }
         }
 
         // 待播队列静默预加载：提取队列下首曲目，提前静默拉取歌词与翻译并存入内存缓存
@@ -154,7 +170,7 @@ class NowPlayingRepository @Inject constructor(
                         }
                     }
                 }
-                delay(50) // 50ms 刷新周期，平滑灵敏捕捉
+                delay(if (state.isPlaying) 50L else 300L) // 播放时50ms灵敏追踪，暂停时300ms大幅节电
             }
         }
     }
@@ -170,10 +186,7 @@ class NowPlayingRepository @Inject constructor(
                 break
             }
         }
-        // 如果处于曲目前奏期 (positionMs 小于第 1 句歌词时间)，聚焦首句，避免全屏歌词落入非活跃暗色
-        if (activeIndex == -1 && lyrics.isNotEmpty()) {
-            return 0
-        }
+        // 当处于曲目前奏期 (positionMs 小于第 1 句歌词时间) 时返回 -1，悬浮窗自然显示歌曲名与歌手，避免第1句提前几秒到几十秒显示
         return activeIndex
     }
 
@@ -206,6 +219,8 @@ class NowPlayingRepository @Inject constructor(
 
         if (cached != null && !isCachedTranslationSeverelyIncomplete && cached.lyrics.isNotEmpty() && (cached.annotatedLines.isNotEmpty() || cached.songStory != null || cached.geniusNotice != null)) {
             _nowPlayingData.update {
+                val currentPos = (it.playbackState.getEstimatedPositionMs() + lyricOffsetMs).coerceAtLeast(0L)
+                val lineIndex = calculateActiveLineIndex(cached.lyrics, currentPos)
                 it.copy(
                     lyrics = cached.lyrics,
                     annotatedLines = cached.annotatedLines,
@@ -213,7 +228,8 @@ class NowPlayingRepository @Inject constructor(
                     isLoadingLyrics = false,
                     isLoadingGenius = false,
                     geniusNoticeMessage = cached.geniusNotice,
-                    errorMessage = null
+                    errorMessage = null,
+                    currentLineIndex = lineIndex
                 )
             }
             return
@@ -222,6 +238,8 @@ class NowPlayingRepository @Inject constructor(
         // 若歌词已就绪但典故尚未获取，立刻展示歌词，后台并发补全典故
         if (cached != null && !isCachedTranslationSeverelyIncomplete && cached.lyrics.isNotEmpty()) {
             _nowPlayingData.update {
+                val currentPos = (it.playbackState.getEstimatedPositionMs() + lyricOffsetMs).coerceAtLeast(0L)
+                val lineIndex = calculateActiveLineIndex(cached.lyrics, currentPos)
                 it.copy(
                     lyrics = cached.lyrics,
                     annotatedLines = cached.annotatedLines,
@@ -229,7 +247,8 @@ class NowPlayingRepository @Inject constructor(
                     isLoadingLyrics = false,
                     isLoadingGenius = cached.songStory == null && cached.geniusNotice == null,
                     geniusNoticeMessage = cached.geniusNotice,
-                    errorMessage = null
+                    errorMessage = null,
+                    currentLineIndex = lineIndex
                 )
             }
         } else {
@@ -242,7 +261,8 @@ class NowPlayingRepository @Inject constructor(
                     isLoadingLyrics = true,
                     isLoadingGenius = cached?.songStory == null,
                     geniusNoticeMessage = cached?.geniusNotice,
-                    errorMessage = null
+                    errorMessage = null,
+                    currentLineIndex = -1
                 )
             }
         }
@@ -467,13 +487,16 @@ class NowPlayingRepository @Inject constructor(
             }
 
             _nowPlayingData.update {
+                val currentPos = (it.playbackState.getEstimatedPositionMs() + lyricOffsetMs).coerceAtLeast(0L)
+                val lineIndex = calculateActiveLineIndex(fetchedLyrics, currentPos)
                 it.copy(
                     lyrics = fetchedLyrics,
                     annotatedLines = initialMatched,
                     songStory = fetchedStory,
                     isLoadingLyrics = false,
                     isLoadingGenius = false,
-                    geniusNoticeMessage = failureNotice
+                    geniusNoticeMessage = failureNotice,
+                    currentLineIndex = lineIndex
                 )
             }
 

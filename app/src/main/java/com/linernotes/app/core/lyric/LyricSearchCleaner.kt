@@ -37,7 +37,7 @@ object LyricSearchCleaner {
         RegexOption.IGNORE_CASE
     )
 
-    private val TIMESTAMP_PARSER_REGEX = Regex("""\[(\d{2}):(\d{2})(?:\.(\d{1,3}))?\]""")
+    private val TIMESTAMP_PARSER_REGEX = Regex("""\[(\d{1,2}):(\d{2})(?:\.(\d{1,3}))?\]""")
 
     private val TITLE_STOP_WORDS = setOf(
         "the", "a", "an", "and", "or", "in", "on", "at", "to", "for", "of", "with",

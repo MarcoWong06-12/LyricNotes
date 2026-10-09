@@ -29,7 +29,7 @@ object LyricSanitizer {
 
     private val CENSOR_CHECK_REGEX = Regex("""[a-zA-Z]*\*+[a-zA-Z]*|\*{2,}""")
     private val WORD_TOKEN_REGEX = Regex("""[\w'’*]+""")
-    private val TIMESTAMP_REGEX = Regex("""\[\d{2}:\d{2}(?:\.\d{1,3})?\]""")
+    private val TIMESTAMP_REGEX = Regex("""\[\d{1,2}:\d{2}(?:\.\d{1,3})?\]""")
 
     /**
      * 判断文本中是否包含审查掩码星号

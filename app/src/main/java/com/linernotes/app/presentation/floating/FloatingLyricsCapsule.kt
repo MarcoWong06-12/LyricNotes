@@ -244,30 +244,12 @@ fun FloatingLyricsCapsule(
                     modifier = Modifier.fillMaxWidth()
                 ) {
                     if (displayMode == FloatingLyricsPreferences.DISPLAY_MODE_MARQUEE) {
-                        Text(
-                            text = originalText,
-                            color = lyricColor,
-                            fontSize = (16f * fontScale).sp,
-                            fontWeight = FontWeight.Bold,
-                            fontFamily = FontFamily.SansSerif,
-                            textAlign = TextAlign.Center,
-                            maxLines = 1,
-                            style = TextStyle(shadow = textShadow, letterSpacing = 0.sp),
-                            modifier = Modifier.basicMarquee(
-                                iterations = Int.MAX_VALUE,
-                                initialDelayMillis = 1200,
-                                repeatDelayMillis = 1500,
-                                velocity = 32.dp
-                            )
-                        )
-
-                        if (!secondaryText.isNullOrBlank()) {
-                            Spacer(modifier = Modifier.height(2.5.dp))
+                        key(originalText) {
                             Text(
-                                text = secondaryText,
-                                color = secondaryColor,
-                                fontSize = (13f * fontScale).sp,
-                                fontWeight = FontWeight.SemiBold,
+                                text = originalText,
+                                color = lyricColor,
+                                fontSize = (16f * fontScale).sp,
+                                fontWeight = FontWeight.Bold,
                                 fontFamily = FontFamily.SansSerif,
                                 textAlign = TextAlign.Center,
                                 maxLines = 1,
@@ -276,9 +258,31 @@ fun FloatingLyricsCapsule(
                                     iterations = Int.MAX_VALUE,
                                     initialDelayMillis = 1200,
                                     repeatDelayMillis = 1500,
-                                    velocity = 28.dp
+                                    velocity = 32.dp
                                 )
                             )
+                        }
+
+                        if (!secondaryText.isNullOrBlank()) {
+                            Spacer(modifier = Modifier.height(2.5.dp))
+                            key(secondaryText) {
+                                Text(
+                                    text = secondaryText,
+                                    color = secondaryColor,
+                                    fontSize = (13f * fontScale).sp,
+                                    fontWeight = FontWeight.SemiBold,
+                                    fontFamily = FontFamily.SansSerif,
+                                    textAlign = TextAlign.Center,
+                                    maxLines = 1,
+                                    style = TextStyle(shadow = textShadow, letterSpacing = 0.sp),
+                                    modifier = Modifier.basicMarquee(
+                                        iterations = Int.MAX_VALUE,
+                                        initialDelayMillis = 1200,
+                                        repeatDelayMillis = 1500,
+                                        velocity = 28.dp
+                                    )
+                                )
+                            }
                         }
                     } else {
                         // 经典折行全显模式 (无截断)
@@ -584,30 +588,12 @@ fun FloatingLyricsCapsule(
                             modifier = Modifier.weight(1f)
                         ) {
                             if (displayMode == FloatingLyricsPreferences.DISPLAY_MODE_MARQUEE) {
-                                Text(
-                                    text = originalText,
-                                    color = lyricColor,
-                                    fontSize = (14.5f * fontScale).sp,
-                                    fontWeight = FontWeight.Bold,
-                                    fontFamily = FontFamily.SansSerif,
-                                    textAlign = TextAlign.Center,
-                                    maxLines = 1,
-                                    style = TextStyle(shadow = textShadow, letterSpacing = 0.sp),
-                                    modifier = Modifier.basicMarquee(
-                                        iterations = Int.MAX_VALUE,
-                                        initialDelayMillis = 1200,
-                                        repeatDelayMillis = 1500,
-                                        velocity = 32.dp
-                                    )
-                                )
-
-                                if (!secondaryText.isNullOrBlank()) {
-                                    Spacer(modifier = Modifier.height(2.dp))
+                                key(originalText) {
                                     Text(
-                                        text = secondaryText,
-                                        color = secondaryColor,
-                                        fontSize = (12f * fontScale).sp,
-                                        fontWeight = FontWeight.SemiBold,
+                                        text = originalText,
+                                        color = lyricColor,
+                                        fontSize = (14.5f * fontScale).sp,
+                                        fontWeight = FontWeight.Bold,
                                         fontFamily = FontFamily.SansSerif,
                                         textAlign = TextAlign.Center,
                                         maxLines = 1,
@@ -616,9 +602,31 @@ fun FloatingLyricsCapsule(
                                             iterations = Int.MAX_VALUE,
                                             initialDelayMillis = 1200,
                                             repeatDelayMillis = 1500,
-                                            velocity = 28.dp
+                                            velocity = 32.dp
                                         )
                                     )
+                                }
+
+                                if (!secondaryText.isNullOrBlank()) {
+                                    Spacer(modifier = Modifier.height(2.dp))
+                                    key(secondaryText) {
+                                        Text(
+                                            text = secondaryText,
+                                            color = secondaryColor,
+                                            fontSize = (12f * fontScale).sp,
+                                            fontWeight = FontWeight.SemiBold,
+                                            fontFamily = FontFamily.SansSerif,
+                                            textAlign = TextAlign.Center,
+                                            maxLines = 1,
+                                            style = TextStyle(shadow = textShadow, letterSpacing = 0.sp),
+                                            modifier = Modifier.basicMarquee(
+                                                iterations = Int.MAX_VALUE,
+                                                initialDelayMillis = 1200,
+                                                repeatDelayMillis = 1500,
+                                                velocity = 28.dp
+                                            )
+                                        )
+                                    }
                                 }
                             } else {
                                 Text(

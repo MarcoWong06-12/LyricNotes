@@ -12,7 +12,7 @@ import kotlinx.coroutines.withTimeoutOrNull
 
 object UnifiedLyricsService {
 
-    private val TIMESTAMP_REGEX = Regex("""\[\d{2}:\d{2}(?:\.\d{1,3})?\]""")
+    private val TIMESTAMP_REGEX = Regex("""\[\d{1,2}:\d{2}(?:\.\d{1,3})?\]""")
 
     suspend fun fetchLyrics(
         trackTitle: String,

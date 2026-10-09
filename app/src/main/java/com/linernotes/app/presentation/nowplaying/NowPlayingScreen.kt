@@ -839,13 +839,14 @@ private fun NowPlayingLyricsContent(
         if (currentLineIndex >= 0) currentLineIndex else visibleFocalIndex
     }
 
-    // 首次载入歌词时，直接对齐至当前播放行几何中心
+    // 首次载入歌词时，直接对齐至当前播放行几何中心 (若处于曲目前奏期，定位至首行预备)
     LaunchedEffect(lyrics.isNotEmpty()) {
-        if (lyrics.isNotEmpty() && currentLineIndex in lyrics.indices) {
+        if (lyrics.isNotEmpty()) {
+            val targetIndex = if (currentLineIndex in lyrics.indices) currentLineIndex else 0
             val viewportHeight = listState.layoutInfo.viewportSize.height.toFloat()
             val targetFocalY = if (viewportHeight > 0f) viewportHeight * 0.36f else 300f
-            listState.scrollToItem(currentLineIndex)
-            val item = listState.layoutInfo.visibleItemsInfo.find { it.index == currentLineIndex }
+            listState.scrollToItem(targetIndex)
+            val item = listState.layoutInfo.visibleItemsInfo.find { it.index == targetIndex }
             if (item != null && viewportHeight > 0f) {
                 val itemCenterY = item.offset.toFloat() + (item.size.toFloat() / 2f)
                 val scrollDelta = itemCenterY - targetFocalY

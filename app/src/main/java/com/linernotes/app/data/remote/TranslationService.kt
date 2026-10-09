@@ -492,7 +492,7 @@ class TranslationService(
                     if (body != null) {
                         val obj = JSONObject(body)
                         val trans = obj.optJSONObject("responseData")?.optString("translatedText", clean) ?: clean
-                        val match = Regex("""^(\[\d{2}:\d{2}(?:\.\d{1,3})?\])""").find(line)
+                        val match = Regex("""^(\[\d{1,2}:\d{2}(?:\.\d{1,3})?\])""").find(line)
                         if (match != null) "${match.value}$trans" else trans
                     } else {
                         line

@@ -4,7 +4,7 @@ import com.linernotes.app.domain.model.BilingualLyricLine
 
 object LyricAligner {
 
-    val LRC_TIMESTAMP_REGEX = Regex("""\[\d{1,2}:\d{2}(?:\.\d{2,3})?]""")
+    val LRC_TIMESTAMP_REGEX = Regex("""\[\d{1,2}:\d{2}(?:\.\d{1,3})?]""")
     val LRC_METADATA_REGEX = Regex("""^\[(ti|ar|al|by|offset|length|re|ve|encoding):.*?]""", RegexOption.IGNORE_CASE)
 
     fun cleanLine(line: String): String {
@@ -21,6 +21,7 @@ object LyricAligner {
         val sec = match.groupValues[2].toLongOrNull() ?: 0L
         val msStr = match.groupValues.getOrNull(3) ?: ""
         val ms = when (msStr.length) {
+            1 -> (msStr.toLongOrNull() ?: 0L) * 100
             2 -> (msStr.toLongOrNull() ?: 0L) * 10
             3 -> msStr.toLongOrNull() ?: 0L
             else -> 0L
@@ -352,7 +353,7 @@ object LyricAligner {
 
     data class TimedLyric(val ms: Long, val text: String)
 
-    private val TIMESTAMP_PARSER_REGEX = Regex("""\[(\d{1,2}):(\d{2})(?:\.(\d{2,3}))?\]""")
+    private val TIMESTAMP_PARSER_REGEX = Regex("""\[(\d{1,2}):(\d{2})(?:\.(\d{1,3}))?\]""")
 
     private val CREDIT_FILTER_REGEX = Regex(
         """(作词|作曲|编曲|制作人|监制|混音|母带|录音|吉他|贝斯|鼓|键盘|和音|弦乐|OP|SP|Producer|Writers|Written\s*by|Lyrics\s*by|Composed\s*by|Arranged\s*by|Mixed\s*by|Mastered\s*by|Sample|by:)""",
@@ -460,6 +461,7 @@ object LyricAligner {
                 val sec = m.groupValues[2].toLongOrNull() ?: 0L
                 val msStr = m.groupValues.getOrNull(3) ?: ""
                 val ms = when (msStr.length) {
+                    1 -> (msStr.toLongOrNull() ?: 0L) * 100
                     2 -> (msStr.toLongOrNull() ?: 0L) * 10
                     3 -> msStr.toLongOrNull() ?: 0L
                     else -> 0L
