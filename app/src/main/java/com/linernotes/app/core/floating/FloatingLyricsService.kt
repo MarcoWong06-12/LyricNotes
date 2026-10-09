@@ -386,11 +386,15 @@ class FloatingLyricsService : Service() {
             cancelSnapAnimation()
             if (isExpanded) {
                 // 展开时双轴安全视口钳制，确保右侧与底端播控栏 100% 完整显示在屏幕可视区域内并动态避让状态栏/导航栏
-                params.x = params.x.coerceIn(bounds.left, bounds.right)
-                params.y = params.y.coerceIn(bounds.top, bounds.bottom)
-                try {
-                    windowManager?.updateViewLayout(composeView, params)
-                } catch (e: Exception) {}
+                val targetX = params.x.coerceIn(bounds.left, bounds.right)
+                val targetY = params.y.coerceIn(bounds.top, bounds.bottom)
+                if (targetX != params.x || targetY != params.y) {
+                    params.x = targetX
+                    params.y = targetY
+                    try {
+                        windowManager?.updateViewLayout(composeView, params)
+                    } catch (e: Exception) {}
+                }
             } else {
                 floatingPreferences.setLastPosition(params.x, params.y)
             }

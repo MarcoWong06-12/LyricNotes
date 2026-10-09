@@ -1,6 +1,7 @@
 package com.linernotes.app.presentation.floating
 
 import androidx.compose.animation.*
+import androidx.compose.animation.core.snap
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
@@ -132,16 +133,17 @@ fun FloatingLyricsCapsule(
     val lyricColor = if (textColor != -1) Color(textColor) else Color.White
     val isLightColor = lyricColor.luminance() > 0.35f
     val secondaryColor = if (textColor != -1) {
-        Color(textColor).copy(alpha = if (isLightColor) 0.88f else 0.78f)
+        Color(textColor).copy(alpha = if (isLightColor) 0.95f else 0.90f)
     } else {
-        Color.White.copy(alpha = 0.82f)
+        Color.White.copy(alpha = 0.92f)
     }
 
-    // 智能高对比度立体投影：极黑 (0.96 Alpha) 或 雪白 (0.90 Alpha)，确保在任何桌面壁纸与应用图标上均清晰可读
+    // 智能高清晰度边缘阴影：紧凑聚焦投影 (blurRadius = 3f, offset = 1.2f)，
+    // 彻底去除过大高斯模糊造成的字体边缘发虚、发灰、模糊发蒙问题，在任何桌面壁纸与应用图标上均清晰锐利
     val textShadow = Shadow(
-        color = if (isLightColor) Color.Black.copy(alpha = 0.96f) else Color.White.copy(alpha = 0.90f),
-        offset = Offset(0f, 2f),
-        blurRadius = 8f
+        color = if (isLightColor) Color.Black.copy(alpha = 0.88f) else Color.White.copy(alpha = 0.85f),
+        offset = Offset(0f, 1.2f),
+        blurRadius = 3f
     )
 
     val baseBgColor = if (isLightColor) Color(0xFF12141C) else Color(0xFFF2F4F7)
@@ -241,12 +243,12 @@ fun FloatingLyricsCapsule(
                         Text(
                             text = originalText,
                             color = lyricColor,
-                            fontSize = (15.5f * fontScale).sp,
+                            fontSize = (16f * fontScale).sp,
                             fontWeight = FontWeight.Bold,
                             fontFamily = FontFamily.SansSerif,
                             textAlign = TextAlign.Center,
                             maxLines = 1,
-                            style = TextStyle(shadow = textShadow),
+                            style = TextStyle(shadow = textShadow, letterSpacing = 0.sp),
                             modifier = Modifier.basicMarquee(
                                 iterations = Int.MAX_VALUE,
                                 initialDelayMillis = 1200,
@@ -260,12 +262,12 @@ fun FloatingLyricsCapsule(
                             Text(
                                 text = secondaryText,
                                 color = secondaryColor,
-                                fontSize = (12.5f * fontScale).sp,
-                                fontWeight = FontWeight.Medium,
+                                fontSize = (13f * fontScale).sp,
+                                fontWeight = FontWeight.SemiBold,
                                 fontFamily = FontFamily.SansSerif,
                                 textAlign = TextAlign.Center,
                                 maxLines = 1,
-                                style = TextStyle(shadow = textShadow),
+                                style = TextStyle(shadow = textShadow, letterSpacing = 0.sp),
                                 modifier = Modifier.basicMarquee(
                                     iterations = Int.MAX_VALUE,
                                     initialDelayMillis = 1200,
@@ -279,14 +281,14 @@ fun FloatingLyricsCapsule(
                         Text(
                             text = originalText,
                             color = lyricColor,
-                            fontSize = (15.5f * fontScale).sp,
-                            lineHeight = (21f * fontScale).sp,
+                            fontSize = (16f * fontScale).sp,
+                            lineHeight = (22f * fontScale).sp,
                             fontWeight = FontWeight.Bold,
                             fontFamily = FontFamily.SansSerif,
                             textAlign = TextAlign.Center,
                             maxLines = 2,
                             overflow = TextOverflow.Ellipsis,
-                            style = TextStyle(shadow = textShadow)
+                            style = TextStyle(shadow = textShadow, letterSpacing = 0.sp)
                         )
 
                         if (!secondaryText.isNullOrBlank()) {
@@ -294,25 +296,25 @@ fun FloatingLyricsCapsule(
                             Text(
                                 text = secondaryText,
                                 color = secondaryColor,
-                                fontSize = (12.5f * fontScale).sp,
-                                lineHeight = (17f * fontScale).sp,
-                                fontWeight = FontWeight.Medium,
+                                fontSize = (13f * fontScale).sp,
+                                lineHeight = (18f * fontScale).sp,
+                                fontWeight = FontWeight.SemiBold,
                                 fontFamily = FontFamily.SansSerif,
                                 textAlign = TextAlign.Center,
                                 maxLines = 2,
                                 overflow = TextOverflow.Ellipsis,
-                                style = TextStyle(shadow = textShadow)
+                                style = TextStyle(shadow = textShadow, letterSpacing = 0.sp)
                             )
                         }
                     }
                 }
             }
 
-            // 2. 微型快捷播控工具条 (轻触歌词在下方平滑展开，4秒无操作自动收起，杜绝歌词位置上下跳跃)
+            // 2. 微型快捷播控工具条 (轻触歌词在下方平滑展开，4秒无操作自动收起，GPU RenderNode 无抖动高刷渲染)
             AnimatedVisibility(
                 visible = showControls && !isLocked,
-                enter = fadeIn(tween(160)) + expandVertically(tween(180)),
-                exit = fadeOut(tween(120)) + shrinkVertically(tween(140))
+                enter = fadeIn(tween(140)) + scaleIn(initialScale = 0.92f, animationSpec = tween(140)),
+                exit = fadeOut(tween(100)) + scaleOut(targetScale = 0.92f, animationSpec = tween(100))
             ) {
                 Surface(
                     color = Color(0xFF13151F).copy(alpha = 0.95f),
@@ -471,7 +473,11 @@ fun FloatingLyricsCapsule(
         ) {
             AnimatedContent(
                 targetState = isExpanded,
-                transitionSpec = { fadeIn(tween(140)) togetherWith fadeOut(tween(100)) },
+                transitionSpec = {
+                    (fadeIn(animationSpec = tween(140)) togetherWith
+                        fadeOut(animationSpec = tween(90)))
+                        .using(SizeTransform(clip = false) { _, _ -> snap() })
+                },
                 label = "capsuleExpansion"
             ) { expanded ->
                 if (!expanded) {
@@ -571,12 +577,12 @@ fun FloatingLyricsCapsule(
                                 Text(
                                     text = originalText,
                                     color = lyricColor,
-                                    fontSize = (13.5f * fontScale).sp,
-                                    fontWeight = FontWeight.SemiBold,
+                                    fontSize = (14.5f * fontScale).sp,
+                                    fontWeight = FontWeight.Bold,
                                     fontFamily = FontFamily.SansSerif,
                                     textAlign = TextAlign.Center,
                                     maxLines = 1,
-                                    style = TextStyle(shadow = textShadow),
+                                    style = TextStyle(shadow = textShadow, letterSpacing = 0.sp),
                                     modifier = Modifier.basicMarquee(
                                         iterations = Int.MAX_VALUE,
                                         initialDelayMillis = 1200,
@@ -590,12 +596,12 @@ fun FloatingLyricsCapsule(
                                     Text(
                                         text = secondaryText,
                                         color = secondaryColor,
-                                        fontSize = (11f * fontScale).sp,
-                                        fontWeight = FontWeight.Normal,
+                                        fontSize = (12f * fontScale).sp,
+                                        fontWeight = FontWeight.SemiBold,
                                         fontFamily = FontFamily.SansSerif,
                                         textAlign = TextAlign.Center,
                                         maxLines = 1,
-                                        style = TextStyle(shadow = textShadow),
+                                        style = TextStyle(shadow = textShadow, letterSpacing = 0.sp),
                                         modifier = Modifier.basicMarquee(
                                             iterations = Int.MAX_VALUE,
                                             initialDelayMillis = 1200,
@@ -608,14 +614,14 @@ fun FloatingLyricsCapsule(
                                 Text(
                                     text = originalText,
                                     color = lyricColor,
-                                    fontSize = (13f * fontScale).sp,
-                                    lineHeight = (17.5f * fontScale).sp,
-                                    fontWeight = FontWeight.SemiBold,
+                                    fontSize = (14f * fontScale).sp,
+                                    lineHeight = (19f * fontScale).sp,
+                                    fontWeight = FontWeight.Bold,
                                     fontFamily = FontFamily.SansSerif,
                                     textAlign = TextAlign.Center,
                                     maxLines = 2,
                                     overflow = TextOverflow.Ellipsis,
-                                    style = TextStyle(shadow = textShadow)
+                                    style = TextStyle(shadow = textShadow, letterSpacing = 0.sp)
                                 )
 
                                 if (!secondaryText.isNullOrBlank()) {
@@ -623,14 +629,14 @@ fun FloatingLyricsCapsule(
                                     Text(
                                         text = secondaryText,
                                         color = secondaryColor,
-                                        fontSize = (11f * fontScale).sp,
-                                        lineHeight = (15f * fontScale).sp,
-                                        fontWeight = FontWeight.Normal,
+                                        fontSize = (11.5f * fontScale).sp,
+                                        lineHeight = (15.5f * fontScale).sp,
+                                        fontWeight = FontWeight.SemiBold,
                                         fontFamily = FontFamily.SansSerif,
                                         textAlign = TextAlign.Center,
                                         maxLines = 2,
                                         overflow = TextOverflow.Ellipsis,
-                                        style = TextStyle(shadow = textShadow)
+                                        style = TextStyle(shadow = textShadow, letterSpacing = 0.sp)
                                     )
                                 }
                             }
@@ -835,26 +841,26 @@ fun FloatingLyricsCapsule(
                             Text(
                                 text = originalText,
                                 color = lyricColor,
-                                fontSize = (15f * fontScale).sp,
+                                fontSize = (16f * fontScale).sp,
                                 fontWeight = FontWeight.Bold,
                                 textAlign = TextAlign.Center,
-                                lineHeight = (20f * fontScale).sp,
+                                lineHeight = (22f * fontScale).sp,
                                 maxLines = 2,
                                 overflow = TextOverflow.Ellipsis,
-                                style = TextStyle(shadow = textShadow)
+                                style = TextStyle(shadow = textShadow, letterSpacing = 0.sp)
                             )
                             if (!secondaryText.isNullOrBlank()) {
                                 Spacer(modifier = Modifier.height(4.dp))
                                 Text(
                                     text = secondaryText,
                                     color = secondaryColor,
-                                    fontSize = (12f * fontScale).sp,
-                                    fontWeight = FontWeight.Medium,
+                                    fontSize = (13f * fontScale).sp,
+                                    fontWeight = FontWeight.SemiBold,
                                     textAlign = TextAlign.Center,
-                                    lineHeight = (16f * fontScale).sp,
+                                    lineHeight = (18f * fontScale).sp,
                                     maxLines = 2,
                                     overflow = TextOverflow.Ellipsis,
-                                    style = TextStyle(shadow = textShadow)
+                                    style = TextStyle(shadow = textShadow, letterSpacing = 0.sp)
                                 )
                             }
                         }

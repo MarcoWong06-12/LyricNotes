@@ -476,6 +476,7 @@ fun LyricNotesSettingsSheet(
             val currentCapsuleWidth by floatingPrefs.capsuleWidthDpFlow.collectAsState(initial = floatingPrefs.capsuleWidthDp)
             val currentFloatingStyle by floatingPrefs.floatingStyleFlow.collectAsState(initial = floatingPrefs.floatingStyle)
             val hideInForeground by floatingPrefs.hideWhenAppInForegroundFlow.collectAsState(initial = floatingPrefs.hideWhenAppInForeground)
+            val currentFontScale by floatingPrefs.fontScaleFlow.collectAsState(initial = floatingPrefs.fontScale)
 
             val floatingCardBg = if (isFloatingActive) {
                 if (isDark) Color(0xFF162538).copy(alpha = 0.70f) else Color(0xFFE1F5FE).copy(alpha = 0.85f)
@@ -710,7 +711,56 @@ fun LyricNotesSettingsSheet(
 
                     Spacer(modifier = Modifier.height(14.dp))
 
-                    // 4.4 歌词文字颜色
+                    // 4.4 歌词字体大小
+                    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Text(
+                                text = "字体大小",
+                                color = textPrimary,
+                                fontSize = 13.5.sp,
+                                fontWeight = FontWeight.SemiBold,
+                                fontFamily = FontFamily.SansSerif
+                            )
+                            Text(
+                                text = "${(currentFontScale * 100).toInt()}%",
+                                color = if (isDark) Color(0xFF81D4FA) else Color(0xFF0288D1),
+                                fontSize = 13.sp,
+                                fontWeight = FontWeight.Bold,
+                                fontFamily = FontFamily.SansSerif
+                            )
+                        }
+
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.spacedBy(6.dp)
+                        ) {
+                            val fontOptions = listOf(
+                                0.85f to "85%",
+                                1.00f to "100%",
+                                1.15f to "115%",
+                                1.30f to "130%",
+                                1.45f to "145%"
+                            )
+                            fontOptions.forEach { (scaleVal, label) ->
+                                FluidOptionPill(
+                                    label = label,
+                                    isSelected = kotlin.math.abs(currentFontScale - scaleVal) < 0.06f,
+                                    isDark = isDark,
+                                    onClick = { floatingPrefs.fontScale = scaleVal },
+                                    fontSize = 11.5.sp,
+                                    modifier = Modifier.weight(1f)
+                                )
+                            }
+                        }
+                    }
+
+                    Spacer(modifier = Modifier.height(14.dp))
+
+                    // 4.5 歌词文字颜色
                     Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                         Text(
                             text = "文字颜色",
@@ -779,7 +829,7 @@ fun LyricNotesSettingsSheet(
 
                     Spacer(modifier = Modifier.height(14.dp))
 
-                    // 4.5 锁定触摸穿透
+                    // 4.6 锁定触摸穿透
                     SettingsSwitchRow(
                         title = "锁定触摸穿透",
                         checked = isLocked,
@@ -791,7 +841,7 @@ fun LyricNotesSettingsSheet(
 
                     HorizontalDivider(color = dividerColor, thickness = 0.5.dp, modifier = Modifier.padding(vertical = 4.dp))
 
-                    // 4.6 应用在前台时隐藏悬浮窗
+                    // 4.7 应用在前台时隐藏悬浮窗
                     SettingsSwitchRow(
                         title = "应用在前台时隐藏",
                         checked = hideInForeground,
