@@ -221,9 +221,20 @@ fun NowPlayingScreen(
                     .padding(top = 56.dp, start = 16.dp, end = 16.dp)
             ) {
                 Surface(
-                    color = if (isDark) Color(0xFF1E202B).copy(alpha = 0.94f) else MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.95f),
+                    color = if (isDark) {
+                        if (state.isAmoledMode) Color(0xFF0C0C0E) else Color(0xFF1E202B).copy(alpha = 0.94f)
+                    } else {
+                        MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.95f)
+                    },
                     shape = RoundedCornerShape(20.dp),
-                    border = BorderStroke(1.dp, if (isDark) Color.White.copy(alpha = 0.12f) else Color.Black.copy(alpha = 0.08f)),
+                    border = BorderStroke(
+                        1.dp,
+                        if (isDark) {
+                            if (state.isAmoledMode) Color(0xFF222226) else Color.White.copy(alpha = 0.12f)
+                        } else {
+                            Color.Black.copy(alpha = 0.08f)
+                        }
+                    ),
                     shadowElevation = 8.dp
                 ) {
                     Row(
@@ -233,7 +244,7 @@ fun NowPlayingScreen(
                     ) {
                         Text(if (nowData.isLoadingGenius) "⏳" else "💡", fontSize = 12.sp)
                         val noticeMsg = if (nowData.isLoadingGenius) {
-                            if (state.isTraditionalChinese) "正在檢索 Genius 典故與背景故事..." else "正在检索 Genius 典故与背景故事..."
+                            strings.searchingGeniusStatus
                         } else {
                             val raw = nowData.geniusNoticeMessage ?: ""
                             if (state.isTraditionalChinese) ChineseConverter.toTraditional(raw) else raw
@@ -261,7 +272,7 @@ fun NowPlayingScreen(
                                     color = geniusAccent
                                 )
                                 Text(
-                                    text = if (state.isTraditionalChinese) "檢索中" else "检索中",
+                                    text = strings.searchingStatus,
                                     color = geniusAccent,
                                     fontSize = 11.5.sp,
                                     fontWeight = FontWeight.Bold,
@@ -271,7 +282,7 @@ fun NowPlayingScreen(
                         } else {
                             val geniusAccent = if (isDark) Color(0xFF1ED760) else Color(0xFF0A8F3F)
                             Text(
-                                text = if (state.isTraditionalChinese) "重試" else "重试",
+                                text = strings.retryBtn,
                                 color = geniusAccent,
                                 fontSize = 12.sp,
                                 fontWeight = FontWeight.Bold,
@@ -284,7 +295,7 @@ fun NowPlayingScreen(
                         }
                         Icon(
                             imageVector = Icons.Default.Close,
-                            contentDescription = "关闭",
+                            contentDescription = strings.closeBtn,
                             tint = if (isDark) Color.White.copy(alpha = 0.5f) else MaterialTheme.colorScheme.onSurface.copy(alpha = 0.5f),
                             modifier = Modifier
                                 .size(16.dp)
@@ -306,6 +317,7 @@ fun NowPlayingScreen(
                     trackState = trackState,
                     isTraditional = state.isTraditionalChinese,
                     isDark = isDark,
+                    isAmoledMode = state.isAmoledMode,
                     onPlayPause = onPlayPause,
                     onNext = onNext,
                     onPrevious = onPrevious,
@@ -321,6 +333,7 @@ fun NowPlayingScreen(
         if (state.isQueueSheetOpen) {
             NowPlayingQueueSheet(
                 trackState = trackState,
+                isAmoledMode = state.isAmoledMode,
                 onToggleShuffle = onToggleShuffle,
                 onCycleRepeat = onCycleRepeat,
                 onPlayPause = onPlayPause,
@@ -375,6 +388,7 @@ fun NowPlayingScreen(
                 hasManualBinding = state.hasManualBinding,
                 errorMessage = state.candidateSearchError,
                 isTraditional = state.isTraditionalChinese,
+                isAmoledMode = state.isAmoledMode,
                 onSearch = { query -> viewModel.searchCandidates(query) },
                 onSelectCandidate = { candidate -> viewModel.selectCandidate(candidate) },
                 onResetToAutoMatch = { viewModel.resetToAutoMatch() },
@@ -406,6 +420,7 @@ fun NowPlayingScreen(
                 lyricTranslation = matchedLyricTranslation,
                 isTranslating = state.isAnnotationTranslating,
                 isTraditional = state.isTraditionalChinese,
+                isAmoledMode = state.isAmoledMode,
                 onRetryTranslation = { viewModel.retryAnnotationTranslation() },
                 onDismiss = { viewModel.closeGeniusSheet() }
             )
@@ -417,6 +432,7 @@ fun NowPlayingScreen(
                 story = nowData.songStory,
                 isTranslating = state.isSongStoryTranslating,
                 isTraditional = state.isTraditionalChinese,
+                isAmoledMode = state.isAmoledMode,
                 onRetryTranslation = { viewModel.retrySongStoryTranslation() },
                 onDismiss = { viewModel.closeSongStory() }
             )
@@ -445,6 +461,7 @@ private fun NowPlayingTopBar(
     val pillBg = if (isDark) Color(0xFF1E2230).copy(alpha = 0.92f) else MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.85f)
     val pillBorder = if (isDark) Color.White.copy(alpha = 0.22f) else Color.Black.copy(alpha = 0.10f)
     val pillIconTint = if (isDark) Color.White else MaterialTheme.colorScheme.onSurface
+    val strings = LocalStrings.current
 
     Row(
         modifier = modifier
@@ -526,7 +543,7 @@ private fun NowPlayingTopBar(
                 }
             } else {
                 Text(
-                    text = "LyricNotes",
+                    text = strings.appName,
                     color = if (isDark) Color.White else MaterialTheme.colorScheme.onBackground,
                     fontSize = 15.sp,
                     fontWeight = FontWeight.Bold,
@@ -580,12 +597,12 @@ private fun NowPlayingTopBar(
                     ) {
                         Icon(
                             imageVector = Icons.Default.AutoAwesome,
-                            contentDescription = "歌曲故事",
+                            contentDescription = strings.storyBadge,
                             tint = storyColor,
                             modifier = Modifier.size(13.dp)
                         )
                         Text(
-                            text = "故事",
+                            text = strings.storyBadge,
                             color = storyColor,
                             fontSize = 11.5.sp,
                             fontWeight = FontWeight.Bold,
@@ -997,9 +1014,20 @@ private fun NowPlayingLyricsContent(
         ) {
             val isScrolledAbove = visibleFocalIndex < currentLineIndex
             Surface(
-                color = if (isDark) Color(0xFF1E202B).copy(alpha = 0.94f) else MaterialTheme.colorScheme.surface.copy(alpha = 0.96f),
+                color = if (isDark) {
+                    if (state.isAmoledMode) Color(0xFF0C0C0E) else Color(0xFF1E202B).copy(alpha = 0.94f)
+                } else {
+                    MaterialTheme.colorScheme.surface.copy(alpha = 0.96f)
+                },
                 shape = RoundedCornerShape(20.dp),
-                border = BorderStroke(1.dp, if (isDark) Color.White.copy(alpha = 0.16f) else Color.Black.copy(alpha = 0.10f)),
+                border = BorderStroke(
+                    1.dp,
+                    if (isDark) {
+                        if (state.isAmoledMode) Color(0xFF222226) else Color.White.copy(alpha = 0.16f)
+                    } else {
+                        Color.Black.copy(alpha = 0.10f)
+                    }
+                ),
                 shadowElevation = 8.dp,
                 modifier = Modifier.bouncyClickable(pressedScale = 0.93f) {
                     coroutineScope.launch {
@@ -1300,12 +1328,12 @@ private fun LyricAnnotationBadge(
         ) {
             Icon(
                 imageVector = Icons.Default.AutoAwesome,
-                contentDescription = "典故",
+                contentDescription = strings.triviaBadge,
                 tint = badgeContent,
                 modifier = Modifier.size(11.dp)
             )
             Text(
-                text = "典故",
+                text = strings.triviaBadge,
                 color = badgeContent,
                 fontSize = 11.sp,
                 fontWeight = FontWeight.SemiBold,
@@ -1326,6 +1354,7 @@ private fun NowPlayingFloatingGlassPlayer(
     trackState: TrackPlaybackState,
     isTraditional: Boolean,
     isDark: Boolean,
+    isAmoledMode: Boolean = false,
     onPlayPause: () -> Unit,
     onNext: () -> Unit,
     onPrevious: () -> Unit,
@@ -1354,8 +1383,16 @@ private fun NowPlayingFloatingGlassPlayer(
         return "%02d:%02d".format(m, s)
     }
 
-    val playerBg = if (isDark) Color(0xFF0F1118).copy(alpha = 0.94f) else MaterialTheme.colorScheme.surface.copy(alpha = 0.94f)
-    val playerBorder = if (isDark) Color.White.copy(alpha = 0.12f) else Color.Black.copy(alpha = 0.08f)
+    val playerBg = if (isDark) {
+        if (isAmoledMode) Color(0xFF0C0C0E) else Color(0xFF0F1118).copy(alpha = 0.94f)
+    } else {
+        MaterialTheme.colorScheme.surface.copy(alpha = 0.94f)
+    }
+    val playerBorder = if (isDark) {
+        if (isAmoledMode) Color(0xFF222226) else Color.White.copy(alpha = 0.12f)
+    } else {
+        Color.Black.copy(alpha = 0.08f)
+    }
     val onPlayerText = if (isDark) Color.White else Color(0xFF111218)
     val onPlayerTextSec = if (isDark) Color.White.copy(alpha = 0.60f) else Color(0xFF656772)
 
@@ -1365,6 +1402,7 @@ private fun NowPlayingFloatingGlassPlayer(
     val displayArtist = remember(trackState.artist, isTraditional) {
         if (isTraditional) ChineseConverter.toTraditional(trackState.artist) else trackState.artist
     }
+    val strings = LocalStrings.current
 
     Box(
         modifier = modifier
@@ -1499,7 +1537,7 @@ private fun NowPlayingFloatingGlassPlayer(
                                 )
                         ) {
                             Text(
-                                text = if (trackState.hasValidTrack) displayTitle else "LyricNotes",
+                                text = if (trackState.hasValidTrack) displayTitle else strings.appName,
                                 color = onPlayerText,
                                 fontSize = 13.sp,
                                 fontWeight = FontWeight.SemiBold,
@@ -1805,7 +1843,7 @@ private fun NowPlayingIdleContent(
         Spacer(modifier = Modifier.height(24.dp))
 
         Text(
-            text = "LyricNotes",
+            text = strings.appName,
             color = if (isDark) Color.White else MaterialTheme.colorScheme.onBackground,
             fontSize = 25.sp,
             fontWeight = FontWeight.Bold,

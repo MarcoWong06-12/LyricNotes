@@ -32,6 +32,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import coil.compose.AsyncImage
+import com.linernotes.app.core.i18n.LocalStrings
 import com.linernotes.app.core.util.ChineseConverter
 import com.linernotes.app.domain.model.LyricCandidateItem
 import com.linernotes.app.domain.model.LyricSource
@@ -53,6 +54,7 @@ fun ManualLyricSearchSheet(
     hasManualBinding: Boolean,
     errorMessage: String?,
     isTraditional: Boolean,
+    isAmoledMode: Boolean = false,
     onSearch: (String) -> Unit,
     onSelectCandidate: (LyricCandidateItem) -> Unit,
     onResetToAutoMatch: () -> Unit,
@@ -60,15 +62,17 @@ fun ManualLyricSearchSheet(
 ) {
     val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
     val focusManager = LocalFocusManager.current
+    val strings = LocalStrings.current
     var inputQuery by remember { mutableStateOf(if (trackTitle.isNotBlank()) "$trackTitle $artistName".trim() else "") }
     var selectedFilterSource by remember { mutableStateOf<LyricSource?>(null) } // null = 全部
 
     val isDark = MaterialTheme.colorScheme.background.luminance() < 0.5f
-    val sheetBg = if (isDark) Color(0xFF13141B) else MaterialTheme.colorScheme.surface
+    val isPureAmoled = isDark && isAmoledMode
+    val sheetBg = if (isPureAmoled) Color(0xFF0C0C0E) else (if (isDark) Color(0xFF13141B) else MaterialTheme.colorScheme.surface)
     val sheetContent = if (isDark) Color.White else MaterialTheme.colorScheme.onSurface
     val textSecondary = if (isDark) Color.White.copy(alpha = 0.55f) else MaterialTheme.colorScheme.onSurfaceVariant
-    val cardBg = if (isDark) Color.White.copy(alpha = 0.05f) else MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.70f)
-    val cardBorder = if (isDark) Color.White.copy(alpha = 0.10f) else Color.Black.copy(alpha = 0.08f)
+    val cardBg = if (isPureAmoled) Color(0xFF141416) else (if (isDark) Color.White.copy(alpha = 0.05f) else MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.70f))
+    val cardBorder = if (isPureAmoled) Color(0xFF222226) else (if (isDark) Color.White.copy(alpha = 0.10f) else Color.Black.copy(alpha = 0.08f))
     val handleColor = if (isDark) Color.White.copy(alpha = 0.20f) else Color.Black.copy(alpha = 0.20f)
 
     fun tr(str: String): String = if (isTraditional) ChineseConverter.toTraditional(str) else str
@@ -112,14 +116,14 @@ fun ManualLyricSearchSheet(
             ) {
                 Column(modifier = Modifier.weight(1f)) {
                     Text(
-                        text = tr("更换歌词版本"),
+                        text = strings.searchLyricVersionTitle,
                         fontSize = 19.sp,
                         fontWeight = FontWeight.Bold,
                         color = sheetContent,
                         fontFamily = FontFamily.SansSerif
                     )
                     Text(
-                        text = tr("正在播放: $trackTitle - $artistName"),
+                        text = "${strings.nowPlayingPrefix}: $trackTitle - $artistName",
                         fontSize = 12.5.sp,
                         color = textSecondary,
                         maxLines = 1,
@@ -133,7 +137,7 @@ fun ManualLyricSearchSheet(
                         contentPadding = PaddingValues(horizontal = 8.dp, vertical = 4.dp)
                     ) {
                         Text(
-                            text = tr("恢复自动匹配"),
+                            text = strings.restoreAutoMatch,
                             fontSize = 13.sp,
                             color = Color(0xFF1ED760),
                             fontWeight = FontWeight.SemiBold
@@ -158,7 +162,7 @@ fun ManualLyricSearchSheet(
                 ) {
                     Icon(
                         imageVector = Icons.Default.Search,
-                        contentDescription = "搜索",
+                        contentDescription = strings.searchActionBtn,
                         tint = textSecondary,
                         modifier = Modifier.size(20.dp)
                     )
@@ -168,7 +172,7 @@ fun ManualLyricSearchSheet(
                         onValueChange = { inputQuery = it },
                         placeholder = {
                             Text(
-                                text = tr("输入歌名、歌手或自定义关键词..."),
+                                text = strings.searchLyricInputPlaceholder,
                                 color = textSecondary.copy(alpha = 0.6f),
                                 fontSize = 14.sp
                             )
@@ -192,7 +196,7 @@ fun ManualLyricSearchSheet(
                     if (inputQuery.isNotBlank()) {
                         Icon(
                             imageVector = Icons.Default.Close,
-                            contentDescription = "清空",
+                            contentDescription = strings.closeBtn,
                             tint = textSecondary,
                             modifier = Modifier
                                 .size(18.dp)
@@ -214,7 +218,7 @@ fun ManualLyricSearchSheet(
                             )
                     ) {
                         Text(
-                            text = tr("搜索"),
+                            text = strings.searchActionBtn,
                             fontSize = 13.sp,
                             fontWeight = FontWeight.SemiBold,
                             color = sheetContent,
@@ -236,19 +240,19 @@ fun ManualLyricSearchSheet(
                 val qqCount = candidates.count { it.source == LyricSource.QQ_MUSIC }
 
                 FilterPill(
-                    label = tr("全部") + if (candidates.isNotEmpty()) " (${candidates.size})" else "",
+                    label = strings.filterAll + if (candidates.isNotEmpty()) " (${candidates.size})" else "",
                     isSelected = selectedFilterSource == null,
                     isDark = isDark,
                     onClick = { selectedFilterSource = null }
                 )
                 FilterPill(
-                    label = tr("网易云") + if (neteaseCount > 0) " ($neteaseCount)" else "",
+                    label = strings.sourceBadgeNetease + if (neteaseCount > 0) " ($neteaseCount)" else "",
                     isSelected = selectedFilterSource == LyricSource.NETEASE,
                     isDark = isDark,
                     onClick = { selectedFilterSource = LyricSource.NETEASE }
                 )
                 FilterPill(
-                    label = tr("QQ 音乐") + if (qqCount > 0) " ($qqCount)" else "",
+                    label = strings.sourceBadgeQq + if (qqCount > 0) " ($qqCount)" else "",
                     isSelected = selectedFilterSource == LyricSource.QQ_MUSIC,
                     isDark = isDark,
                     onClick = { selectedFilterSource = LyricSource.QQ_MUSIC }
@@ -279,7 +283,7 @@ fun ManualLyricSearchSheet(
                                 color = Color(0xFF1ED760)
                             )
                             Text(
-                                text = tr("正在检索网易云与 QQ 音乐版本库..."),
+                                text = strings.searchingLyricsRepoStatus,
                                 fontSize = 13.sp,
                                 color = textSecondary
                             )
@@ -301,7 +305,7 @@ fun ManualLyricSearchSheet(
                                 color = textSecondary
                             )
                             Text(
-                                text = tr("尝试修改上方关键词重新搜索"),
+                                text = strings.tryRefiningKeywords,
                                 fontSize = 12.sp,
                                 color = textSecondary.copy(alpha = 0.7f)
                             )
@@ -318,7 +322,7 @@ fun ManualLyricSearchSheet(
                         ) {
                             Text(text = "🎵", fontSize = 28.sp)
                             Text(
-                                text = tr("暂无候选版本"),
+                                text = strings.noCandidatesFound,
                                 fontSize = 13.5.sp,
                                 color = textSecondary
                             )
@@ -336,6 +340,7 @@ fun ManualLyricSearchSheet(
                                     item = item,
                                     targetDurationMs = targetDurationMs,
                                     isDark = isDark,
+                                    isAmoledMode = isAmoledMode,
                                     isApplying = isApplying,
                                     isTraditional = isTraditional,
                                     onClick = { onSelectCandidate(item) }
@@ -387,16 +392,17 @@ private fun CandidateItemCard(
     item: LyricCandidateItem,
     targetDurationMs: Long,
     isDark: Boolean,
+    isAmoledMode: Boolean = false,
     isApplying: Boolean,
     isTraditional: Boolean,
     onClick: () -> Unit
 ) {
-    val cardBg = if (isDark) Color(0xFF1C1E2A) else MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.85f)
-    val cardBorder = if (isDark) Color.White.copy(alpha = 0.08f) else Color.Black.copy(alpha = 0.06f)
+    val isPureAmoled = isDark && isAmoledMode
+    val cardBg = if (isPureAmoled) Color(0xFF141416) else (if (isDark) Color(0xFF1C1E2A) else MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.85f))
+    val cardBorder = if (isPureAmoled) Color(0xFF222226) else (if (isDark) Color.White.copy(alpha = 0.08f) else Color.Black.copy(alpha = 0.06f))
     val textPrimary = if (isDark) Color.White else MaterialTheme.colorScheme.onSurface
     val textSecondary = if (isDark) Color.White.copy(alpha = 0.55f) else MaterialTheme.colorScheme.onSurfaceVariant
-
-    fun tr(str: String): String = if (isTraditional) ChineseConverter.toTraditional(str) else str
+    val strings = LocalStrings.current
 
     Surface(
         color = cardBg,
@@ -514,7 +520,7 @@ private fun CandidateItemCard(
                             shape = RoundedCornerShape(4.dp)
                         ) {
                             Text(
-                                text = if (isMatched) tr("时长吻合 ") + durStr else durStr,
+                                text = if (isMatched) strings.durationMatchBadge + durStr else durStr,
                                 fontSize = 10.5.sp,
                                 color = if (isMatched) Color(0xFF1ED760) else textSecondary,
                                 fontWeight = if (isMatched) FontWeight.Bold else FontWeight.Normal,
@@ -530,7 +536,7 @@ private fun CandidateItemCard(
                             shape = RoundedCornerShape(4.dp)
                         ) {
                             Text(
-                                text = tr("双语精翻"),
+                                text = strings.bilingualTranslationBadge,
                                 fontSize = 10.5.sp,
                                 color = if (isDark) Color(0xFF81D4FA) else Color(0xFF0288D1),
                                 fontWeight = FontWeight.SemiBold,
@@ -543,7 +549,7 @@ private fun CandidateItemCard(
                             shape = RoundedCornerShape(4.dp)
                         ) {
                             Text(
-                                text = tr("原版字幕"),
+                                text = strings.originalLyricsBadge,
                                 fontSize = 10.5.sp,
                                 color = textSecondary.copy(alpha = 0.7f),
                                 modifier = Modifier.padding(horizontal = 4.dp, vertical = 1.dp)
@@ -556,7 +562,7 @@ private fun CandidateItemCard(
             // 右侧选择按钮
             Icon(
                 imageVector = Icons.Default.ChevronRight,
-                contentDescription = "选择",
+                contentDescription = strings.doneBtn,
                 tint = textSecondary,
                 modifier = Modifier.size(20.dp)
             )

@@ -25,6 +25,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import coil.compose.AsyncImage
+import com.linernotes.app.core.i18n.LocalStrings
 import com.linernotes.app.core.util.ChineseConverter
 import com.linernotes.app.data.local.entity.LyricAnnotationEntity
 import com.linernotes.app.presentation.booklet.components.BilingualContentView
@@ -37,16 +38,19 @@ fun NowPlayingGeniusSheet(
     lyricTranslation: String? = null,
     isTranslating: Boolean = false,
     isTraditional: Boolean = false,
+    isAmoledMode: Boolean = false,
     onRetryTranslation: () -> Unit = {},
     onDismiss: () -> Unit
 ) {
     if (annotation == null) return
 
     val isDark = MaterialTheme.colorScheme.background.luminance() < 0.5f
-    val sheetBg = if (isDark) Color(0xFF13141B) else MaterialTheme.colorScheme.surface
+    val isPureAmoled = isDark && isAmoledMode
+    val sheetBg = if (isPureAmoled) Color(0xFF0C0C0E) else (if (isDark) Color(0xFF13141B) else MaterialTheme.colorScheme.surface)
     val sheetContent = if (isDark) Color.White else MaterialTheme.colorScheme.onSurface
-    val cardBg = if (isDark) Color.White.copy(alpha = 0.05f) else MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.70f)
+    val cardBg = if (isPureAmoled) Color(0xFF141416) else (if (isDark) Color.White.copy(alpha = 0.05f) else MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.70f))
     val handleColor = if (isDark) Color.White.copy(alpha = 0.20f) else Color.Black.copy(alpha = 0.20f)
+    val strings = LocalStrings.current
 
     ModalBottomSheet(
         onDismissRequest = onDismiss,
@@ -94,11 +98,7 @@ fun NowPlayingGeniusSheet(
                             modifier = Modifier.size(14.dp)
                         )
                         Text(
-                            text = if (annotation.isVerified) {
-                                if (isTraditional) "Genius 官方認證" else "Genius 官方认证"
-                            } else {
-                                if (isTraditional) "Genius 樂評典故" else "Genius 乐评典故"
-                            },
+                            text = if (annotation.isVerified) strings.geniusVerified else strings.geniusAnnotation,
                             color = if (isDark) Color(0xFFFFD54F) else Color(0xFFC77700),
                             fontSize = 12.sp,
                             fontWeight = FontWeight.Bold
@@ -121,7 +121,7 @@ fun NowPlayingGeniusSheet(
                             Box(contentAlignment = Alignment.Center) {
                                 Icon(
                                     imageVector = Icons.Default.Refresh,
-                                    contentDescription = if (isTraditional) "重新翻譯" else "重新翻译",
+                                    contentDescription = strings.retryBtn,
                                     tint = if (isDark) Color.White.copy(alpha = 0.8f) else MaterialTheme.colorScheme.onSurface,
                                     modifier = Modifier.size(16.dp)
                                 )
@@ -139,7 +139,7 @@ fun NowPlayingGeniusSheet(
                         Box(contentAlignment = Alignment.Center) {
                             Icon(
                                 imageVector = Icons.Default.Close,
-                                contentDescription = "关闭",
+                                contentDescription = strings.closeBtn,
                                 tint = if (isDark) Color.White.copy(alpha = 0.8f) else MaterialTheme.colorScheme.onSurface,
                                 modifier = Modifier.size(17.dp)
                             )
@@ -186,7 +186,7 @@ fun NowPlayingGeniusSheet(
             Spacer(modifier = Modifier.height(18.dp))
 
             Text(
-                text = if (isTraditional) "典故與背景深度考據" else "典故与背景深度考据",
+                text = strings.geniusDepthAnalysis,
                 color = sheetContent,
                 fontSize = 15.sp,
                 fontWeight = FontWeight.Bold
@@ -263,7 +263,7 @@ fun NowPlayingGeniusSheet(
                             modifier = Modifier.size(13.dp)
                         )
                         Text(
-                            text = if (isTraditional) "${annotation.votesTotal} 贊同" else "${annotation.votesTotal} 赞同",
+                            text = "${annotation.votesTotal} ${strings.votesCount}",
                             color = upvoteColor,
                             fontSize = 12.sp,
                             fontWeight = FontWeight.Medium

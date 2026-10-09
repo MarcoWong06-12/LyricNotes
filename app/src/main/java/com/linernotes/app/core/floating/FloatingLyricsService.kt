@@ -336,87 +336,94 @@ class FloatingLyricsService : Service() {
             setViewTreeViewModelStoreOwner(overlayLifecycleOwner)
 
             setContent {
-                val nowData by nowPlayingRepository.nowPlayingData.collectAsState()
-                val isLocked by floatingPreferences.isLockedFlow.collectAsState()
-                val isBilingual by floatingPreferences.isBilingualFlow.collectAsState()
-                val bgAlpha by floatingPreferences.backgroundAlphaFlow.collectAsState()
-                val fontScale by floatingPreferences.fontScaleFlow.collectAsState()
-                val textColor by floatingPreferences.textColorFlow.collectAsState()
-                val displayMode by floatingPreferences.displayModeFlow.collectAsState()
-                val capsuleWidthDp by floatingPreferences.capsuleWidthDpFlow.collectAsState()
-                val floatingStyle by floatingPreferences.floatingStyleFlow.collectAsState()
-                val isTraditional by aiPreferences.isTraditionalChineseFlow.collectAsState()
-                val textAlignment by floatingPreferences.textAlignmentFlow.collectAsState()
+                val appLanguageCode by aiPreferences.appLanguageFlow.collectAsState()
+                val strings = remember(appLanguageCode) {
+                    com.linernotes.app.core.i18n.resolveAppStrings(appLanguageCode)
+                }
 
-                FloatingLyricsCapsule(
-                    nowPlayingData = nowData,
-                    isLocked = isLocked,
-                    isBilingual = isBilingual,
-                    backgroundAlpha = bgAlpha,
-                    fontScale = fontScale,
-                    textColor = textColor,
-                    displayMode = displayMode,
-                    floatingStyle = floatingStyle,
-                    capsuleWidthDp = capsuleWidthDp,
-                    isTraditional = isTraditional,
-                    textAlignment = textAlignment,
-                    onDragStart = {
-                        cancelSnapAnimation()
-                        windowLayoutParams?.let { params ->
-                            dragCurrentX = params.x.toFloat()
-                            dragCurrentY = params.y.toFloat()
-                        }
-                    },
-                    onDrag = { dx, dy ->
-                        cancelSnapAnimation()
-                        windowLayoutParams?.let { params ->
-                            val densityVal = resources.displayMetrics.density
-                            val viewHeight = composeView?.height?.takeIf { it > 0 } ?: (52 * densityVal).toInt()
-                            val viewWidth = composeView?.width?.takeIf { it > 0 } ?: (capsuleWidthDp * densityVal).toInt()
-                            val bounds = getSafeDragBounds(viewWidth, viewHeight)
+                androidx.compose.runtime.CompositionLocalProvider(com.linernotes.app.core.i18n.LocalStrings provides strings) {
+                    val nowData by nowPlayingRepository.nowPlayingData.collectAsState()
+                    val isLocked by floatingPreferences.isLockedFlow.collectAsState()
+                    val isBilingual by floatingPreferences.isBilingualFlow.collectAsState()
+                    val bgAlpha by floatingPreferences.backgroundAlphaFlow.collectAsState()
+                    val fontScale by floatingPreferences.fontScaleFlow.collectAsState()
+                    val textColor by floatingPreferences.textColorFlow.collectAsState()
+                    val displayMode by floatingPreferences.displayModeFlow.collectAsState()
+                    val capsuleWidthDp by floatingPreferences.capsuleWidthDpFlow.collectAsState()
+                    val floatingStyle by floatingPreferences.floatingStyleFlow.collectAsState()
+                    val isTraditional by aiPreferences.isTraditionalChineseFlow.collectAsState()
+                    val textAlignment by floatingPreferences.textAlignmentFlow.collectAsState()
 
-                            // 采用高精度浮点累积，彻底消除 90/120Hz 刷新率下的慢速拖拽丢帧与卡滞
-                            dragCurrentX = (dragCurrentX + dx).coerceIn(bounds.left.toFloat(), bounds.right.toFloat())
-                            dragCurrentY = (dragCurrentY + dy).coerceIn(bounds.top.toFloat(), bounds.bottom.toFloat())
-
-                            val newX = dragCurrentX.roundToInt()
-                            val newY = dragCurrentY.roundToInt()
-                            if (newX != params.x || newY != params.y) {
-                                params.x = newX
-                                params.y = newY
-                                try {
-                                    windowManager?.updateViewLayout(this@apply, params)
-                                } catch (e: Exception) {}
-                            }
-                        }
-                    },
-                    onDragEnd = { isExpanded ->
-                        windowLayoutParams?.let { params ->
+                    FloatingLyricsCapsule(
+                        nowPlayingData = nowData,
+                        isLocked = isLocked,
+                        isBilingual = isBilingual,
+                        backgroundAlpha = bgAlpha,
+                        fontScale = fontScale,
+                        textColor = textColor,
+                        displayMode = displayMode,
+                        floatingStyle = floatingStyle,
+                        capsuleWidthDp = capsuleWidthDp,
+                        isTraditional = isTraditional,
+                        textAlignment = textAlignment,
+                        onDragStart = {
                             cancelSnapAnimation()
-                            // 自由悬浮停留：单次原子持久化坐标（按横竖屏独立存储）
-                            floatingPreferences.setLastPosition(params.x, params.y, isLandscape())
-                        }
-                    },
-                    onExpandChanged = { isExpanded ->
-                        handleExpandChanged(isExpanded)
-                    },
-                    onToggleLock = {
-                        floatingPreferences.isLocked = !floatingPreferences.isLocked
-                    },
-                    onToggleBilingual = {
-                        floatingPreferences.isBilingual = !floatingPreferences.isBilingual
-                    },
-                    onPrevious = { playbackStateManager.skipToPrevious() },
-                    onPlayPause = { playbackStateManager.togglePlayPause() },
-                    onNext = { playbackStateManager.skipToNext() },
-                    onOpenApp = {
-                        val intent = Intent(this@FloatingLyricsService, MainActivity::class.java).apply {
-                            flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_SINGLE_TOP
-                        }
-                        startActivity(intent)
-                    },
-                    onClose = { stopSelf() }
-                )
+                            windowLayoutParams?.let { params ->
+                                dragCurrentX = params.x.toFloat()
+                                dragCurrentY = params.y.toFloat()
+                            }
+                        },
+                        onDrag = { dx, dy ->
+                            cancelSnapAnimation()
+                            windowLayoutParams?.let { params ->
+                                val densityVal = resources.displayMetrics.density
+                                val viewHeight = composeView?.height?.takeIf { it > 0 } ?: (52 * densityVal).toInt()
+                                val viewWidth = composeView?.width?.takeIf { it > 0 } ?: (capsuleWidthDp * densityVal).toInt()
+                                val bounds = getSafeDragBounds(viewWidth, viewHeight)
+
+                                // 采用高精度浮点累积，彻底消除 90/120Hz 刷新率下的慢速拖拽丢帧与卡滞
+                                dragCurrentX = (dragCurrentX + dx).coerceIn(bounds.left.toFloat(), bounds.right.toFloat())
+                                dragCurrentY = (dragCurrentY + dy).coerceIn(bounds.top.toFloat(), bounds.bottom.toFloat())
+
+                                val newX = dragCurrentX.roundToInt()
+                                val newY = dragCurrentY.roundToInt()
+                                if (newX != params.x || newY != params.y) {
+                                    params.x = newX
+                                    params.y = newY
+                                    try {
+                                        windowManager?.updateViewLayout(this@apply, params)
+                                    } catch (e: Exception) {}
+                                }
+                            }
+                        },
+                        onDragEnd = { isExpanded ->
+                            windowLayoutParams?.let { params ->
+                                cancelSnapAnimation()
+                                // 自由悬浮停留：单次原子持久化坐标（按横竖屏独立存储）
+                                floatingPreferences.setLastPosition(params.x, params.y, isLandscape())
+                            }
+                        },
+                        onExpandChanged = { isExpanded ->
+                            handleExpandChanged(isExpanded)
+                        },
+                        onToggleLock = {
+                            floatingPreferences.isLocked = !floatingPreferences.isLocked
+                        },
+                        onToggleBilingual = {
+                            floatingPreferences.isBilingual = !floatingPreferences.isBilingual
+                        },
+                        onPrevious = { playbackStateManager.skipToPrevious() },
+                        onPlayPause = { playbackStateManager.togglePlayPause() },
+                        onNext = { playbackStateManager.skipToNext() },
+                        onOpenApp = {
+                            val intent = Intent(this@FloatingLyricsService, MainActivity::class.java).apply {
+                                flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_SINGLE_TOP
+                            }
+                            startActivity(intent)
+                        },
+                        onClose = { stopSelf() }
+                    )
+                }
             }
         }
 
@@ -518,7 +525,7 @@ class FloatingLyricsService : Service() {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
             val channel = NotificationChannel(
                 CHANNEL_ID,
-                "LyricNotes 桌面悬浮歌词",
+                "LinerNotes 桌面悬浮歌词",
                 NotificationManager.IMPORTANCE_LOW
             ).apply {
                 description = "保持桌面悬浮歌词在后台稳定运行，并提供锁定/解锁快捷控制"
@@ -549,7 +556,7 @@ class FloatingLyricsService : Service() {
         val lockActionTitle = if (isLocked) "🔓 解除锁定" else "🔒 穿透锁定"
 
         return NotificationCompat.Builder(this, CHANNEL_ID)
-            .setContentTitle("LyricNotes 桌面歌词已开启")
+            .setContentTitle("LinerNotes 桌面歌词已开启")
             .setContentText(if (isLocked) "当前处于触摸穿透锁定状态" else "轻触可拖拽或展开播控卡片")
             .setSmallIcon(R.mipmap.ic_launcher)
             .setContentIntent(openAppIntent)

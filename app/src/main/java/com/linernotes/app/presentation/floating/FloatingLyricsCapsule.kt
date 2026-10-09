@@ -105,24 +105,25 @@ fun FloatingLyricsCapsule(
     }
 
     // 稳定视觉文字数据
-    val (originalText, secondaryText) = remember(currentLine, state.title, state.artist, state.hasValidTrack, isBilingual, isLoadingLyrics, isTraditional) {
+    val strings = com.linernotes.app.core.i18n.LocalStrings.current
+    val (originalText, secondaryText) = remember(currentLine, state.title, state.artist, state.hasValidTrack, isBilingual, isLoadingLyrics, isTraditional, strings) {
         val (rawOrig, rawTrans) = if (currentLine != null) {
-            val orig = currentLine.original.ifBlank { state.title.ifBlank { "LyricNotes 桌面歌词" } }
+            val orig = currentLine.original.ifBlank { state.title.ifBlank { "${strings.appName} ${strings.desktopLyricsTitle}" } }
             val trans = if (isBilingual && !currentLine.translation.isNullOrBlank()) {
                 currentLine.translation
             } else null
             orig to trans
         } else {
             if (state.hasValidTrack) {
-                val orig = state.title.ifBlank { "正在播放" }
+                val orig = state.title.ifBlank { strings.nowPlayingPrefix }
                 val trans = when {
-                    isLoadingLyrics -> "歌词同步中..."
+                    isLoadingLyrics -> strings.syncingLyricsDots
                     state.artist.isNotBlank() -> state.artist
-                    else -> "暂无滚动歌词"
+                    else -> strings.noScrollingLyrics
                 }
                 orig to trans
             } else {
-                "LyricNotes 桌面歌词" to "未在播放音乐"
+                "${strings.appName} ${strings.desktopLyricsTitle}" to strings.noMusicPlaying
             }
         }
         val finalOrig = if (isTraditional) com.linernotes.app.core.util.ChineseConverter.toTraditional(rawOrig) else rawOrig
@@ -724,7 +725,7 @@ fun FloatingLyricsCapsule(
                                     Text(
                                         text = if (state.hasValidTrack) {
                                             if (isTraditional) com.linernotes.app.core.util.ChineseConverter.toTraditional(state.title) else state.title
-                                        } else "LyricNotes",
+                                        } else strings.appName,
                                         color = primaryUiColor,
                                         fontSize = 13.5.sp,
                                         fontWeight = FontWeight.Bold,

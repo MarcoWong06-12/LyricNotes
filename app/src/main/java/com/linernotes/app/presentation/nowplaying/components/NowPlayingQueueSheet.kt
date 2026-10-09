@@ -27,6 +27,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import coil.compose.AsyncImage
+import com.linernotes.app.core.i18n.LocalStrings
 import com.linernotes.app.core.playback.QueueTrackItem
 import com.linernotes.app.core.playback.TrackPlaybackState
 import com.linernotes.app.core.util.SpotifyLauncher
@@ -48,6 +49,7 @@ import kotlinx.coroutines.launch
 @Composable
 fun NowPlayingQueueSheet(
     trackState: TrackPlaybackState,
+    isAmoledMode: Boolean = false,
     onToggleShuffle: () -> Unit,
     onCycleRepeat: () -> Unit,
     onPlayPause: () -> Unit,
@@ -57,16 +59,17 @@ fun NowPlayingQueueSheet(
     val context = LocalContext.current
     val coroutineScope = rememberCoroutineScope()
     val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
+    val strings = LocalStrings.current
 
     // 定时睡眠关闭状态管理
     var showTimerDialog by remember { mutableStateOf(false) }
     var timerRemainingMinutes by remember { mutableStateOf(0) }
     var isTimerActive by remember { mutableStateOf(false) }
 
-    // 经典 Spotify 暗色系规范 (永驻沉浸深灰黑)
-    val sheetBg = Color(0xFF121212)
-    val cardBg = Color(0xFF1E1E1E)
-    val buttonBg = Color(0xFF242424)
+    // 经典暗色系规范 (支持 0-nits 纯黑 AMOLED 模式)
+    val sheetBg = if (isAmoledMode) Color(0xFF0C0C0E) else Color(0xFF121212)
+    val cardBg = if (isAmoledMode) Color(0xFF141416) else Color(0xFF1E1E1E)
+    val buttonBg = if (isAmoledMode) Color(0xFF1C1C1F) else Color(0xFF242424)
     val textPrimary = Color.White
     val textSecondary = Color.White.copy(alpha = 0.60f)
     val spotifyGreen = Color(0xFF1ED760)
@@ -116,7 +119,7 @@ fun NowPlayingQueueSheet(
                     )
                     Spacer(modifier = Modifier.height(1.dp))
                     Text(
-                        text = if (trackState.artist.isNotBlank()) "Playing ${trackState.artist}" else "待播列表",
+                        text = if (trackState.artist.isNotBlank()) "Playing ${trackState.artist}" else strings.queueTitle,
                         color = textSecondary,
                         fontSize = 12.5.sp,
                         fontFamily = FontFamily.SansSerif,
@@ -134,7 +137,7 @@ fun NowPlayingQueueSheet(
                     )
                 ) {
                     Text(
-                        text = "完成",
+                        text = strings.doneBtn,
                         color = textPrimary,
                         fontSize = 12.5.sp,
                         fontWeight = FontWeight.SemiBold,
@@ -148,7 +151,7 @@ fun NowPlayingQueueSheet(
 
             // 2. 正在播放 (Now playing) 标题
             Text(
-                text = "正在播放 (Now playing)",
+                text = "${strings.nowPlayingPrefix} (Now playing)",
                 color = textSecondary,
                 fontSize = 12.sp,
                 fontWeight = FontWeight.Bold,
@@ -169,7 +172,7 @@ fun NowPlayingQueueSheet(
 
             // 3. 接下来播放 (Next in queue) 标题
             Text(
-                text = "接下来播放 (Next in queue)",
+                text = "${strings.nextInQueue} (Next in queue)",
                 color = textSecondary,
                 fontSize = 12.sp,
                 fontWeight = FontWeight.Bold,
@@ -342,7 +345,7 @@ fun NowPlayingQueueSheet(
             textContentColor = Color.White.copy(alpha = 0.8f),
             title = {
                 Text(
-                    text = "定时停止播放",
+                    text = strings.sleepTimerTitle,
                     fontSize = 17.sp,
                     fontWeight = FontWeight.Bold
                 )
@@ -375,7 +378,7 @@ fun NowPlayingQueueSheet(
                                 }
                         ) {
                             Text(
-                                text = "$min 分钟后",
+                                text = String.format(strings.minutesLater, min),
                                 color = if (isTimerActive && timerRemainingMinutes == min) spotifyGreen else Color.White,
                                 fontSize = 14.sp,
                                 fontWeight = FontWeight.Medium,
@@ -398,7 +401,7 @@ fun NowPlayingQueueSheet(
                                 }
                         ) {
                             Text(
-                                text = "关闭定时器",
+                                text = strings.sleepTimerOff,
                                 color = Color(0xFFFF5252),
                                 fontSize = 14.sp,
                                 fontWeight = FontWeight.SemiBold,
@@ -410,7 +413,7 @@ fun NowPlayingQueueSheet(
             },
             confirmButton = {
                 TextButton(onClick = { showTimerDialog = false }) {
-                    Text("取消", color = Color.White.copy(alpha = 0.6f))
+                    Text(strings.cancel, color = Color.White.copy(alpha = 0.6f))
                 }
             }
         )
@@ -428,6 +431,7 @@ private fun NowPlayingTrackRow(
     textSecondary: Color,
     onPlayPause: () -> Unit
 ) {
+    val strings = LocalStrings.current
     Row(
         modifier = Modifier
             .fillMaxWidth()
@@ -475,7 +479,7 @@ private fun NowPlayingTrackRow(
                     PlayingEqualizerWave(color = spotifyGreen)
                 }
                 Text(
-                    text = if (trackState.hasValidTrack) trackState.title else "LyricNotes",
+                    text = if (trackState.hasValidTrack) trackState.title else strings.appName,
                     color = spotifyGreen,
                     fontSize = 14.5.sp,
                     fontWeight = FontWeight.Bold,
@@ -491,7 +495,7 @@ private fun NowPlayingTrackRow(
             ) {
                 ExplicitBadge()
                 Text(
-                    text = if (trackState.hasValidTrack) trackState.artist else "等待播放",
+                    text = if (trackState.hasValidTrack) trackState.artist else strings.waitingForPlaybackShort,
                     color = textSecondary,
                     fontSize = 12.sp,
                     fontFamily = FontFamily.SansSerif,
@@ -515,7 +519,7 @@ private fun NowPlayingTrackRow(
             Box(contentAlignment = Alignment.Center) {
                 Icon(
                     imageVector = if (trackState.isPlaying) Icons.Default.Pause else Icons.Default.PlayArrow,
-                    contentDescription = if (trackState.isPlaying) "暂停" else "播放",
+                    contentDescription = if (trackState.isPlaying) strings.cdCompanionPause else strings.cdCompanionPlay,
                     tint = Color.Black,
                     modifier = Modifier.size(20.dp)
                 )

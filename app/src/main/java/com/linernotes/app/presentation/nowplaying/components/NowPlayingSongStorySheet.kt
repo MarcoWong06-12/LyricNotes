@@ -23,6 +23,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import coil.compose.AsyncImage
+import com.linernotes.app.core.i18n.LocalStrings
 import com.linernotes.app.data.local.entity.SongStoryEntity
 import com.linernotes.app.presentation.booklet.components.BilingualContentView
 import com.linernotes.app.presentation.common.*
@@ -33,16 +34,19 @@ fun NowPlayingSongStorySheet(
     story: SongStoryEntity?,
     isTranslating: Boolean = false,
     isTraditional: Boolean = false,
+    isAmoledMode: Boolean = false,
     onRetryTranslation: () -> Unit = {},
     onDismiss: () -> Unit
 ) {
     if (story == null) return
 
     val isDark = MaterialTheme.colorScheme.background.luminance() < 0.5f
-    val sheetBg = if (isDark) Color(0xFF13141B) else MaterialTheme.colorScheme.surface
+    val isPureAmoled = isDark && isAmoledMode
+    val sheetBg = if (isPureAmoled) Color(0xFF0C0C0E) else (if (isDark) Color(0xFF13141B) else MaterialTheme.colorScheme.surface)
     val sheetContent = if (isDark) Color.White else MaterialTheme.colorScheme.onSurface
     val textSecondary = if (isDark) Color.White.copy(alpha = 0.60f) else MaterialTheme.colorScheme.onSurfaceVariant
     val handleColor = if (isDark) Color.White.copy(alpha = 0.20f) else Color.Black.copy(alpha = 0.20f)
+    val strings = LocalStrings.current
 
     val displayTitle = remember(story.title, isTraditional) {
         if (isTraditional) com.linernotes.app.core.util.ChineseConverter.toTraditional(story.title) else story.title
@@ -114,7 +118,7 @@ fun NowPlayingSongStorySheet(
                     Box(contentAlignment = Alignment.Center) {
                         Icon(
                             imageVector = Icons.Default.Close,
-                            contentDescription = "关闭",
+                            contentDescription = strings.closeBtn,
                             tint = if (isDark) Color.White.copy(alpha = 0.8f) else MaterialTheme.colorScheme.onSurface,
                             modifier = Modifier.size(17.dp)
                         )
@@ -144,14 +148,14 @@ fun NowPlayingSongStorySheet(
                 ) {
                     story.releaseDate?.takeIf { it.isNotBlank() }?.let { date ->
                         Column {
-                            Text(if (isTraditional) "發行日期" else "发行日期", color = textSecondary, fontSize = 11.sp, fontFamily = FontFamily.SansSerif)
+                            Text(strings.releaseDateLabel, color = textSecondary, fontSize = 11.sp, fontFamily = FontFamily.SansSerif)
                             Text(date, color = sheetContent, fontSize = 12.5.sp, fontWeight = FontWeight.Medium, fontFamily = FontFamily.SansSerif)
                         }
                     }
                     story.producerCredits?.takeIf { it.isNotBlank() }?.let { prod ->
                         val displayProd = if (isTraditional) com.linernotes.app.core.util.ChineseConverter.toTraditional(prod) else prod
                         Column {
-                            Text(if (isTraditional) "製作人" else "制作人", color = textSecondary, fontSize = 11.sp, fontFamily = FontFamily.SansSerif)
+                            Text(strings.producerLabel, color = textSecondary, fontSize = 11.sp, fontFamily = FontFamily.SansSerif)
                             Text(displayProd, color = sheetContent, fontSize = 12.5.sp, fontWeight = FontWeight.Medium, fontFamily = FontFamily.SansSerif)
                         }
                     }
@@ -161,7 +165,7 @@ fun NowPlayingSongStorySheet(
             Spacer(modifier = Modifier.height(18.dp))
 
             Text(
-                text = if (isTraditional) "全曲背景故事與創作考據" else "全曲背景故事与创作考据",
+                text = strings.songStoryDepthAnalysis,
                 color = sheetContent,
                 fontSize = 15.sp,
                 fontWeight = FontWeight.Bold,
