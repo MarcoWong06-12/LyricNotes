@@ -49,14 +49,12 @@ fun AmbientGlowBackground(
                 .fillMaxSize()
                 .background(Color.Black)
         )
-        return
-    }
-
-    val context = LocalContext.current
-    val fallbackPrimary = MaterialTheme.colorScheme.primary
-    val fallbackSecondary = MaterialTheme.colorScheme.secondary
-    val fallbackTertiary = MaterialTheme.colorScheme.tertiaryContainer
-    val backgroundColor = MaterialTheme.colorScheme.background
+    } else {
+        val context = LocalContext.current
+        val fallbackPrimary = MaterialTheme.colorScheme.primary
+        val fallbackSecondary = MaterialTheme.colorScheme.secondary
+        val fallbackTertiary = MaterialTheme.colorScheme.tertiaryContainer
+        val backgroundColor = MaterialTheme.colorScheme.background
 
     // 动态提取专辑高质感色彩
     var extractedPalette by remember {
@@ -343,4 +341,5 @@ fun AmbientGlowBackground(
                 }
         )
     }
+}
 }

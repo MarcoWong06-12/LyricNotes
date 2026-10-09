@@ -812,8 +812,8 @@ private fun NowPlayingLyricsContent(
 
     // 60fps 高精度毫秒级播放进度采样器 (驱动活跃行 Apple Music 风格逐字光效扫掠)
     var currentEstimatedPosition by remember { mutableLongStateOf(0L) }
-    LaunchedEffect(isPlaying, trackState, lyricOffsetMs) {
-        if (isPlaying) {
+    LaunchedEffect(isPlaying, trackState, lyricOffsetMs, isWordByWordEnabled) {
+        if (isPlaying && isWordByWordEnabled) {
             while (isActive) {
                 currentEstimatedPosition = (trackState.getEstimatedPositionMs() + lyricOffsetMs).coerceAtLeast(0L)
                 delay(16) // 60fps 丝滑插值更新
@@ -1259,7 +1259,7 @@ private fun LyricLineRow(
         if (isActive && isWordByWordEnabled && line.words.isNotEmpty()) {
             WordByWordLyricLine(
                 words = line.words,
-                currentPositionMs = currentPositionMsProvider(),
+                currentPositionMsProvider = currentPositionMsProvider,
                 lyricColor = lyricColor,
                 isAlignLeft = isAlignLeft,
                 isTraditional = isTraditional
@@ -1323,12 +1323,13 @@ private fun LyricLineRow(
 @Composable
 private fun WordByWordLyricLine(
     words: List<com.linernotes.app.domain.model.LyricWord>,
-    currentPositionMs: Long,
+    currentPositionMsProvider: () -> Long,
     lyricColor: Color,
     isAlignLeft: Boolean,
     isTraditional: Boolean,
     modifier: Modifier = Modifier
 ) {
+    val currentPositionMs = currentPositionMsProvider()
     FlowRow(
         modifier = modifier.fillMaxWidth(),
         horizontalArrangement = if (isAlignLeft) Arrangement.Start else Arrangement.Center,

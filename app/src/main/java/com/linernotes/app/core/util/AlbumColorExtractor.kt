@@ -51,8 +51,25 @@ object AlbumColorExtractor {
                 .build()
 
             val result = context.imageLoader.execute(request)
-            val bitmap = (result.drawable as? BitmapDrawable)?.bitmap
-                ?: return@withContext createFallback(fallbackPrimary, fallbackSecondary, fallbackTertiary)
+            val bitmap = when (val drawable = result.drawable) {
+                is BitmapDrawable -> drawable.bitmap
+                null -> null
+                else -> {
+                    try {
+                        val bmp = Bitmap.createBitmap(24, 24, Bitmap.Config.ARGB_8888)
+                        val canvas = android.graphics.Canvas(bmp)
+                        drawable.setBounds(0, 0, 24, 24)
+                        drawable.draw(canvas)
+                        bmp
+                    } catch (e: Exception) {
+                        null
+                    }
+                }
+            }
+
+            if (bitmap == null || bitmap.isRecycled) {
+                return@withContext createFallback(fallbackPrimary, fallbackSecondary, fallbackTertiary)
+            }
 
             val colors = extractVibrantColorsFromBitmap(bitmap)
             val palette = if (colors.size >= 3) {
