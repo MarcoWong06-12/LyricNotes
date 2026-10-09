@@ -86,8 +86,8 @@ class FloatingLyricsService : Service() {
     private val screenStateReceiver = object : BroadcastReceiver() {
         override fun onReceive(context: Context?, intent: Intent?) {
             when (intent?.action) {
-                Intent.ACTION_SCREEN_OFF -> overlayLifecycleOwner.onPause()
-                Intent.ACTION_SCREEN_ON -> overlayLifecycleOwner.onResume()
+                Intent.ACTION_SCREEN_OFF -> overlayLifecycleOwner.onScreenOff()
+                Intent.ACTION_SCREEN_ON -> overlayLifecycleOwner.onScreenOn()
             }
         }
     }
@@ -139,6 +139,29 @@ class FloatingLyricsService : Service() {
                 inForeground && hideInForeground
             }.collect { shouldHide ->
                 composeView?.visibility = if (shouldHide) View.GONE else View.VISIBLE
+            }
+        }
+
+        // 监听悬浮窗宽度动态变化：在安全视口范围内重新钳制，杜绝贴边时调整宽度飞出屏幕
+        serviceScope.launch {
+            floatingPreferences.capsuleWidthDpFlow.collect { widthDp ->
+                windowLayoutParams?.let { params ->
+                    val density = resources.displayMetrics.density
+                    val viewWidth = (widthDp * density).toInt()
+                    val viewHeight = composeView?.height?.takeIf { it > 0 } ?: (52 * density).toInt()
+                    val bounds = getSafeDragBounds(viewWidth, viewHeight)
+                    val clampedX = params.x.coerceIn(bounds.left, bounds.right)
+                    val clampedY = params.y.coerceIn(bounds.top, bounds.bottom)
+                    if (clampedX != params.x || clampedY != params.y) {
+                        params.x = clampedX
+                        params.y = clampedY
+                        dragCurrentX = clampedX.toFloat()
+                        dragCurrentY = clampedY.toFloat()
+                        try {
+                            windowManager?.updateViewLayout(composeView, params)
+                        } catch (e: Exception) {}
+                    }
+                }
             }
         }
     }
@@ -227,7 +250,7 @@ class FloatingLyricsService : Service() {
         val screenBounds = getScreenBounds()
         val density = resources.displayMetrics.density
         val insets = getSystemBarInsets()
-        val viewWidth = (COMPACT_WIDTH_DP * density).toInt()
+        val viewWidth = (floatingPreferences.capsuleWidthDp * density).toInt()
         val viewHeight = (52 * density).toInt()
         val bounds = getSafeDragBounds(viewWidth, viewHeight)
 
@@ -405,7 +428,7 @@ class FloatingLyricsService : Service() {
         cancelSnapAnimation()
         val screenBounds = getScreenBounds()
         val density = resources.displayMetrics.density
-        val viewWidth = composeView?.width?.takeIf { it > 0 } ?: (COMPACT_WIDTH_DP * density).toInt()
+        val viewWidth = composeView?.width?.takeIf { it > 0 } ?: (floatingPreferences.capsuleWidthDp * density).toInt()
         val viewHeight = composeView?.height?.takeIf { it > 0 } ?: (48 * density).toInt()
         val bounds = getSafeDragBounds(viewWidth, viewHeight)
         val currentX = params.x
@@ -503,7 +526,7 @@ class FloatingLyricsService : Service() {
         super.onConfigurationChanged(newConfig)
         windowLayoutParams?.let { params ->
             val density = resources.displayMetrics.density
-            val currentViewWidth = composeView?.width?.takeIf { it > 0 } ?: (COMPACT_WIDTH_DP * density).toInt()
+            val currentViewWidth = composeView?.width?.takeIf { it > 0 } ?: (floatingPreferences.capsuleWidthDp * density).toInt()
             val currentViewHeight = composeView?.height?.takeIf { it > 0 } ?: (48 * density).toInt()
             val bounds = getSafeDragBounds(currentViewWidth, currentViewHeight)
 
@@ -511,7 +534,7 @@ class FloatingLyricsService : Service() {
             params.y = params.y.coerceIn(bounds.top, bounds.bottom)
             dragCurrentX = params.x.toFloat()
             dragCurrentY = params.y.toFloat()
-            floatingPreferences.setLastPosition(params.x, params.y)
+            // 屏幕旋转时仅动态调整在当前视口内的内存显示坐标，不覆盖写入持久化偏好，防止破坏竖屏下的用户偏好位置
 
             try {
                 windowManager?.updateViewLayout(composeView, params)
@@ -519,6 +542,12 @@ class FloatingLyricsService : Service() {
                 e.printStackTrace()
             }
         }
+    }
+
+    override fun onTaskRemoved(rootIntent: Intent?) {
+        super.onTaskRemoved(rootIntent)
+        // 用户从最近任务划掉主应用时，确保重置前台标记，避免悬浮窗在桌面上永久不可见
+        setAppInForeground(false)
     }
 
     override fun onDestroy() {
@@ -576,21 +605,31 @@ class FloatingLyricsService : Service() {
             lifecycleRegistry.handleLifecycleEvent(Lifecycle.Event.ON_RESUME)
         }
 
-        fun onPause() {
+        fun onScreenOff() {
             if (lifecycleRegistry.currentState.isAtLeast(Lifecycle.State.RESUMED)) {
                 lifecycleRegistry.handleLifecycleEvent(Lifecycle.Event.ON_PAUSE)
             }
+            if (lifecycleRegistry.currentState.isAtLeast(Lifecycle.State.STARTED)) {
+                lifecycleRegistry.handleLifecycleEvent(Lifecycle.Event.ON_STOP)
+            }
         }
 
-        fun onResume() {
-            if (!lifecycleRegistry.currentState.isAtLeast(Lifecycle.State.RESUMED)) {
+        fun onScreenOn() {
+            if (lifecycleRegistry.currentState < Lifecycle.State.STARTED) {
+                lifecycleRegistry.handleLifecycleEvent(Lifecycle.Event.ON_START)
+            }
+            if (lifecycleRegistry.currentState < Lifecycle.State.RESUMED) {
                 lifecycleRegistry.handleLifecycleEvent(Lifecycle.Event.ON_RESUME)
             }
         }
 
         fun onDestroy() {
-            lifecycleRegistry.handleLifecycleEvent(Lifecycle.Event.ON_PAUSE)
-            lifecycleRegistry.handleLifecycleEvent(Lifecycle.Event.ON_STOP)
+            if (lifecycleRegistry.currentState.isAtLeast(Lifecycle.State.RESUMED)) {
+                lifecycleRegistry.handleLifecycleEvent(Lifecycle.Event.ON_PAUSE)
+            }
+            if (lifecycleRegistry.currentState.isAtLeast(Lifecycle.State.STARTED)) {
+                lifecycleRegistry.handleLifecycleEvent(Lifecycle.Event.ON_STOP)
+            }
             lifecycleRegistry.handleLifecycleEvent(Lifecycle.Event.ON_DESTROY)
             store.clear()
         }

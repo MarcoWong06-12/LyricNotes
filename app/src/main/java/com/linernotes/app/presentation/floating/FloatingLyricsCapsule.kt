@@ -76,6 +76,7 @@ fun FloatingLyricsCapsule(
     val haptic = LocalHapticFeedback.current
     var isExpanded by remember { mutableStateOf(false) }
     var showControls by remember { mutableStateOf(false) }
+    var lastInteractionTime by remember { mutableLongStateOf(0L) }
 
     val state = nowPlayingData.playbackState
     val lyrics = nowPlayingData.lyrics
@@ -83,8 +84,8 @@ fun FloatingLyricsCapsule(
     val isLoadingLyrics = nowPlayingData.isLoadingLyrics
     val currentLine = if (activeIndex in lyrics.indices) lyrics[activeIndex] else null
 
-    // 4秒无操作自动隐藏纯净模式快捷播控条
-    LaunchedEffect(showControls) {
+    // 4秒无操作自动隐藏纯净模式快捷播控条（用户每次交互重置计时）
+    LaunchedEffect(showControls, lastInteractionTime) {
         if (showControls) {
             delay(4000L)
             showControls = false
@@ -198,6 +199,9 @@ fun FloatingLyricsCapsule(
                                                 if (!isDrag) {
                                                     haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
                                                     showControls = !showControls
+                                                    if (showControls) {
+                                                        lastInteractionTime = System.currentTimeMillis()
+                                                    }
                                                 } else {
                                                     onDragEnd(false)
                                                     isDrag = false
@@ -332,6 +336,7 @@ fun FloatingLyricsCapsule(
                         IconButton(
                             onClick = {
                                 haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                                lastInteractionTime = System.currentTimeMillis()
                                 onPrevious()
                             },
                             modifier = Modifier.size(32.dp)
@@ -348,6 +353,7 @@ fun FloatingLyricsCapsule(
                         IconButton(
                             onClick = {
                                 haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                                lastInteractionTime = System.currentTimeMillis()
                                 onPlayPause()
                             },
                             modifier = Modifier.size(32.dp)
@@ -364,6 +370,7 @@ fun FloatingLyricsCapsule(
                         IconButton(
                             onClick = {
                                 haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                                lastInteractionTime = System.currentTimeMillis()
                                 onNext()
                             },
                             modifier = Modifier.size(32.dp)
@@ -389,6 +396,7 @@ fun FloatingLyricsCapsule(
                         IconButton(
                             onClick = {
                                 haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                                lastInteractionTime = System.currentTimeMillis()
                                 onToggleBilingual()
                             },
                             modifier = Modifier.size(32.dp)
@@ -422,6 +430,7 @@ fun FloatingLyricsCapsule(
                         IconButton(
                             onClick = {
                                 haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                                lastInteractionTime = System.currentTimeMillis()
                                 onOpenApp()
                             },
                             modifier = Modifier.size(32.dp)
@@ -438,6 +447,7 @@ fun FloatingLyricsCapsule(
                         IconButton(
                             onClick = {
                                 haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                                showControls = false
                                 onClose()
                             },
                             modifier = Modifier.size(32.dp)
@@ -880,11 +890,12 @@ fun FloatingLyricsCapsule(
                             }
                         }
 
-                        val currentProgress = if (state.durationMs > 0) {
-                            (currentPositionMs.toFloat() / state.durationMs.toFloat()).coerceIn(0f, 1f)
-                        } else 0f
                         LinearProgressIndicator(
-                            progress = { currentProgress },
+                            progress = {
+                                if (state.durationMs > 0) {
+                                    (currentPositionMs.toFloat() / state.durationMs.toFloat()).coerceIn(0f, 1f)
+                                } else 0f
+                            },
                             modifier = Modifier
                                 .fillMaxWidth()
                                 .height(2.5.dp)
