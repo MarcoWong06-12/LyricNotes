@@ -146,16 +146,24 @@ class FloatingLyricsService : Service() {
         serviceScope.launch {
             floatingPreferences.capsuleWidthDpFlow.collect { widthDp ->
                 windowLayoutParams?.let { params ->
+                    val landscape = isLandscape()
                     val density = resources.displayMetrics.density
                     val viewWidth = (widthDp * density).toInt()
                     val viewHeight = composeView?.height?.takeIf { it > 0 } ?: (52 * density).toInt()
-                    val bounds = getSafeDragBounds(viewWidth, viewHeight)
-                    val clampedX = params.x.coerceIn(bounds.left, bounds.right)
+                    val bounds = getSafeDragBounds(viewWidth, viewHeight, landscape)
+                    val screenBounds = getScreenBounds(landscape)
+
+                    val savedX = floatingPreferences.getLastPositionX(landscape)
+                    val newX = if (savedX < 0) {
+                        ((screenBounds.width() - viewWidth) / 2).coerceIn(bounds.left, bounds.right)
+                    } else {
+                        params.x.coerceIn(bounds.left, bounds.right)
+                    }
                     val clampedY = params.y.coerceIn(bounds.top, bounds.bottom)
-                    if (clampedX != params.x || clampedY != params.y) {
-                        params.x = clampedX
+                    if (newX != params.x || clampedY != params.y) {
+                        params.x = newX
                         params.y = clampedY
-                        dragCurrentX = clampedX.toFloat()
+                        dragCurrentX = newX.toFloat()
                         dragCurrentY = clampedY.toFloat()
                         try {
                             windowManager?.updateViewLayout(composeView, params)
@@ -178,14 +186,35 @@ class FloatingLyricsService : Service() {
         return START_STICKY
     }
 
-    private fun getScreenBounds(): Rect {
+    private fun isLandscape(): Boolean {
+        val configOrientation = resources.configuration.orientation
+        return if (configOrientation == Configuration.ORIENTATION_LANDSCAPE) {
+            true
+        } else if (configOrientation == Configuration.ORIENTATION_PORTRAIT) {
+            false
+        } else {
+            val wm = windowManager ?: (getSystemService(Context.WINDOW_SERVICE) as WindowManager)
+            val rawBounds = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+                wm.currentWindowMetrics.bounds
+            } else {
+                val dm = resources.displayMetrics
+                Rect(0, 0, dm.widthPixels, dm.heightPixels)
+            }
+            rawBounds.width() > rawBounds.height()
+        }
+    }
+
+    private fun getScreenBounds(isLandscape: Boolean = isLandscape()): Rect {
         val wm = windowManager ?: (getSystemService(Context.WINDOW_SERVICE) as WindowManager)
-        return if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+        val rawBounds = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
             wm.currentWindowMetrics.bounds
         } else {
             val dm = resources.displayMetrics
             Rect(0, 0, dm.widthPixels, dm.heightPixels)
         }
+        val w = if (isLandscape) maxOf(rawBounds.width(), rawBounds.height()) else minOf(rawBounds.width(), rawBounds.height())
+        val h = if (isLandscape) minOf(rawBounds.width(), rawBounds.height()) else maxOf(rawBounds.width(), rawBounds.height())
+        return Rect(0, 0, w, h)
     }
 
     private data class SafeInsets(val top: Int, val bottom: Int, val left: Int, val right: Int)
@@ -225,8 +254,8 @@ class FloatingLyricsService : Service() {
     /**
      * 根据当前组件视口尺寸与系统 Insets 计算动态防碰撞拖拽包围盒
      */
-    private fun getSafeDragBounds(viewWidth: Int, viewHeight: Int): Rect {
-        val screenBounds = getScreenBounds()
+    private fun getSafeDragBounds(viewWidth: Int, viewHeight: Int, isLandscape: Boolean = isLandscape()): Rect {
+        val screenBounds = getScreenBounds(isLandscape)
         val insets = getSystemBarInsets()
         val density = resources.displayMetrics.density
         val marginPx = (8 * density).toInt()
@@ -247,23 +276,28 @@ class FloatingLyricsService : Service() {
 
         windowManager = getSystemService(Context.WINDOW_SERVICE) as WindowManager
 
-        val screenBounds = getScreenBounds()
+        val landscape = isLandscape()
+        val screenBounds = getScreenBounds(landscape)
         val density = resources.displayMetrics.density
         val insets = getSystemBarInsets()
         val viewWidth = (floatingPreferences.capsuleWidthDp * density).toInt()
         val viewHeight = (52 * density).toInt()
-        val bounds = getSafeDragBounds(viewWidth, viewHeight)
+        val bounds = getSafeDragBounds(viewWidth, viewHeight, landscape)
+
+        val savedX = floatingPreferences.getLastPositionX(landscape)
+        val savedY = floatingPreferences.getLastPositionY(landscape)
 
         // 安全双轴钳制：初次或历史坐标必须被严格限定在安全边距内，杜绝横竖屏切换后悬浮窗飞出屏幕失踪
-        val initialX = if (floatingPreferences.lastPositionX >= 0) {
-            floatingPreferences.lastPositionX.coerceIn(bounds.left, bounds.right)
+        val initialX = if (savedX >= 0) {
+            savedX.coerceIn(bounds.left, bounds.right)
         } else {
             ((screenBounds.width() - viewWidth) / 2).coerceIn(bounds.left, bounds.right)
         }
-        val initialY = if (floatingPreferences.lastPositionY >= 0) {
-            floatingPreferences.lastPositionY.coerceIn(bounds.top, bounds.bottom)
+        val initialY = if (savedY >= 0) {
+            savedY.coerceIn(bounds.top, bounds.bottom)
         } else {
-            (insets.top + (24 * density).toInt()).coerceIn(bounds.top, bounds.bottom)
+            val defaultMarginTop = if (landscape) 16 else 24
+            (insets.top + (defaultMarginTop * density).toInt()).coerceIn(bounds.top, bounds.bottom)
         }
 
         val windowType = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
@@ -357,8 +391,8 @@ class FloatingLyricsService : Service() {
                     onDragEnd = { isExpanded ->
                         windowLayoutParams?.let { params ->
                             cancelSnapAnimation()
-                            // 自由悬浮停留：单次原子持久化坐标
-                            floatingPreferences.setLastPosition(params.x, params.y)
+                            // 自由悬浮停留：单次原子持久化坐标（按横竖屏独立存储）
+                            floatingPreferences.setLastPosition(params.x, params.y, isLandscape())
                         }
                     },
                     onExpandChanged = { isExpanded ->
@@ -401,10 +435,11 @@ class FloatingLyricsService : Service() {
 
     private fun handleExpandChanged(isExpanded: Boolean) {
         windowLayoutParams?.let { params ->
+            val landscape = isLandscape()
             val density = resources.displayMetrics.density
             val expandedWidthPx = (EXPANDED_WIDTH_DP * density).toInt()
             val expandedHeightPx = (270 * density).toInt()
-            val bounds = getSafeDragBounds(expandedWidthPx, expandedHeightPx)
+            val bounds = getSafeDragBounds(expandedWidthPx, expandedHeightPx, landscape)
 
             cancelSnapAnimation()
             if (isExpanded) {
@@ -419,18 +454,19 @@ class FloatingLyricsService : Service() {
                     } catch (e: Exception) {}
                 }
             } else {
-                floatingPreferences.setLastPosition(params.x, params.y)
+                floatingPreferences.setLastPosition(params.x, params.y, landscape)
             }
         }
     }
 
     private fun snapToNearestEdge(params: WindowManager.LayoutParams) {
         cancelSnapAnimation()
-        val screenBounds = getScreenBounds()
+        val landscape = isLandscape()
+        val screenBounds = getScreenBounds(landscape)
         val density = resources.displayMetrics.density
         val viewWidth = composeView?.width?.takeIf { it > 0 } ?: (floatingPreferences.capsuleWidthDp * density).toInt()
         val viewHeight = composeView?.height?.takeIf { it > 0 } ?: (48 * density).toInt()
-        val bounds = getSafeDragBounds(viewWidth, viewHeight)
+        val bounds = getSafeDragBounds(viewWidth, viewHeight, landscape)
         val currentX = params.x
         val targetX = if (currentX + (viewWidth / 2) < screenBounds.width() / 2) {
             bounds.left // 吸附至左侧安全边距
@@ -451,7 +487,7 @@ class FloatingLyricsService : Service() {
             start()
         }
 
-        floatingPreferences.setLastPosition(targetX, params.y)
+        floatingPreferences.setLastPosition(targetX, params.y, landscape)
     }
 
     private fun updateLockState(locked: Boolean) {
@@ -525,16 +561,41 @@ class FloatingLyricsService : Service() {
     override fun onConfigurationChanged(newConfig: Configuration) {
         super.onConfigurationChanged(newConfig)
         windowLayoutParams?.let { params ->
+            val isLandscape = when (newConfig.orientation) {
+                Configuration.ORIENTATION_LANDSCAPE -> true
+                Configuration.ORIENTATION_PORTRAIT -> false
+                else -> resources.configuration.orientation == Configuration.ORIENTATION_LANDSCAPE
+            }
+
             val density = resources.displayMetrics.density
             val currentViewWidth = composeView?.width?.takeIf { it > 0 } ?: (floatingPreferences.capsuleWidthDp * density).toInt()
             val currentViewHeight = composeView?.height?.takeIf { it > 0 } ?: (48 * density).toInt()
-            val bounds = getSafeDragBounds(currentViewWidth, currentViewHeight)
+            val bounds = getSafeDragBounds(currentViewWidth, currentViewHeight, isLandscape)
+            val screenBounds = getScreenBounds(isLandscape)
+            val insets = getSystemBarInsets()
 
-            params.x = params.x.coerceIn(bounds.left, bounds.right)
-            params.y = params.y.coerceIn(bounds.top, bounds.bottom)
-            dragCurrentX = params.x.toFloat()
-            dragCurrentY = params.y.toFloat()
-            // 屏幕旋转时仅动态调整在当前视口内的内存显示坐标，不覆盖写入持久化偏好，防止破坏竖屏下的用户偏好位置
+            val savedX = floatingPreferences.getLastPositionX(isLandscape)
+            val savedY = floatingPreferences.getLastPositionY(isLandscape)
+
+            // 彻底解决横竖屏旋转位置错位与锁定后换回横屏偏左不居中问题：
+            // 横屏与竖屏采用独立记忆坐标；若横屏下未曾手动拖拽，自动对齐横屏水平居中位置，拒绝因竖屏钳制导致横屏偏左
+            val targetX = if (savedX >= 0) {
+                savedX.coerceIn(bounds.left, bounds.right)
+            } else {
+                ((screenBounds.width() - currentViewWidth) / 2).coerceIn(bounds.left, bounds.right)
+            }
+
+            val targetY = if (savedY >= 0) {
+                savedY.coerceIn(bounds.top, bounds.bottom)
+            } else {
+                val defaultMarginTop = if (isLandscape) 16 else 24
+                (insets.top + (defaultMarginTop * density).toInt()).coerceIn(bounds.top, bounds.bottom)
+            }
+
+            params.x = targetX
+            params.y = targetY
+            dragCurrentX = targetX.toFloat()
+            dragCurrentY = targetY.toFloat()
 
             try {
                 windowManager?.updateViewLayout(composeView, params)

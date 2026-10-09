@@ -112,20 +112,43 @@ class FloatingLyricsPreferences @Inject constructor(
             _lyricOffsetMsFlow.value = value
         }
 
-    // 8. 记忆屏幕坐标 X / Y (-1 表示初次由系统计算安全居中与下移避让挖孔)
+    // 8. 记忆屏幕坐标 X / Y（区分横竖屏独立记忆，-1 表示初次由系统计算安全居中与下移避让挖孔）
     var lastPositionX: Int
-        get() = prefs.getInt(KEY_POS_X, -1)
-        set(value) = prefs.edit().putInt(KEY_POS_X, value).apply()
+        get() = prefs.getInt(KEY_POS_PORTRAIT_X, prefs.getInt(KEY_POS_X, -1))
+        set(value) = setLastPosition(value, lastPositionY, isLandscape = false)
 
     var lastPositionY: Int
-        get() = prefs.getInt(KEY_POS_Y, -1)
-        set(value) = prefs.edit().putInt(KEY_POS_Y, value).apply()
+        get() = prefs.getInt(KEY_POS_PORTRAIT_Y, prefs.getInt(KEY_POS_Y, -1))
+        set(value) = setLastPosition(lastPositionX, value, isLandscape = false)
 
-    fun setLastPosition(x: Int, y: Int) {
-        prefs.edit()
-            .putInt(KEY_POS_X, x)
-            .putInt(KEY_POS_Y, y)
-            .apply()
+    fun getLastPositionX(isLandscape: Boolean): Int {
+        return if (isLandscape) {
+            prefs.getInt(KEY_POS_LANDSCAPE_X, -1)
+        } else {
+            prefs.getInt(KEY_POS_PORTRAIT_X, prefs.getInt(KEY_POS_X, -1))
+        }
+    }
+
+    fun getLastPositionY(isLandscape: Boolean): Int {
+        return if (isLandscape) {
+            prefs.getInt(KEY_POS_LANDSCAPE_Y, -1)
+        } else {
+            prefs.getInt(KEY_POS_PORTRAIT_Y, prefs.getInt(KEY_POS_Y, -1))
+        }
+    }
+
+    fun setLastPosition(x: Int, y: Int, isLandscape: Boolean = false) {
+        val editor = prefs.edit()
+        if (isLandscape) {
+            editor.putInt(KEY_POS_LANDSCAPE_X, x)
+                .putInt(KEY_POS_LANDSCAPE_Y, y)
+        } else {
+            editor.putInt(KEY_POS_PORTRAIT_X, x)
+                .putInt(KEY_POS_PORTRAIT_Y, y)
+                .putInt(KEY_POS_X, x)
+                .putInt(KEY_POS_Y, y)
+        }
+        editor.apply()
     }
 
     // 9. 歌词展示模式：0 = 居中自动折行（网易云经典全显），1 = 单行跑马灯平滑滚动
@@ -189,6 +212,10 @@ class FloatingLyricsPreferences @Inject constructor(
         private const val KEY_OFFSET_MS = "floating_offset_ms"
         private const val KEY_POS_X = "floating_pos_x"
         private const val KEY_POS_Y = "floating_pos_y"
+        private const val KEY_POS_PORTRAIT_X = "floating_pos_portrait_x"
+        private const val KEY_POS_PORTRAIT_Y = "floating_pos_portrait_y"
+        private const val KEY_POS_LANDSCAPE_X = "floating_pos_landscape_x"
+        private const val KEY_POS_LANDSCAPE_Y = "floating_pos_landscape_y"
         private const val KEY_DISPLAY_MODE = "floating_display_mode"
         private const val KEY_CAPSULE_WIDTH = "floating_capsule_width"
         private const val KEY_FLOATING_STYLE = "floating_style"
