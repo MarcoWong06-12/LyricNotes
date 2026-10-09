@@ -317,7 +317,9 @@ class NowPlayingRepository @Inject constructor(
                                 val officialBilingual = NetEaseLyricsService.fetchLyrics(title, artist, curState.durationMs)
                                     ?: QQMusicLyricsService.fetchLyrics(title, artist, curState.durationMs)
                                 if (officialBilingual != null && !officialBilingual.translatedLyrics.isNullOrBlank()) {
-                                    origLyrics = officialBilingual.originalLyrics
+                                    if (!origLyrics.contains(LyricAligner.LRC_TIMESTAMP_REGEX)) {
+                                        origLyrics = officialBilingual.originalLyrics
+                                    }
                                     transLyrics = officialBilingual.translatedLyrics
                                 }
                             } catch (e: Exception) {
@@ -634,7 +636,9 @@ class NowPlayingRepository @Inject constructor(
                     val officialBilingual = NetEaseLyricsService.fetchLyrics(title, artist)
                         ?: QQMusicLyricsService.fetchLyrics(title, artist)
                     if (officialBilingual != null && !officialBilingual.translatedLyrics.isNullOrBlank()) {
-                        origLyrics = officialBilingual.originalLyrics
+                        if (!origLyrics.contains(LyricAligner.LRC_TIMESTAMP_REGEX)) {
+                            origLyrics = officialBilingual.originalLyrics
+                        }
                         transLyrics = officialBilingual.translatedLyrics
                     }
                 } catch (e: Exception) {

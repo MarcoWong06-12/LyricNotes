@@ -18,6 +18,7 @@ import android.os.Build
 import android.os.IBinder
 import android.provider.Settings
 import android.view.Gravity
+import android.view.View
 import android.view.WindowInsets
 import android.view.WindowManager
 import android.view.animation.DecelerateInterpolator
@@ -48,6 +49,7 @@ import kotlinx.coroutines.*
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.combine
 import javax.inject.Inject
 
 /**
@@ -125,6 +127,18 @@ class FloatingLyricsService : Service() {
                 updateLockState(locked)
                 val nm = getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
                 nm.notify(NOTIFICATION_ID, buildNotification(locked))
+            }
+        }
+
+        // 监听前台/后台状态：在主应用处于前台且开启避让时自动隐藏悬浮窗，杜绝界面歌词与悬浮歌词双重重叠
+        serviceScope.launch {
+            combine(
+                _isAppInForegroundFlow,
+                floatingPreferences.hideWhenAppInForegroundFlow
+            ) { inForeground, hideInForeground ->
+                inForeground && hideInForeground
+            }.collect { shouldHide ->
+                composeView?.visibility = if (shouldHide) View.GONE else View.VISIBLE
             }
         }
     }
@@ -593,6 +607,13 @@ class FloatingLyricsService : Service() {
 
         val isServiceRunning: Boolean
             get() = _isRunningFlow.value
+
+        private val _isAppInForegroundFlow = MutableStateFlow(false)
+        val isAppInForegroundFlow: StateFlow<Boolean> = _isAppInForegroundFlow.asStateFlow()
+
+        fun setAppInForeground(inForeground: Boolean) {
+            _isAppInForegroundFlow.value = inForeground
+        }
 
         fun start(context: Context) {
             val intent = Intent(context, FloatingLyricsService::class.java)

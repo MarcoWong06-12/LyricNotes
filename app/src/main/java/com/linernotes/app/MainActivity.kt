@@ -55,4 +55,14 @@ class MainActivity : ComponentActivity() {
             }
         }
     }
+
+    override fun onStart() {
+        super.onStart()
+        com.linernotes.app.core.floating.FloatingLyricsService.setAppInForeground(true)
+    }
+
+    override fun onStop() {
+        super.onStop()
+        com.linernotes.app.core.floating.FloatingLyricsService.setAppInForeground(false)
+    }
 }

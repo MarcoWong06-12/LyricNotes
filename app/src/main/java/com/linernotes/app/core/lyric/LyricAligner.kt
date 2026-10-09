@@ -68,7 +68,8 @@ object LyricAligner {
 
     /**
      * 将存储的纯文本或 LRC 歌词对齐解析为逐行双语模型，
-     * 具备时间戳提取与智能段落容错对齐：彻底杜绝由于模型遗漏空行导致后续全部错位的问题。
+     * 具备时间戳提取、多时间标签展开与单调序列动态规划容错对齐：
+     * 彻底杜绝时间戳漂移、平台延迟导致的错行、跳行与多米诺骨牌式连锁位移。
      */
     fun align(originalRaw: String?, translatedRaw: String?): List<BilingualLyricLine> {
         if (originalRaw.isNullOrBlank() && translatedRaw.isNullOrBlank()) {
@@ -81,7 +82,9 @@ object LyricAligner {
         // 若本地存储的内容实际上是 AI 触发版权限制后的拒识文本，自动视为空，避免污染歌词界面
         val safeTranslated = if (isRefusalText(cleanTranslated)) "" else cleanTranslated
 
-        val rawOrigLines = cleanOriginal.lines()
+        // 展开单行多时间戳 (如 [00:10.00][01:10.00] 唱词)，并按时间轴重排保证时间单调递增
+        val expandedOriginal = expandMultiTimestampLines(cleanOriginal)
+        val rawOrigLines = expandedOriginal.lines()
         val rawTransLines = safeTranslated.lines()
 
         val origLines = rawOrigLines.map { cleanLine(it) }
@@ -102,181 +105,230 @@ object LyricAligner {
             }
         }
 
-        val hasOrigTimestamps = origTimes.any { it != null }
-        val hasTransTimestamps = transTimes.any { it != null }
+        // 1. 优先检查译文中是否含有行号标记（如 "1. "、"[#1] " 等），实现确定性绝对锚定
+        val indexRegex = Regex("""^\s*(?:\[#?(\d+)\]|(\d+)[\.、\s\-:])\s*(.*)$""")
+        val indexedTransMap = mutableMapOf<Int, String>()
+        var hasNumberedTrans = false
 
-        val result = ArrayList<BilingualLyricLine>()
-
-        if (hasOrigTimestamps && hasTransTimestamps) {
-            // 双通道高精度时间轴对齐系统：
-            // 基于单调递增时间轴严格对齐，彻底杜绝跳行、错位与反向乱序
-            val matchedTrans = MutableList(origLines.size) { "" }
-            val usedTransIndices = BooleanArray(transLines.size) { false }
-
-            // Pass 1: 绝对时间戳精准对齐 (diff == 0ms)
-            var lastMatchedTransIdx = -1
-            for (i in origLines.indices) {
-                val oTime = origTimes[i] ?: continue
-                for (j in transLines.indices) {
-                    if (!usedTransIndices[j] && transTimes[j] == oTime && transLines[j].isNotBlank()) {
-                        matchedTrans[i] = transLines[j]
-                        usedTransIndices[j] = true
-                        lastMatchedTransIdx = j
-                        break
-                    }
+        for (line in transLines) {
+            val m = indexRegex.find(line.trim())
+            if (m != null) {
+                val num = (m.groupValues[1].toIntOrNull() ?: m.groupValues[2].toIntOrNull())
+                val text = m.groupValues[3].trim()
+                if (num != null) {
+                    indexedTransMap[num] = text
+                    hasNumberedTrans = true
                 }
             }
+        }
 
-            // Pass 2: 邻近微时间差吸附 (diff <= 800ms)，严格遵循单调性约束
-            var prevTransIdx = -1
-            for (i in origLines.indices) {
-                if (matchedTrans[i].isNotBlank()) {
-                    prevTransIdx = transLines.indexOfFirst { it == matchedTrans[i] }
-                    continue
-                }
-                val oTime = origTimes[i] ?: continue
-                var bestDiff = 800L
-                var bestJ = -1
-                for (j in transLines.indices) {
-                    if (!usedTransIndices[j] && transTimes[j] != null && transLines[j].isNotBlank()) {
-                        // 单调递增约束：只匹配前方未使用的候选，杜绝乱序倒退
-                        if (j < prevTransIdx) continue
-                        val diff = kotlin.math.abs(oTime - transTimes[j]!!)
-                        if (diff <= bestDiff) {
-                            bestDiff = diff
-                            bestJ = j
-                        }
-                    }
-                }
-                if (bestJ != -1) {
-                    matchedTrans[i] = transLines[bestJ]
-                    usedTransIndices[bestJ] = true
-                    prevTransIdx = bestJ
-                }
-            }
-
+        if (hasNumberedTrans && indexedTransMap.size >= (transLines.count { it.isNotBlank() }.coerceAtLeast(1) / 2)) {
+            val result = ArrayList<BilingualLyricLine>()
+            var nonBlankSeq = 1
             for (i in origLines.indices) {
                 val orig = origLines[i]
-                val time = origTimes[i]
-                val trans = matchedTrans[i]
-                result.add(
-                    BilingualLyricLine(
-                        lineNumber = i + 1,
-                        original = orig,
-                        translation = trans,
-                        isStanzaBreak = orig.isBlank() && trans.isBlank(),
-                        startTimeMs = time
+                val time = origTimes.getOrNull(i)
+                if (orig.isBlank()) {
+                    result.add(
+                        BilingualLyricLine(
+                            lineNumber = i + 1,
+                            original = "",
+                            translation = "",
+                            isStanzaBreak = true,
+                            startTimeMs = time
+                        )
                     )
-                )
+                } else {
+                    val trans = indexedTransMap[nonBlankSeq++] ?: ""
+                    result.add(
+                        BilingualLyricLine(
+                            lineNumber = i + 1,
+                            original = orig,
+                            translation = trans,
+                            isStanzaBreak = false,
+                            startTimeMs = time
+                        )
+                    )
+                }
             }
             return result
         }
 
-        val isExactSizeMatch = origLines.size == transLines.size
+        // 2. 提取原歌词与译文的全部非空演唱正文行
+        val nonBlankOrig = origLines.mapIndexedNotNull { idx, text ->
+            if (text.isNotBlank()) AlignIndexedLine(idx, text, origTimes.getOrNull(idx)) else null
+        }
+        val nonBlankTrans = transLines.mapIndexedNotNull { idx, text ->
+            if (text.isNotBlank()) AlignIndexedLine(idx, text, transTimes.getOrNull(idx)) else null
+        }
 
-        if (isExactSizeMatch) {
-            // 行数完全对齐时（如时间戳精准对齐生成的原歌词与译文），按行 1:1 绝对映射，杜绝错位
-            for (i in origLines.indices) {
-                val orig = origLines[i]
-                val trans = transLines[i]
-                result.add(
-                    BilingualLyricLine(
-                        lineNumber = i + 1,
-                        original = orig,
-                        translation = trans,
-                        isStanzaBreak = orig.isBlank() && trans.isBlank(),
-                        startTimeMs = origTimes.getOrNull(i)
-                    )
-                )
-            }
-        } else {
-            // 智能段落与行数容错对齐：
-            // 优先检查译文中是否含有行号标记（如 "1. "、"[#1] " 等），实现确定性绝对锚定
-            val indexRegex = Regex("""^\s*(?:\[#?(\d+)\]|(\d+)[\.、\s\-:])\s*(.*)$""")
-            val indexedTransMap = mutableMapOf<Int, String>()
-            var hasNumberedTrans = false
+        val matchedTrans = MutableList(origLines.size) { "" }
 
-            for (line in transLines) {
-                val m = indexRegex.find(line.trim())
-                if (m != null) {
-                    val num = (m.groupValues[1].toIntOrNull() ?: m.groupValues[2].toIntOrNull())
-                    val text = m.groupValues[3].trim()
-                    if (num != null) {
-                        indexedTransMap[num] = text
-                        hasNumberedTrans = true
-                    }
-                }
-            }
-
-            if (hasNumberedTrans && indexedTransMap.size >= (transLines.size.coerceAtLeast(1) / 2)) {
-                // 带行号的译文：根据原歌词非空行的绝对顺序 (1-based) 进行 100% 绝对映射！
-                var nonBlankSeq = 1
-                for (i in origLines.indices) {
-                    val orig = origLines[i]
-                    val time = origTimes.getOrNull(i)
-                    if (orig.isBlank()) {
-                        result.add(
-                            BilingualLyricLine(
-                                lineNumber = i + 1,
-                                original = "",
-                                translation = "",
-                                isStanzaBreak = true,
-                                startTimeMs = time
-                            )
-                        )
-                    } else {
-                        val trans = indexedTransMap[nonBlankSeq++] ?: ""
-                        result.add(
-                            BilingualLyricLine(
-                                lineNumber = i + 1,
-                                original = orig,
-                                translation = trans,
-                                isStanzaBreak = false,
-                                startTimeMs = time
-                            )
-                        )
-                    }
+        if (nonBlankOrig.isNotEmpty() && nonBlankTrans.isNotEmpty()) {
+            if (nonBlankOrig.size == nonBlankTrans.size) {
+                // 黄金对齐通道 (1:1 顺序映射)：
+                // 当双方非空唱词行数一致时（绝大多数逐行翻译场景），直接进行 1:1 单调对齐。
+                // 即使译文的时间标签存在在线平台的数秒偏差或延迟，也绝不发生错行错配或跳行！
+                for (k in nonBlankOrig.indices) {
+                    val origIdx = nonBlankOrig[k].index
+                    matchedTrans[origIdx] = nonBlankTrans[k].text
                 }
             } else {
-                // 普通纯文本对齐：在原歌词和译文均按段落 (空行) 拆解，
-                // 仅在各段内部按行匹配，若段内英文多于译文，未匹配行留空，绝不发生跨段连锁位移！
-                val origParas = splitIntoParagraphs(origLines)
-                val transParas = splitIntoParagraphs(transLines)
-
-                var globalLineNum = 1
-                for (pIdx in origParas.indices) {
-                    val oPara = origParas[pIdx]
-                    val tPara = transParas.getOrNull(pIdx) ?: emptyList()
-
-                    for (lineIdx in oPara.indices) {
-                        val orig = oPara[lineIdx]
-                        val trans = tPara.getOrNull(lineIdx) ?: ""
-                        result.add(
-                            BilingualLyricLine(
-                                lineNumber = globalLineNum++,
-                                original = orig,
-                                translation = trans,
-                                isStanzaBreak = false,
-                                startTimeMs = origTimes.getOrNull(result.size)
-                            )
-                        )
-                    }
-                    if (pIdx < origParas.lastIndex) {
-                        result.add(
-                            BilingualLyricLine(
-                                lineNumber = globalLineNum++,
-                                original = "",
-                                translation = "",
-                                isStanzaBreak = true,
-                                startTimeMs = null
-                            )
-                        )
-                    }
+                // 动态规划序列对齐 (Needleman-Wunsch / Monotonic Sequence Alignment)：
+                // 支持行数不完全一致（如原歌词有伴奏重复句，或译文合并/拆分行），
+                // 综合时间戳邻近度与全曲相对进度百分比，寻找全局单调递增最优解，彻底消除多米诺骨牌式错位！
+                val matchMap = alignSequencesDP(nonBlankOrig, nonBlankTrans)
+                for ((origIdx, transText) in matchMap) {
+                    matchedTrans[origIdx] = transText
                 }
             }
         }
 
+        val result = ArrayList<BilingualLyricLine>()
+        for (i in origLines.indices) {
+            val orig = origLines[i]
+            val time = origTimes.getOrNull(i)
+            val trans = matchedTrans[i]
+            result.add(
+                BilingualLyricLine(
+                    lineNumber = i + 1,
+                    original = orig,
+                    translation = trans,
+                    isStanzaBreak = orig.isBlank() && trans.isBlank(),
+                    startTimeMs = time
+                )
+            )
+        }
         return result
+    }
+
+    private data class AlignIndexedLine(val index: Int, val text: String, val timeMs: Long?)
+
+    /**
+     * 单调递增序列动态规划对齐引擎：
+     * 针对原歌词与翻译行数不完全一致的边界场景，在时间戳差值与全篇相对进度双重惩罚约束下，
+     * 求解全局代价最小的单调匹配路径，绝不倒退、绝不交错。
+     */
+    private fun alignSequencesDP(
+        origList: List<AlignIndexedLine>,
+        transList: List<AlignIndexedLine>
+    ): Map<Int, String> {
+        val n = origList.size
+        val m = transList.size
+        if (n == 0 || m == 0) return emptyMap()
+
+        // dp[i][j]: minimum alignment cost between origList[0 until i] and transList[0 until j]
+        val dp = Array(n + 1) { FloatArray(m + 1) { Float.MAX_VALUE } }
+        dp[0][0] = 0f
+        // parent[i][j]: 0 = match, 1 = skip orig, 2 = skip trans
+        val parent = Array(n + 1) { IntArray(m + 1) { -1 } }
+
+        for (i in 0..n) {
+            for (j in 0..m) {
+                if (i == 0 && j == 0) continue
+                var minCost = Float.MAX_VALUE
+                var bestAction = -1
+
+                // 动作 1: 跳过原文行 (原歌词有额外伴奏/垫音行)
+                if (i > 0 && dp[i - 1][j] != Float.MAX_VALUE) {
+                    val cost = dp[i - 1][j] + 500f
+                    if (cost < minCost) {
+                        minCost = cost
+                        bestAction = 1
+                    }
+                }
+
+                // 动作 2: 跳过译文行 (译文有冗余行)
+                if (j > 0 && dp[i][j - 1] != Float.MAX_VALUE) {
+                    val cost = dp[i][j - 1] + 500f
+                    if (cost < minCost) {
+                        minCost = cost
+                        bestAction = 2
+                    }
+                }
+
+                // 动作 3: 匹配 orig[i-1] 与 trans[j-1]
+                if (i > 0 && j > 0 && dp[i - 1][j - 1] != Float.MAX_VALUE) {
+                    val ot = origList[i - 1].timeMs
+                    val tt = transList[j - 1].timeMs
+
+                    val timeCost = if (ot != null && tt != null) {
+                        (kotlin.math.abs(ot - tt) / 10f).coerceAtMost(1000f)
+                    } else 0f
+
+                    val posDiff = kotlin.math.abs((i - 1f) / n - (j - 1f) / m) * 800f
+                    val matchCost = dp[i - 1][j - 1] + timeCost + posDiff
+                    if (matchCost < minCost) {
+                        minCost = matchCost
+                        bestAction = 0
+                    }
+                }
+
+                dp[i][j] = minCost
+                parent[i][j] = bestAction
+            }
+        }
+
+        // 回溯寻找最优匹配路径
+        var currI = n
+        var currJ = m
+        val matchedMap = mutableMapOf<Int, String>()
+
+        while (currI > 0 || currJ > 0) {
+            when (parent[currI][currJ]) {
+                0 -> {
+                    val origItem = origList[currI - 1]
+                    val transItem = transList[currJ - 1]
+                    matchedMap[origItem.index] = transItem.text
+                    currI--
+                    currJ--
+                }
+                1 -> {
+                    currI--
+                }
+                2 -> {
+                    currJ--
+                }
+                else -> break
+            }
+        }
+
+        return matchedMap
+    }
+
+    /**
+     * 将单行包含多个时间标签的 LRC (如 [00:10.00][01:10.00] 唱词) 展开为按时间轴单调递增的独立单句
+     */
+    fun expandMultiTimestampLines(lrc: String): String {
+        val lines = lrc.lines()
+        val result = mutableListOf<String>()
+        var hasMulti = false
+        for (rawLine in lines) {
+            val trimmed = rawLine.trim()
+            if (trimmed.isBlank() || trimmed.matches(LRC_METADATA_REGEX)) {
+                result.add(rawLine)
+                continue
+            }
+            val matches = TIMESTAMP_PARSER_REGEX.findAll(trimmed).toList()
+            if (matches.size <= 1) {
+                result.add(rawLine)
+            } else {
+                hasMulti = true
+                val cleanText = trimmed.replace(TIMESTAMP_PARSER_REGEX, "").trim()
+                for (m in matches) {
+                    result.add("${m.value} $cleanText")
+                }
+            }
+        }
+        if (!hasMulti) return lrc
+
+        val timed = mutableListOf<Pair<Long?, String>>()
+        for (line in result) {
+            val time = extractTimestampMs(line)
+            timed.add(time to line)
+        }
+        val sorted = timed.sortedWith(compareBy(nullsLast()) { it.first })
+        return sorted.joinToString("\n") { it.second }
     }
 
     private fun splitIntoParagraphs(lines: List<String>): List<List<String>> {

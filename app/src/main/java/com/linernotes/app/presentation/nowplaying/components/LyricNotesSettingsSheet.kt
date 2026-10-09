@@ -475,6 +475,7 @@ fun LyricNotesSettingsSheet(
             val currentDisplayMode by floatingPrefs.displayModeFlow.collectAsState(initial = floatingPrefs.displayMode)
             val currentCapsuleWidth by floatingPrefs.capsuleWidthDpFlow.collectAsState(initial = floatingPrefs.capsuleWidthDp)
             val currentFloatingStyle by floatingPrefs.floatingStyleFlow.collectAsState(initial = floatingPrefs.floatingStyle)
+            val hideInForeground by floatingPrefs.hideWhenAppInForegroundFlow.collectAsState(initial = floatingPrefs.hideWhenAppInForeground)
 
             val floatingCardBg = if (isFloatingActive) {
                 if (isDark) Color(0xFF162538).copy(alpha = 0.70f) else Color(0xFFE1F5FE).copy(alpha = 0.85f)
@@ -785,6 +786,18 @@ fun LyricNotesSettingsSheet(
                         isDark = isDark,
                         onCheckedChange = {
                             floatingPrefs.isLocked = !isLocked
+                        }
+                    )
+
+                    HorizontalDivider(color = dividerColor, thickness = 0.5.dp, modifier = Modifier.padding(vertical = 4.dp))
+
+                    // 4.6 应用在前台时隐藏悬浮窗
+                    SettingsSwitchRow(
+                        title = "应用在前台时隐藏",
+                        checked = hideInForeground,
+                        isDark = isDark,
+                        onCheckedChange = {
+                            floatingPrefs.hideWhenAppInForeground = !hideInForeground
                         }
                     )
                 }

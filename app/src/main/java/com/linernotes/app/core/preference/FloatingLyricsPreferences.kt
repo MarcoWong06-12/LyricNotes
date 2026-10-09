@@ -161,6 +161,17 @@ class FloatingLyricsPreferences @Inject constructor(
             _floatingStyleFlow.value = value
         }
 
+    // 12. 应用在前台时自动隐藏悬浮窗 (防止与主界面歌词重叠遮挡，退至后台/桌面自动重新显示，默认开启)
+    private val _hideWhenAppInForegroundFlow = MutableStateFlow(prefs.getBoolean(KEY_HIDE_IN_FOREGROUND, true))
+    val hideWhenAppInForegroundFlow: StateFlow<Boolean> = _hideWhenAppInForegroundFlow.asStateFlow()
+
+    var hideWhenAppInForeground: Boolean
+        get() = _hideWhenAppInForegroundFlow.value
+        set(value) {
+            prefs.edit().putBoolean(KEY_HIDE_IN_FOREGROUND, value).apply()
+            _hideWhenAppInForegroundFlow.value = value
+        }
+
     companion object {
         const val STYLE_PURE_LYRICS = 0
         const val STYLE_CAPSULE_CARD = 1
@@ -181,6 +192,7 @@ class FloatingLyricsPreferences @Inject constructor(
         private const val KEY_DISPLAY_MODE = "floating_display_mode"
         private const val KEY_CAPSULE_WIDTH = "floating_capsule_width"
         private const val KEY_FLOATING_STYLE = "floating_style"
+        private const val KEY_HIDE_IN_FOREGROUND = "floating_hide_in_foreground"
 
         fun get(context: Context): FloatingLyricsPreferences {
             return EntryPointAccessors.fromApplication(

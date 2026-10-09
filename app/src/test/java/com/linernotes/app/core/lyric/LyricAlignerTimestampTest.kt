@@ -66,4 +66,26 @@ class LyricAlignerTimestampTest {
         assertEquals("人生就是个混账，最后难逃一死", aligned[0].translation)
         assertEquals("这就是我们吸大麻的原因", aligned[1].translation)
     }
+
+    @Test
+    fun `test alignment when translation timestamps have significant drift but match song lines`() {
+        val origSpotify = """
+            [02:39.83] Opulent permanent, no way
+            [02:43.06] I want to taste it
+            [02:44.82] Don't want to waste it away
+        """.trimIndent()
+
+        // 模拟第三方平台歌词时间戳存在将近 3 秒的延迟漂移
+        val transDrifted = """
+            [02:42.62] 永远丰富多彩
+            [02:45.43] 我想去享受一下
+            [02:47.18] 不想浪费时间
+        """.trimIndent()
+
+        val aligned = LyricAligner.align(origSpotify, transDrifted)
+        assertEquals(3, aligned.size)
+        assertEquals(163060L, aligned[1].startTimeMs)
+        assertEquals("I want to taste it", aligned[1].original)
+        assertEquals("我想去享受一下", aligned[1].translation)
+    }
 }

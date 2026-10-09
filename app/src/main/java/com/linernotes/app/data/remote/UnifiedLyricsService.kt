@@ -1,5 +1,6 @@
 package com.linernotes.app.data.remote
 
+import com.linernotes.app.core.lyric.LyricAligner
 import com.linernotes.app.core.lyric.LyricSanitizer
 import com.linernotes.app.core.lyric.LyricSearchCleaner
 import com.linernotes.app.core.preference.AiPreferences
@@ -83,25 +84,41 @@ object UnifiedLyricsService {
         val keywords = LyricSearchCleaner.extractSignificantTitleKeywords(trackTitle)
 
         // Fast-Path: 极速抢占窗口 (最多等待 1800ms)
-        // 若网易云或 QQ 音乐等官方主力源已返回高置信度双语时间轴歌词，直接极速返回，无需等待慢速源超时
+        // 若网易云或 QQ 音乐等官方主力源已返回高置信度双语时间轴歌词，优先校验 LRCLIB Spotify 时间轴基准后极速返回
         val fastDeadline = System.currentTimeMillis() + 1800L
         while (System.currentTimeMillis() < fastDeadline && isActive) {
             if (neteaseDeferred.isCompleted) {
                 val res = runCatching { neteaseDeferred.await() }.getOrNull()
                 if (res != null && isFastPathQualified(res, targetDurationMs, keywords)) {
+                    val lrclib = if (lrclibDeferred.isCompleted) {
+                        runCatching { lrclibDeferred.await() }.getOrNull()
+                    } else {
+                        withTimeoutOrNull(250L) {
+                            runCatching { lrclibDeferred.await() }.getOrNull()
+                        }
+                    }
+                    val calibrated = if (lrclib != null) calibrateWithSpotifyTiming(res, lrclib) else res
                     qqDeferred.cancel()
                     kugouDeferred.cancel()
                     lrclibDeferred.cancel()
-                    return@supervisorScope sanitizeResult(res, null)
+                    return@supervisorScope sanitizeResult(calibrated, lrclib)
                 }
             }
             if (qqDeferred.isCompleted) {
                 val res = runCatching { qqDeferred.await() }.getOrNull()
                 if (res != null && isFastPathQualified(res, targetDurationMs, keywords)) {
+                    val lrclib = if (lrclibDeferred.isCompleted) {
+                        runCatching { lrclibDeferred.await() }.getOrNull()
+                    } else {
+                        withTimeoutOrNull(250L) {
+                            runCatching { lrclibDeferred.await() }.getOrNull()
+                        }
+                    }
+                    val calibrated = if (lrclib != null) calibrateWithSpotifyTiming(res, lrclib) else res
                     neteaseDeferred.cancel()
                     kugouDeferred.cancel()
                     lrclibDeferred.cancel()
-                    return@supervisorScope sanitizeResult(res, null)
+                    return@supervisorScope sanitizeResult(calibrated, lrclib)
                 }
             }
             if (neteaseDeferred.isCompleted && qqDeferred.isCompleted) {
@@ -200,15 +217,93 @@ object UnifiedLyricsService {
         }
 
         if (best != null) {
-            // 如果胜出源自身缺少封面，但同行候选源具备高清封面，智能补齐封面 URL
-            val resolvedCover = best.coverUrl ?: candidates.firstOrNull { !it.coverUrl.isNullOrBlank() }?.coverUrl
-            val enrichedWinner = if (resolvedCover != null && best.coverUrl == null) {
-                best.copy(coverUrl = resolvedCover)
+            // 跨源时间基准校准：若胜出源具备双语翻译，但同行中具备 Spotify/QQ 音乐高精度时间轴基准，自动进行时间戳漂移校准
+            val spotifyCalibrator = lrclibRes?.takeIf { it.originalLyrics.contains(TIMESTAMP_REGEX) }
+                ?: (if (best !== qqRes) qqRes?.takeIf { it.originalLyrics.contains(TIMESTAMP_REGEX) } else null)
+            val calibratedWinner = if (spotifyCalibrator != null) {
+                calibrateWithSpotifyTiming(best, spotifyCalibrator)
             } else best
+
+            // 如果胜出源自身缺少封面，但同行候选源具备高清封面，智能补齐封面 URL
+            val resolvedCover = calibratedWinner.coverUrl ?: candidates.firstOrNull { !it.coverUrl.isNullOrBlank() }?.coverUrl
+            val enrichedWinner = if (resolvedCover != null && calibratedWinner.coverUrl == null) {
+                calibratedWinner.copy(coverUrl = resolvedCover)
+            } else calibratedWinner
 
             val reference = candidates.firstOrNull { it !== best && it.originalLyrics.isNotBlank() }
             sanitizeResult(enrichedWinner, reference)
         } else null
+    }
+
+    /**
+     * 跨源时间轴交叉校验与 Spotify 原声时间基准校准：
+     * 当主力源（如网易云）具备官方优质翻译，但时间戳受社区上传或音频版本影响发生漂移（> 1.2秒）时，
+     * 自动保留其官方译文，而将原歌词时间轴校准为与 Spotify 音频严格吻合的基准源（如 LRCLIB 或 QQ 音乐）。
+     */
+    private fun calibrateWithSpotifyTiming(
+        primary: OnlineLyricsResult,
+        calibrator: OnlineLyricsResult
+    ): OnlineLyricsResult {
+        if (primary === calibrator) return primary
+        if (calibrator.originalLyrics.isBlank() || !calibrator.originalLyrics.contains(TIMESTAMP_REGEX)) {
+            return primary
+        }
+        // 若主力源没有翻译，则无需保留主力源译文直接使用即可（通常评分系统已自动择优）
+        if (!primary.isBilingual || primary.translatedLyrics.isNullOrBlank()) {
+            return primary
+        }
+
+        // 时长校验：若两源声明时长相差超过 15 秒，可能非同一音轨/版本，保守不予替换
+        if (primary.durationMs > 0L && calibrator.durationMs > 0L) {
+            val durDiff = Math.abs(primary.durationMs - calibrator.durationMs)
+            if (durDiff > 15_000L) return primary
+        }
+
+        // 正文指纹与相似度校验：确保二者确实唱的是同一首歌
+        val pLines = primary.originalLyrics.lines().map { LyricAligner.cleanLine(it) }.filter { it.isNotBlank() }
+        val cLines = calibrator.originalLyrics.lines().map { LyricAligner.cleanLine(it) }.filter { it.isNotBlank() }
+        if (pLines.isEmpty() || cLines.isEmpty()) return primary
+
+        val pNorm = pLines.map { it.lowercase().replace(Regex("[^a-zA-Z0-9\u4e00-\u9fa5]"), "") }.filter { it.isNotBlank() }
+        val cNorm = cLines.map { it.lowercase().replace(Regex("[^a-zA-Z0-9\u4e00-\u9fa5]"), "") }.filter { it.isNotBlank() }
+        val commonCount = pNorm.count { p -> cNorm.contains(p) }
+        val similarity = commonCount.toFloat() / pNorm.size.coerceAtLeast(1)
+        if (similarity < 0.4f) return primary
+
+        // 提取带时间戳的歌词行进行时间戳漂移检测
+        val pWithTime = primary.originalLyrics.lines().mapNotNull { line ->
+            val t = LyricAligner.extractTimestampMs(line) ?: return@mapNotNull null
+            val norm = LyricAligner.cleanLine(line).lowercase().replace(Regex("[^a-zA-Z0-9\u4e00-\u9fa5]"), "")
+            if (norm.isNotBlank()) norm to t else null
+        }
+        val cWithTimeMap = calibrator.originalLyrics.lines().mapNotNull { line ->
+            val t = LyricAligner.extractTimestampMs(line) ?: return@mapNotNull null
+            val norm = LyricAligner.cleanLine(line).lowercase().replace(Regex("[^a-zA-Z0-9\u4e00-\u9fa5]"), "")
+            if (norm.isNotBlank()) norm to t else null
+        }.toMap()
+
+        val textDrifts = pWithTime.mapNotNull { (norm, pTime) ->
+            val cTime = cWithTimeMap[norm] ?: return@mapNotNull null
+            Math.abs(pTime - cTime)
+        }
+
+        val pTimes = primary.originalLyrics.lines().mapNotNull { LyricAligner.extractTimestampMs(it) }
+        val cTimes = calibrator.originalLyrics.lines().mapNotNull { LyricAligner.extractTimestampMs(it) }
+        val indexDrifts = if (pTimes.size == cTimes.size && pTimes.isNotEmpty()) {
+            pTimes.zip(cTimes).map { (pt, ct) -> Math.abs(pt - ct) }
+        } else emptyList()
+
+        val maxDrift = maxOf(textDrifts.maxOrNull() ?: 0L, indexDrifts.maxOrNull() ?: 0L)
+        val hasSignificantDrift = maxDrift > 1200L
+        val primaryLacksLrc = !primary.originalLyrics.contains(TIMESTAMP_REGEX)
+
+        if (hasSignificantDrift || primaryLacksLrc) {
+            return primary.copy(
+                originalLyrics = calibrator.originalLyrics,
+                durationMs = if (primary.durationMs <= 0L) calibrator.durationMs else primary.durationMs
+            )
+        }
+        return primary
     }
 
     private fun sanitizeResult(result: OnlineLyricsResult, refResult: OnlineLyricsResult?): OnlineLyricsResult {
