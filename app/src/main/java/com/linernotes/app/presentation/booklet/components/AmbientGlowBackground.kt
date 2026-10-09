@@ -35,8 +35,19 @@ import coil.request.ImageRequest
 fun AmbientGlowBackground(
     coverUrl: String?,
     isDark: Boolean,
+    isAmoledMode: Boolean = false,
     modifier: Modifier = Modifier
 ) {
+    if (isDark && isAmoledMode) {
+        // 纯黑 OLED 极暗模式：彻底关闭像素点 (0 nits)，停止一切动画与模糊计算，极致省电
+        Box(
+            modifier = modifier
+                .fillMaxSize()
+                .background(Color.Black)
+        )
+        return
+    }
+
     val infiniteTransition = rememberInfiniteTransition(label = "ambientGlow")
 
     // 第一光斑缓慢呼吸偏移量 (周期 9 秒，顺畅不突兀)

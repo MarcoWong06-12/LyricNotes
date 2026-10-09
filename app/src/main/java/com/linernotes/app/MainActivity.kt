@@ -35,6 +35,7 @@ class MainActivity : ComponentActivity() {
         setContent {
             val appLanguageCode by aiPreferences.appLanguageFlow.collectAsState()
             val themeModeCode by aiPreferences.themeModeFlow.collectAsState()
+            val isAmoledMode by aiPreferences.isAmoledModeFlow.collectAsState()
             val themeMode = remember(themeModeCode) {
                 AiPreferences.ThemeMode.fromCode(themeModeCode)
             }
@@ -43,7 +44,7 @@ class MainActivity : ComponentActivity() {
             }
 
             CompositionLocalProvider(LocalStrings provides strings) {
-                LinerNotesTheme(themeMode = themeMode) {
+                LinerNotesTheme(themeMode = themeMode, isAmoledMode = isAmoledMode) {
                     val activity = androidx.compose.ui.platform.LocalContext.current as? ComponentActivity
                     BackHandler {
                         // 按系统返回键退回桌面，保持音乐与歌词伴侣后台运行

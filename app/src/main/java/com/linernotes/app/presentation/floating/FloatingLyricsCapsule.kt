@@ -61,6 +61,7 @@ fun FloatingLyricsCapsule(
     floatingStyle: Int = FloatingLyricsPreferences.STYLE_PURE_LYRICS,
     capsuleWidthDp: Int = 356,
     isTraditional: Boolean = false,
+    textAlignment: Int = FloatingLyricsPreferences.ALIGNMENT_CENTER,
     onDragStart: () -> Unit = {},
     onDrag: (deltaX: Float, deltaY: Float) -> Unit,
     onDragEnd: (isExpanded: Boolean) -> Unit,
@@ -155,6 +156,10 @@ fun FloatingLyricsCapsule(
     val effectiveCapsuleWidthDp = (if (isExpanded) 356 else capsuleWidthDp).coerceAtMost(safeMaxWidthDp)
     val capsuleWidth = effectiveCapsuleWidthDp.dp
 
+    val isAlignLeft = textAlignment == FloatingLyricsPreferences.ALIGNMENT_LEFT
+    val contentAlignment = if (isAlignLeft) Alignment.Start else Alignment.CenterHorizontally
+    val textAlignVal = if (isAlignLeft) TextAlign.Start else TextAlign.Center
+
     if (floatingStyle == FloatingLyricsPreferences.STYLE_PURE_LYRICS) {
         // =========================================================================
         // 【纯净桌面悬浮歌词】(网易云经典风格 - 默认)
@@ -166,7 +171,7 @@ fun FloatingLyricsCapsule(
         ) {
             // 1. 纯净歌词文字主体 (锚定在顶部，轻触呼出下方微型工具条，拖拽移动，杜绝歌词跳动)
             Box(
-                contentAlignment = Alignment.Center,
+                contentAlignment = if (isAlignLeft) Alignment.CenterStart else Alignment.Center,
                 modifier = Modifier
                     .fillMaxWidth()
                     .then(
@@ -240,7 +245,7 @@ fun FloatingLyricsCapsule(
             ) {
                 Column(
                     verticalArrangement = Arrangement.Center,
-                    horizontalAlignment = Alignment.CenterHorizontally,
+                    horizontalAlignment = contentAlignment,
                     modifier = Modifier.fillMaxWidth()
                 ) {
                     if (displayMode == FloatingLyricsPreferences.DISPLAY_MODE_MARQUEE) {
@@ -251,7 +256,7 @@ fun FloatingLyricsCapsule(
                                 fontSize = (16f * fontScale).sp,
                                 fontWeight = FontWeight.Bold,
                                 fontFamily = FontFamily.SansSerif,
-                                textAlign = TextAlign.Center,
+                                textAlign = textAlignVal,
                                 maxLines = 1,
                                 style = TextStyle(shadow = textShadow, letterSpacing = 0.sp),
                                 modifier = Modifier.basicMarquee(
@@ -272,7 +277,7 @@ fun FloatingLyricsCapsule(
                                     fontSize = (13f * fontScale).sp,
                                     fontWeight = FontWeight.SemiBold,
                                     fontFamily = FontFamily.SansSerif,
-                                    textAlign = TextAlign.Center,
+                                    textAlign = textAlignVal,
                                     maxLines = 1,
                                     style = TextStyle(shadow = textShadow, letterSpacing = 0.sp),
                                     modifier = Modifier.basicMarquee(
@@ -293,7 +298,7 @@ fun FloatingLyricsCapsule(
                             lineHeight = (22f * fontScale).sp,
                             fontWeight = FontWeight.Bold,
                             fontFamily = FontFamily.SansSerif,
-                            textAlign = TextAlign.Center,
+                            textAlign = textAlignVal,
                             maxLines = 2,
                             overflow = TextOverflow.Ellipsis,
                             style = TextStyle(shadow = textShadow, letterSpacing = 0.sp)
@@ -308,7 +313,7 @@ fun FloatingLyricsCapsule(
                                 lineHeight = (18f * fontScale).sp,
                                 fontWeight = FontWeight.SemiBold,
                                 fontFamily = FontFamily.SansSerif,
-                                textAlign = TextAlign.Center,
+                                textAlign = textAlignVal,
                                 maxLines = 2,
                                 overflow = TextOverflow.Ellipsis,
                                 style = TextStyle(shadow = textShadow, letterSpacing = 0.sp)
@@ -584,7 +589,7 @@ fun FloatingLyricsCapsule(
 
                         Column(
                             verticalArrangement = Arrangement.Center,
-                            horizontalAlignment = Alignment.CenterHorizontally,
+                            horizontalAlignment = contentAlignment,
                             modifier = Modifier.weight(1f)
                         ) {
                             if (displayMode == FloatingLyricsPreferences.DISPLAY_MODE_MARQUEE) {
@@ -595,7 +600,7 @@ fun FloatingLyricsCapsule(
                                         fontSize = (14.5f * fontScale).sp,
                                         fontWeight = FontWeight.Bold,
                                         fontFamily = FontFamily.SansSerif,
-                                        textAlign = TextAlign.Center,
+                                        textAlign = textAlignVal,
                                         maxLines = 1,
                                         style = TextStyle(shadow = textShadow, letterSpacing = 0.sp),
                                         modifier = Modifier.basicMarquee(
@@ -616,7 +621,7 @@ fun FloatingLyricsCapsule(
                                             fontSize = (12f * fontScale).sp,
                                             fontWeight = FontWeight.SemiBold,
                                             fontFamily = FontFamily.SansSerif,
-                                            textAlign = TextAlign.Center,
+                                            textAlign = textAlignVal,
                                             maxLines = 1,
                                             style = TextStyle(shadow = textShadow, letterSpacing = 0.sp),
                                             modifier = Modifier.basicMarquee(
@@ -636,7 +641,7 @@ fun FloatingLyricsCapsule(
                                     lineHeight = (19f * fontScale).sp,
                                     fontWeight = FontWeight.Bold,
                                     fontFamily = FontFamily.SansSerif,
-                                    textAlign = TextAlign.Center,
+                                    textAlign = textAlignVal,
                                     maxLines = 2,
                                     overflow = TextOverflow.Ellipsis,
                                     style = TextStyle(shadow = textShadow, letterSpacing = 0.sp)
@@ -651,7 +656,7 @@ fun FloatingLyricsCapsule(
                                         lineHeight = (15.5f * fontScale).sp,
                                         fontWeight = FontWeight.SemiBold,
                                         fontFamily = FontFamily.SansSerif,
-                                        textAlign = TextAlign.Center,
+                                        textAlign = textAlignVal,
                                         maxLines = 2,
                                         overflow = TextOverflow.Ellipsis,
                                         style = TextStyle(shadow = textShadow, letterSpacing = 0.sp)
@@ -835,7 +840,7 @@ fun FloatingLyricsCapsule(
                         Spacer(modifier = Modifier.height(10.dp))
 
                         Column(
-                            horizontalAlignment = Alignment.CenterHorizontally,
+                            horizontalAlignment = contentAlignment,
                             verticalArrangement = Arrangement.Center,
                             modifier = Modifier
                                 .fillMaxWidth()
@@ -861,7 +866,7 @@ fun FloatingLyricsCapsule(
                                 color = lyricColor,
                                 fontSize = (16f * fontScale).sp,
                                 fontWeight = FontWeight.Bold,
-                                textAlign = TextAlign.Center,
+                                textAlign = textAlignVal,
                                 lineHeight = (22f * fontScale).sp,
                                 maxLines = 2,
                                 overflow = TextOverflow.Ellipsis,
@@ -874,7 +879,7 @@ fun FloatingLyricsCapsule(
                                     color = secondaryColor,
                                     fontSize = (13f * fontScale).sp,
                                     fontWeight = FontWeight.SemiBold,
-                                    textAlign = TextAlign.Center,
+                                    textAlign = textAlignVal,
                                     lineHeight = (18f * fontScale).sp,
                                     maxLines = 2,
                                     overflow = TextOverflow.Ellipsis,

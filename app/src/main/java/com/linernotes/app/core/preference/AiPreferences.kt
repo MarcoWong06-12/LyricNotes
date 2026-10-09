@@ -26,6 +26,37 @@ class AiPreferences @Inject constructor(
             _themeModeFlow.value = value
         }
 
+    // 纯黑 OLED 极暗模式 (AMOLED Pure Black)：在深色主题下关闭像素点，实现纯黑高对比度与极致省电
+    private val _isAmoledModeFlow = kotlinx.coroutines.flow.MutableStateFlow(
+        prefs.getBoolean("is_amoled_mode", false)
+    )
+    val isAmoledModeFlow: kotlinx.coroutines.flow.StateFlow<Boolean> = _isAmoledModeFlow
+
+    var isAmoledMode: Boolean
+        get() = _isAmoledModeFlow.value
+        set(value) {
+            prefs.edit().putBoolean("is_amoled_mode", value).apply()
+            _isAmoledModeFlow.value = value
+        }
+
+    // 全屏歌词对齐方式：0 = 靠左对齐 (默认)，1 = 居中对齐
+    private val _lyricAlignmentFlow = kotlinx.coroutines.flow.MutableStateFlow(
+        prefs.getInt("lyric_alignment", LYRIC_ALIGN_LEFT)
+    )
+    val lyricAlignmentFlow: kotlinx.coroutines.flow.StateFlow<Int> = _lyricAlignmentFlow
+
+    var lyricAlignment: Int
+        get() = _lyricAlignmentFlow.value
+        set(value) {
+            prefs.edit().putInt("lyric_alignment", value).apply()
+            _lyricAlignmentFlow.value = value
+        }
+
+    companion object {
+        const val LYRIC_ALIGN_LEFT = 0
+        const val LYRIC_ALIGN_CENTER = 1
+    }
+
     private fun computeDefaultTraditional(lang: String): Boolean {
         if (prefs.contains("is_traditional_chinese")) {
             return prefs.getBoolean("is_traditional_chinese", false)

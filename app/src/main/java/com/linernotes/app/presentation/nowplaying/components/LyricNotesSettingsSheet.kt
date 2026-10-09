@@ -52,6 +52,8 @@ fun LyricNotesSettingsSheet(
     isTraditionalChinese: Boolean,
     themeMode: String = com.linernotes.app.core.preference.AiPreferences.ThemeMode.SYSTEM.code,
     appLanguage: String = com.linernotes.app.core.i18n.AppLanguage.SYSTEM.code,
+    isAmoledMode: Boolean = false,
+    lyricAlignment: Int = com.linernotes.app.core.preference.AiPreferences.LYRIC_ALIGN_LEFT,
     isDeCensorEnabled: Boolean,
     showPlaybackControls: Boolean,
     lyricOffsetMs: Long,
@@ -63,6 +65,8 @@ fun LyricNotesSettingsSheet(
     onToggleTraditionalChinese: () -> Unit,
     onSetThemeMode: (String) -> Unit = {},
     onSetAppLanguage: (String) -> Unit = {},
+    onSetAmoledMode: (Boolean) -> Unit = {},
+    onSetLyricAlignment: (Int) -> Unit = {},
     onToggleDeCensor: () -> Unit,
     onTogglePlaybackControls: () -> Unit,
     onReloadLyrics: () -> Unit,
@@ -73,10 +77,17 @@ fun LyricNotesSettingsSheet(
     val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
 
     val isDark = MaterialTheme.colorScheme.background.luminance() < 0.5f
-    val sheetBg = if (isDark) Color(0xFF13141B) else MaterialTheme.colorScheme.surface
+    val isPureAmoled = isDark && isAmoledMode
+    val sheetBg = if (isDark) {
+        if (isPureAmoled) Color.Black else Color(0xFF13141B)
+    } else MaterialTheme.colorScheme.surface
     val sheetContent = if (isDark) Color.White else MaterialTheme.colorScheme.onSurface
-    val cardBg = if (isDark) Color.White.copy(alpha = 0.05f) else MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.70f)
-    val cardBorder = if (isDark) Color.White.copy(alpha = 0.10f) else Color.Black.copy(alpha = 0.08f)
+    val cardBg = if (isDark) {
+        if (isPureAmoled) Color(0xFF0C0C0E) else Color.White.copy(alpha = 0.05f)
+    } else MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.70f)
+    val cardBorder = if (isDark) {
+        if (isPureAmoled) Color(0xFF222226) else Color.White.copy(alpha = 0.10f)
+    } else Color.Black.copy(alpha = 0.08f)
     val textPrimary = if (isDark) Color.White else MaterialTheme.colorScheme.onSurface
     val textSecondary = if (isDark) Color.White.copy(alpha = 0.60f) else MaterialTheme.colorScheme.onSurfaceVariant
     val dividerColor = if (isDark) Color.White.copy(alpha = 0.08f) else Color.Black.copy(alpha = 0.08f)
@@ -229,6 +240,20 @@ fun LyricNotesSettingsSheet(
                             modifier = Modifier.weight(1f)
                         )
                     }
+
+                    HorizontalDivider(
+                        color = dividerColor,
+                        thickness = 0.5.dp,
+                        modifier = Modifier.padding(vertical = 4.dp)
+                    )
+
+                    SettingsSwitchRow(
+                        title = "纯黑 OLED 极暗模式",
+                        subtitle = "深色下彻底关闭背景像素发光 (0 nits)，更深邃省电",
+                        checked = isAmoledMode,
+                        isDark = isDark,
+                        onCheckedChange = { onSetAmoledMode(!isAmoledMode) }
+                    )
                 }
             }
 
@@ -477,6 +502,7 @@ fun LyricNotesSettingsSheet(
             val currentFloatingStyle by floatingPrefs.floatingStyleFlow.collectAsState(initial = floatingPrefs.floatingStyle)
             val hideInForeground by floatingPrefs.hideWhenAppInForegroundFlow.collectAsState(initial = floatingPrefs.hideWhenAppInForeground)
             val currentFontScale by floatingPrefs.fontScaleFlow.collectAsState(initial = floatingPrefs.fontScale)
+            val currentTextAlignment by floatingPrefs.textAlignmentFlow.collectAsState(initial = floatingPrefs.textAlignment)
 
             val floatingCardBg = if (isFloatingActive) {
                 if (isDark) Color(0xFF162538).copy(alpha = 0.70f) else Color(0xFFE1F5FE).copy(alpha = 0.85f)
@@ -656,6 +682,38 @@ fun LyricNotesSettingsSheet(
                                     isSelected = currentDisplayMode == modeVal,
                                     isDark = isDark,
                                     onClick = { floatingPrefs.displayMode = modeVal },
+                                    modifier = Modifier.weight(1f)
+                                )
+                            }
+                        }
+                    }
+
+                    Spacer(modifier = Modifier.height(14.dp))
+
+                    // 4.3 悬浮文字对齐
+                    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                        Text(
+                            text = "文字对齐",
+                            color = textPrimary,
+                            fontSize = 13.5.sp,
+                            fontWeight = FontWeight.SemiBold,
+                            fontFamily = FontFamily.SansSerif
+                        )
+
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.spacedBy(8.dp)
+                        ) {
+                            val alignOptions = listOf(
+                                FloatingLyricsPreferences.ALIGNMENT_CENTER to "居中对齐",
+                                FloatingLyricsPreferences.ALIGNMENT_LEFT to "靠左对齐"
+                            )
+                            alignOptions.forEach { (alignVal, label) ->
+                                FluidOptionPill(
+                                    label = label,
+                                    isSelected = currentTextAlignment == alignVal,
+                                    isDark = isDark,
+                                    onClick = { floatingPrefs.textAlignment = alignVal },
                                     modifier = Modifier.weight(1f)
                                 )
                             }
@@ -885,6 +943,40 @@ fun LyricNotesSettingsSheet(
                         isDark = isDark,
                         onCheckedChange = { onToggleTraditionalChinese() }
                     )
+
+                    HorizontalDivider(color = dividerColor, thickness = 0.5.dp)
+
+                    Column(
+                        modifier = Modifier.padding(vertical = 10.dp),
+                        verticalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        Text(
+                            text = "全屏歌词对齐",
+                            color = textPrimary,
+                            fontSize = 14.5.sp,
+                            fontWeight = FontWeight.SemiBold,
+                            fontFamily = FontFamily.SansSerif
+                        )
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.spacedBy(8.dp)
+                        ) {
+                            FluidOptionPill(
+                                label = "靠左对齐 (默认)",
+                                isSelected = lyricAlignment == com.linernotes.app.core.preference.AiPreferences.LYRIC_ALIGN_LEFT,
+                                isDark = isDark,
+                                onClick = { onSetLyricAlignment(com.linernotes.app.core.preference.AiPreferences.LYRIC_ALIGN_LEFT) },
+                                modifier = Modifier.weight(1f)
+                            )
+                            FluidOptionPill(
+                                label = "居中对齐",
+                                isSelected = lyricAlignment == com.linernotes.app.core.preference.AiPreferences.LYRIC_ALIGN_CENTER,
+                                isDark = isDark,
+                                onClick = { onSetLyricAlignment(com.linernotes.app.core.preference.AiPreferences.LYRIC_ALIGN_CENTER) },
+                                modifier = Modifier.weight(1f)
+                            )
+                        }
+                    }
                 }
             }
 

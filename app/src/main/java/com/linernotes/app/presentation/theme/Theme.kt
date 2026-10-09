@@ -26,6 +26,20 @@ private val DarkColorScheme = darkColorScheme(
     outline = Color(0xFF383840)
 )
 
+private val AmoledDarkColorScheme = darkColorScheme(
+    primary = PrimaryAccent,
+    secondary = SecondaryAccent,
+    background = Color.Black,
+    surface = Color.Black,
+    surfaceVariant = Color(0xFF121214),
+    onPrimary = Color.Black,
+    onSecondary = Color.Black,
+    onBackground = OnSurfaceWhite,
+    onSurface = OnSurfaceWhite,
+    onSurfaceVariant = OnSurfaceMuted,
+    outline = Color(0xFF28282D)
+)
+
 private val LightColorScheme = lightColorScheme(
     primary = LightPrimaryAccent,
     secondary = LightSecondaryAccent,
@@ -43,6 +57,7 @@ private val LightColorScheme = lightColorScheme(
 @Composable
 fun LinerNotesTheme(
     themeMode: ThemeMode = ThemeMode.SYSTEM,
+    isAmoledMode: Boolean = false,
     content: @Composable () -> Unit
 ) {
     val darkTheme = when (themeMode) {
@@ -50,7 +65,11 @@ fun LinerNotesTheme(
         ThemeMode.LIGHT -> false
         ThemeMode.DARK -> true
     }
-    val colorScheme = if (darkTheme) DarkColorScheme else LightColorScheme
+    val colorScheme = when {
+        darkTheme && isAmoledMode -> AmoledDarkColorScheme
+        darkTheme -> DarkColorScheme
+        else -> LightColorScheme
+    }
 
     val view = LocalView.current
     if (!view.isInEditMode) {
@@ -70,3 +89,4 @@ fun LinerNotesTheme(
         content = content
     )
 }
+

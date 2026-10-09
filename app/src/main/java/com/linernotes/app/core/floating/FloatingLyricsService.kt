@@ -346,6 +346,7 @@ class FloatingLyricsService : Service() {
                 val capsuleWidthDp by floatingPreferences.capsuleWidthDpFlow.collectAsState()
                 val floatingStyle by floatingPreferences.floatingStyleFlow.collectAsState()
                 val isTraditional by aiPreferences.isTraditionalChineseFlow.collectAsState()
+                val textAlignment by floatingPreferences.textAlignmentFlow.collectAsState()
 
                 FloatingLyricsCapsule(
                     nowPlayingData = nowData,
@@ -358,6 +359,7 @@ class FloatingLyricsService : Service() {
                     floatingStyle = floatingStyle,
                     capsuleWidthDp = capsuleWidthDp,
                     isTraditional = isTraditional,
+                    textAlignment = textAlignment,
                     onDragStart = {
                         cancelSnapAnimation()
                         windowLayoutParams?.let { params ->

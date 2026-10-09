@@ -195,12 +195,26 @@ class FloatingLyricsPreferences @Inject constructor(
             _hideWhenAppInForegroundFlow.value = value
         }
 
+    // 13. 桌面悬浮歌词对齐方式：0 = 靠左对齐，1 = 居中对齐 (默认居中)
+    private val _textAlignmentFlow = MutableStateFlow(prefs.getInt(KEY_TEXT_ALIGNMENT, ALIGNMENT_CENTER))
+    val textAlignmentFlow: StateFlow<Int> = _textAlignmentFlow.asStateFlow()
+
+    var textAlignment: Int
+        get() = _textAlignmentFlow.value
+        set(value) {
+            prefs.edit().putInt(KEY_TEXT_ALIGNMENT, value).apply()
+            _textAlignmentFlow.value = value
+        }
+
     companion object {
         const val STYLE_PURE_LYRICS = 0
         const val STYLE_CAPSULE_CARD = 1
 
         const val DISPLAY_MODE_WRAP = 0
         const val DISPLAY_MODE_MARQUEE = 1
+
+        const val ALIGNMENT_LEFT = 0
+        const val ALIGNMENT_CENTER = 1
 
         private const val KEY_ENABLED = "floating_enabled"
         private const val KEY_LOCKED = "floating_locked"
@@ -220,6 +234,7 @@ class FloatingLyricsPreferences @Inject constructor(
         private const val KEY_CAPSULE_WIDTH = "floating_capsule_width"
         private const val KEY_FLOATING_STYLE = "floating_style"
         private const val KEY_HIDE_IN_FOREGROUND = "floating_hide_in_foreground"
+        private const val KEY_TEXT_ALIGNMENT = "floating_text_alignment"
 
         fun get(context: Context): FloatingLyricsPreferences {
             return EntryPointAccessors.fromApplication(

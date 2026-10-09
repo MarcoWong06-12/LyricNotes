@@ -58,6 +58,7 @@ import coil.request.ImageRequest
 import com.linernotes.app.core.playback.MediaPlaybackSyncService
 import com.linernotes.app.core.playback.QueueTrackItem
 import com.linernotes.app.core.playback.TrackPlaybackState
+import com.linernotes.app.core.preference.AiPreferences
 import com.linernotes.app.core.util.ChineseConverter
 import com.linernotes.app.data.local.entity.LyricAnnotationEntity
 import com.linernotes.app.domain.model.BilingualLyricLine
@@ -121,12 +122,17 @@ fun NowPlayingScreen(
     Box(
         modifier = Modifier
             .fillMaxSize()
-            .background(if (isDark) Color(0xFF090A0E) else MaterialTheme.colorScheme.background)
+            .background(
+                if (isDark) {
+                    if (state.isAmoledMode) Color.Black else Color(0xFF090A0E)
+                } else MaterialTheme.colorScheme.background
+            )
     ) {
-        // 1. 灵动流体弥散背景 (纯净温润呼吸)
+        // 1. 灵动流体弥散背景 (纯净温润呼吸，AMOLED 模式下纯黑 0-nits 彻底休眠像素)
         AmbientGlowBackground(
             coverUrl = trackState.coverUrl,
             isDark = isDark,
+            isAmoledMode = state.isAmoledMode,
             modifier = Modifier.fillMaxSize()
         )
 
@@ -170,6 +176,7 @@ fun NowPlayingScreen(
                     isTraditional = state.isTraditionalChinese,
                     isLoadingLyrics = nowData.isLoadingLyrics,
                     isDark = isDark,
+                    lyricAlignment = state.lyricAlignment,
                     showPlaybackControls = state.showPlaybackControls,
                     onLineClicked = onLineClicked,
                     onAnnotationClicked = onAnnotationClicked,
@@ -332,6 +339,8 @@ fun NowPlayingScreen(
                 isTraditionalChinese = state.isTraditionalChinese,
                 themeMode = state.themeMode,
                 appLanguage = state.appLanguage,
+                isAmoledMode = state.isAmoledMode,
+                lyricAlignment = state.lyricAlignment,
                 isDeCensorEnabled = state.isDeCensorEnabled,
                 showPlaybackControls = state.showPlaybackControls,
                 lyricOffsetMs = state.lyricOffsetMs,
@@ -343,6 +352,8 @@ fun NowPlayingScreen(
                 onToggleTraditionalChinese = { viewModel.toggleTraditionalChinese() },
                 onSetThemeMode = { viewModel.setThemeMode(it) },
                 onSetAppLanguage = { viewModel.setAppLanguage(it) },
+                onSetAmoledMode = { viewModel.setAmoledMode(it) },
+                onSetLyricAlignment = { viewModel.setLyricAlignment(it) },
                 onToggleDeCensor = { viewModel.toggleDeCensor() },
                 onTogglePlaybackControls = { viewModel.togglePlaybackControls() },
                 onReloadLyrics = { viewModel.reloadLyrics() },
@@ -655,6 +666,7 @@ private fun NowPlayingLyricsContent(
     isTraditional: Boolean,
     isLoadingLyrics: Boolean,
     isDark: Boolean,
+    lyricAlignment: Int = AiPreferences.LYRIC_ALIGN_LEFT,
     showPlaybackControls: Boolean = true,
     onLineClicked: (BilingualLyricLine) -> Unit,
     onAnnotationClicked: (LyricAnnotationEntity) -> Unit,
@@ -898,11 +910,18 @@ private fun NowPlayingLyricsContent(
         }
     }
 
+    val isAlignLeft = lyricAlignment == AiPreferences.LYRIC_ALIGN_LEFT
+    val listPadding = if (isAlignLeft) {
+        PaddingValues(top = 135.dp, bottom = 220.dp, start = 20.dp, end = 48.dp)
+    } else {
+        PaddingValues(top = 135.dp, bottom = 220.dp, start = 24.dp, end = 24.dp)
+    }
+
     Box(modifier = Modifier.fillMaxSize()) {
         LazyColumn(
             state = listState,
-            contentPadding = PaddingValues(top = 135.dp, bottom = 220.dp, start = 24.dp, end = 52.dp),
-            verticalArrangement = Arrangement.spacedBy(24.dp),
+            contentPadding = listPadding,
+            verticalArrangement = Arrangement.spacedBy(20.dp),
             modifier = Modifier
                 .fillMaxSize()
                 .graphicsLayer(compositingStrategy = CompositingStrategy.Offscreen)
@@ -940,6 +959,7 @@ private fun NowPlayingLyricsContent(
                     annotation = annotation,
                     isTraditional = isTraditional,
                     isDark = isDark,
+                    lyricAlignment = lyricAlignment,
                     onClick = {
                         userScrolledAway = false
                         lastUserDragReleaseTime = 0L
@@ -1051,6 +1071,7 @@ private fun LyricLineRow(
     annotation: LyricAnnotationEntity?,
     isTraditional: Boolean,
     isDark: Boolean,
+    lyricAlignment: Int = AiPreferences.LYRIC_ALIGN_LEFT,
     onClick: () -> Unit,
     onAnnotationClick: () -> Unit
 ) {
@@ -1138,6 +1159,9 @@ private fun LyricLineRow(
     }
 
     val lyricColor = if (isDark) Color.White else MaterialTheme.colorScheme.onBackground
+    val isAlignLeft = lyricAlignment == AiPreferences.LYRIC_ALIGN_LEFT
+    val haptic = LocalHapticFeedback.current
+    val interactionSource = remember { MutableInteractionSource() }
 
     Column(
         modifier = Modifier
@@ -1145,12 +1169,33 @@ private fun LyricLineRow(
             .graphicsLayer {
                 scaleX = animatedScale
                 scaleY = animatedScale
-                transformOrigin = TransformOrigin(0f, 0.5f) // 核心：严格以左边缘为基准原点，杜绝横向摇摆
+                transformOrigin = if (isAlignLeft) TransformOrigin(0f, 0.5f) else TransformOrigin(0.5f, 0.5f)
             }
-            .bouncyItemClickable(pressedScale = 0.985f, onClick = onClick),
-        horizontalAlignment = Alignment.Start
+            .clip(RoundedCornerShape(14.dp))
+            .bouncyPress(
+                interactionSource = interactionSource,
+                pressedScale = 0.985f,
+                pressedAlpha = 0.96f
+            )
+            .clickable(
+                interactionSource = interactionSource,
+                indication = ripple(
+                    bounded = true,
+                    color = if (isDark) Color.White.copy(alpha = 0.22f) else MaterialTheme.colorScheme.primary.copy(alpha = 0.18f)
+                ),
+                onClick = {
+                    try {
+                        haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                    } catch (e: Exception) {
+                        // 忽略不支持设备
+                    }
+                    onClick()
+                }
+            )
+            .padding(horizontal = 8.dp, vertical = 4.dp),
+        horizontalAlignment = if (isAlignLeft) Alignment.Start else Alignment.CenterHorizontally
     ) {
-        // 1. 原文歌词 (紧凑加粗 Sans-Serif 纯净左对齐)
+        // 1. 原文歌词 (紧凑加粗 Sans-Serif 纯净对齐)
         Text(
             text = displayOriginal,
             color = lyricColor,
@@ -1159,11 +1204,13 @@ private fun LyricLineRow(
             fontFamily = FontFamily.SansSerif,
             lineHeight = 34.sp,
             letterSpacing = (-0.4).sp,
-            textAlign = TextAlign.Start,
-            modifier = Modifier.graphicsLayer { alpha = animatedOriginalAlpha }
+            textAlign = if (isAlignLeft) TextAlign.Start else TextAlign.Center,
+            modifier = Modifier
+                .fillMaxWidth()
+                .graphicsLayer { alpha = animatedOriginalAlpha }
         )
 
-        // 2. 中文翻译 (紧随原文，左对齐，清晰辨识)
+        // 2. 中文翻译 (紧随原文，纯净对齐，清晰辨识)
         if (displayTranslation.isNotBlank()) {
             Spacer(modifier = Modifier.height(4.dp))
             Text(
@@ -1173,8 +1220,10 @@ private fun LyricLineRow(
                 fontWeight = FontWeight.Bold,
                 fontFamily = FontFamily.SansSerif,
                 lineHeight = 22.sp,
-                textAlign = TextAlign.Start,
-                modifier = Modifier.graphicsLayer { alpha = animatedTransAlpha }
+                textAlign = if (isAlignLeft) TextAlign.Start else TextAlign.Center,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .graphicsLayer { alpha = animatedTransAlpha }
             )
         }
 
