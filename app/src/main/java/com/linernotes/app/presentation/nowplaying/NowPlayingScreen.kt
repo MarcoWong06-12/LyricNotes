@@ -835,14 +835,6 @@ private fun NowPlayingLyricsContent(
         }
     }
 
-    // 采用统一流体物理弹簧规范 (450ms 优雅磁吸无机械顿挫)
-    val lyricFluidSpring = remember {
-        spring<Float>(
-            dampingRatio = 0.86f, // 次临界柔和阻尼：零机械顿挫，优雅磁吸微缓冲
-            stiffness = 180f      // 柔和流体刚度：~450ms 连续平滑位移，与人类语速天然共振
-        )
-    }
-
     val configuration = LocalConfiguration.current
     val screenHeightDp = configuration.screenHeightDp.dp
     val topFocalPadding = (screenHeightDp * 0.34f).coerceAtLeast(140.dp)
@@ -868,7 +860,7 @@ private fun NowPlayingLyricsContent(
     }
 
     // 切歌时立即重置浏览状态并回正焦点至第 0 行
-    LaunchedEffect(trackState.track?.title, trackState.track?.artist) {
+    LaunchedEffect(trackState.title, trackState.artist) {
         userScrolledAway = false
     }
 
