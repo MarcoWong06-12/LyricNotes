@@ -127,6 +127,7 @@ fun NowPlayingScreen(
     }
 
     val isDark = MaterialTheme.colorScheme.background.luminance() < 0.5f
+    val isDarkUi = isDark || state.isDynamicAuroraEnabled
     val strings = LocalStrings.current
 
     Box(
@@ -186,7 +187,7 @@ fun NowPlayingScreen(
                     isPlaying = trackState.isPlaying,
                     isTraditional = state.isTraditionalChinese,
                     isLoadingLyrics = nowData.isLoadingLyrics,
-                    isDark = isDark,
+                    isDark = isDarkUi,
                     isAmoledMode = state.isAmoledMode,
                     trackState = trackState,
                     lyricOffsetMs = state.lyricOffsetMs,
@@ -1161,9 +1162,9 @@ private fun LyricLineRow(
         isActive -> 1.0f
         else -> {
             when (distance) {
-                1 -> if (isDark) 0.40f else 0.38f
-                2 -> if (isDark) 0.24f else 0.22f
-                else -> if (isDark) 0.14f else 0.12f
+                1 -> if (isDark) 0.48f else 0.45f
+                2 -> if (isDark) 0.30f else 0.28f
+                else -> if (isDark) 0.18f else 0.16f
             }
         }
     }
@@ -1187,11 +1188,11 @@ private fun LyricLineRow(
         }
     }
 
-    // 缩放策略：实时活跃行应用 1.06f 聚光灯聚焦，非活跃行 0.96f，左侧锚点 TransformOrigin(0f, 0.5f)
+    // 缩放策略：实时活跃行应用 1.05f 聚光灯聚焦，非活跃行 0.94f，左侧锚点 TransformOrigin(0f, 0.5f)
     val targetScale = when {
-        isBrowsing -> if (distance == 0) 1.03f else 0.97f
-        isActive -> 1.06f
-        else -> 0.96f
+        isBrowsing -> if (distance == 0) 1.03f else 0.96f
+        isActive -> 1.05f
+        else -> 0.94f
     }
 
     // 采用与视口垂直滚动物理弹簧（dampingRatio = 0.86f, stiffness = 180f）完全相同曲线
@@ -1203,11 +1204,11 @@ private fun LyricLineRow(
     }
 
     // Apple Music 电影级空间景深虚化 (Depth-of-field Blur)：
-    // 聚焦行绝对清晰 (0dp)，相邻行微虚 (1.5dp)，外围行如梦似幻光斑退景 (3.5dp)；用户翻阅时全部解除虚化
+    // 聚焦行绝对清晰 (0dp)，相邻行微虚 (1.5dp)，外围行柔和退景 (3.0dp)；用户翻阅时全部解除虚化
     val targetBlur = when {
         isBrowsing || isActive -> 0.dp
         distance == 1 -> 1.5.dp
-        else -> 3.5.dp
+        else -> 3.0.dp
     }
 
     val animatedBlur by animateDpAsState(
@@ -1256,6 +1257,7 @@ private fun LyricLineRow(
             .graphicsLayer {
                 scaleX = animatedScale
                 scaleY = animatedScale
+                alpha = animatedOriginalAlpha
                 transformOrigin = if (isAlignLeft) TransformOrigin(0f, 0.5f) else TransformOrigin(0.5f, 0.5f)
             }
             .blur(animatedBlur)
@@ -1283,8 +1285,8 @@ private fun LyricLineRow(
             .padding(horizontal = 8.dp, vertical = 4.dp),
         horizontalAlignment = if (isAlignLeft) Alignment.Start else Alignment.CenterHorizontally
     ) {
-        // 1. 原文歌词 (Apple Music 纯净高对比双层连续流光排版)
-        if (isActive && isWordByWordEnabled && line.words.isNotEmpty()) {
+        // 1. 原文歌词 (Apple Music 纯净高对比连续流光排版，活跃与非活跃行平滑过渡，零重构突跳)
+        if (isWordByWordEnabled && line.words.isNotEmpty()) {
             AppleMusicDualLayerLyricLine(
                 text = displayOriginal,
                 words = line.words,
@@ -1296,15 +1298,13 @@ private fun LyricLineRow(
             Text(
                 text = displayOriginal,
                 color = lyricColor,
-                fontSize = if (isActive) 30.sp else 21.sp,
-                fontWeight = if (isActive) FontWeight.Bold else FontWeight.SemiBold,
+                fontSize = 28.sp,
+                fontWeight = FontWeight.Bold,
                 fontFamily = FontFamily.SansSerif,
-                lineHeight = if (isActive) 40.sp else 30.sp,
-                letterSpacing = if (isActive) (-0.6).sp else (-0.3).sp,
+                lineHeight = 38.sp,
+                letterSpacing = (-0.5).sp,
                 textAlign = if (isAlignLeft) TextAlign.Start else TextAlign.Center,
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .graphicsLayer { alpha = animatedOriginalAlpha }
+                modifier = Modifier.fillMaxWidth()
             )
         }
 
@@ -1314,10 +1314,10 @@ private fun LyricLineRow(
             Text(
                 text = displayTranslation,
                 color = lyricColor,
-                fontSize = if (isActive) 17.sp else 14.5.sp,
-                fontWeight = if (isActive) FontWeight.Bold else FontWeight.Medium,
+                fontSize = 16.sp,
+                fontWeight = FontWeight.Medium,
                 fontFamily = FontFamily.SansSerif,
-                lineHeight = if (isActive) 24.sp else 20.sp,
+                lineHeight = 22.sp,
                 textAlign = if (isAlignLeft) TextAlign.Start else TextAlign.Center,
                 modifier = Modifier
                     .fillMaxWidth()
@@ -1339,12 +1339,12 @@ private fun LyricLineRow(
 }
 
 /**
- * Apple Music 原生逐字与双层流体动效排版 (AMLL / Accompanist 官方源码标准)
- * 1. 双层排版 (Dual-layer Layout)：底层 28% 暗色前瞻文本；高光层 100% 亮白发光文本；
- * 2. 逐字物理上浮 (Lift)：演唱单词时启动平滑向上漂浮（-3.5dp）与物理回落；
- * 3. 长音膨胀强调 (Emphasize Swell)：时长 >= 900ms 的长音音节呈现呼吸微膨胀与柔和光晕；
- * 4. 局域平滑渐变掠过 (Localized Word Gradient)：高光层仅针对正在唱的单词施加小范围平滑光效扫掠，
- *    已唱完单词保持全亮，未唱单词保持暗底，词与词停顿间隙光标稳固驻留，杜绝整行粗暴刷子！
+ * Apple Music 原生双层流光排版 (AMLL / 官方真机渲染标准)
+ * 1. 双层排版：底层 50% 浅白色前瞻文本 (浅白到纯白自然递进)；高光层 100% 亮白文本；
+ * 2. 局域平滑渐变扫掠：高光层仅针对当前正在演唱的单词施加小范围 14dp 平滑光效扫掠，
+ *    已唱完单词保持 100% 亮白，未唱单词保持 50% 浅白色，停顿间隙光标稳固驻留；
+ * 3. 基线绝对稳固：彻底剔除跳跃浮动与突兀抖动，排版基线 100% 严丝合缝；
+ * 4. 纯净矢量字形：剔除一切重度模糊阴影，呈现 Apple Music 标志性冷冽清晰的矢量质感。
  */
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
@@ -1357,19 +1357,31 @@ private fun AppleMusicDualLayerLyricLine(
     modifier: Modifier = Modifier
 ) {
     val cleanWords = remember(words) {
-        words.map { it.copy(text = LyricWordParser.cleanInlineTimestamps(it.text)) }
-            .filter { it.text.isNotEmpty() }
+        val cleaned = words.map {
+            it.copy(text = LyricWordParser.cleanInlineTimestamps(it.text))
+        }.filter { it.text.isNotEmpty() }
+
+        cleaned.mapIndexed { index, w ->
+            val wText = w.text
+            val isCurrentLatin = wText.isNotEmpty() && !wText.last().isWhitespace() && wText.last().code < 0x2E80
+            val hasNextLatin = index < cleaned.size - 1 && cleaned[index + 1].text.isNotEmpty() && cleaned[index + 1].text.first().code < 0x2E80
+            if (isCurrentLatin && hasNextLatin && !wText.endsWith(" ")) {
+                w.copy(text = wText + " ")
+            } else {
+                w
+            }
+        }
     }
 
     if (cleanWords.isEmpty()) {
         Text(
             text = text,
             color = lyricColor,
-            fontSize = 30.sp,
+            fontSize = 28.sp,
             fontWeight = FontWeight.Bold,
             fontFamily = FontFamily.SansSerif,
-            lineHeight = 40.sp,
-            letterSpacing = (-0.6).sp,
+            lineHeight = 38.sp,
+            letterSpacing = (-0.5).sp,
             textAlign = if (isAlignLeft) TextAlign.Start else TextAlign.Center,
             modifier = modifier.fillMaxWidth()
         )
@@ -1403,62 +1415,36 @@ private fun AppleMusicWordUnit(
     val end = start + duration
 
     Box(contentAlignment = Alignment.TopStart) {
-        // 1. 底层：暗色未唱文本 (28% alpha，前瞻预览，基线绝对稳固)
+        // 1. 底层：浅白色未唱文本 (50% alpha，前瞻预览，基线绝对稳固，零阴影)
         Text(
             text = wordText,
-            color = lyricColor.copy(alpha = 0.28f),
-            fontSize = 30.sp,
+            color = lyricColor.copy(alpha = 0.50f),
+            fontSize = 28.sp,
             fontWeight = FontWeight.Bold,
             fontFamily = FontFamily.SansSerif,
-            lineHeight = 40.sp,
-            letterSpacing = (-0.6).sp
+            lineHeight = 38.sp,
+            letterSpacing = (-0.5).sp
         )
 
-        // 2. 高光层：纯白发光文本 + 逐字上浮 (Lift) + 长音微膨胀 (Emphasize) + 局域平滑过渡扫光
+        // 2. 高光层：纯白高光文本 (100% 亮白，零粗糙阴影，基线平稳无上下颠簸跳跃)
         Text(
             text = wordText,
             color = lyricColor,
-            fontSize = 30.sp,
+            fontSize = 28.sp,
             fontWeight = FontWeight.Bold,
             fontFamily = FontFamily.SansSerif,
-            lineHeight = 40.sp,
-            letterSpacing = (-0.6).sp,
-            style = TextStyle(
-                shadow = Shadow(
-                    color = lyricColor.copy(alpha = 0.35f),
-                    offset = Offset.Zero,
-                    blurRadius = 10f
-                )
-            ),
+            lineHeight = 38.sp,
+            letterSpacing = (-0.5).sp,
             modifier = Modifier
                 .graphicsLayer(compositingStrategy = CompositingStrategy.Offscreen)
                 .graphicsLayer {
                     val now = currentPositionMsProvider()
                     if (now < start) {
                         alpha = 0f
-                        translationY = 0f
-                        scaleX = 1f
-                        scaleY = 1f
                     } else if (now >= end) {
                         alpha = 1f
-                        translationY = 0f
-                        scaleX = 1f
-                        scaleY = 1f
                     } else {
                         alpha = 1f
-                        val progress = ((now - start).toFloat() / duration.toFloat()).coerceIn(0f, 1f)
-                        val liftProgress = (progress / 0.70f).coerceIn(0f, 1f)
-                        val lift = 3.5.dp.toPx() * (1f - liftProgress) * (1f - liftProgress)
-                        translationY = -lift
-
-                        if (duration >= 900L) {
-                            val swell = 0.055f * kotlin.math.sin(progress * Math.PI.toFloat())
-                            scaleX = 1f + swell
-                            scaleY = 1f + swell
-                        } else {
-                            scaleX = 1f
-                            scaleY = 1f
-                        }
                     }
                 }
                 .drawWithContent {
@@ -1471,7 +1457,7 @@ private fun AppleMusicWordUnit(
                         return@drawWithContent
                     }
 
-                    // 正在演唱过程中：单词局域平滑渐变掠过 (局部范围扫光，而非整行粗暴擦除)
+                    // 正在演唱过程中：单词局域平滑渐变掠过 (浅白向纯白流体递进，零突变)
                     val progress = ((now - start).toFloat() / duration.toFloat()).coerceIn(0f, 1f)
                     val sweepX = size.width * progress
                     val fadeWidth = 14.dp.toPx()

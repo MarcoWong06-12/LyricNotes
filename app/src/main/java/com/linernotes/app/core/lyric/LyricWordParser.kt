@@ -25,7 +25,6 @@ object LyricWordParser {
             .replace(Regex("""\[\d{1,2}:\d{2}(?:\.\d{1,3})?\]"""), "")
             .replace(Regex("""\(\d+,\d+(?:,\d+)?\)"""), "")
             .replace(Regex("""<\d{1,2}:\d{2}(?:\.\d{1,3})?>"""), "")
-            .trim()
     }
 
     /**

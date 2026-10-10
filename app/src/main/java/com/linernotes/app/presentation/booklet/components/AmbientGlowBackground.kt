@@ -205,40 +205,41 @@ fun AmbientGlowBackground(
         label = "orb4Y"
     )
 
-    val orb1Colors = remember(animatedPrimary, animatedTertiary, isDark) {
+    val effectiveDark = isDark || isDynamicAurora
+    val orb1Colors = remember(animatedPrimary, animatedTertiary, effectiveDark) {
         listOf(
-            animatedPrimary.copy(alpha = if (isDark) 0.42f else 0.24f),
-            animatedTertiary.copy(alpha = if (isDark) 0.22f else 0.12f),
+            animatedPrimary.copy(alpha = if (effectiveDark) 0.42f else 0.24f),
+            animatedTertiary.copy(alpha = if (effectiveDark) 0.22f else 0.12f),
             Color.Transparent
         )
     }
 
-    val orb2Colors = remember(animatedSecondary, animatedPrimary, isDark) {
+    val orb2Colors = remember(animatedSecondary, animatedPrimary, effectiveDark) {
         listOf(
-            animatedSecondary.copy(alpha = if (isDark) 0.38f else 0.20f),
-            animatedPrimary.copy(alpha = if (isDark) 0.18f else 0.08f),
+            animatedSecondary.copy(alpha = if (effectiveDark) 0.38f else 0.20f),
+            animatedPrimary.copy(alpha = if (effectiveDark) 0.18f else 0.08f),
             Color.Transparent
         )
     }
 
-    val orb3Colors = remember(animatedTertiary, animatedSecondary, isDark) {
+    val orb3Colors = remember(animatedTertiary, animatedSecondary, effectiveDark) {
         listOf(
-            animatedTertiary.copy(alpha = if (isDark) 0.35f else 0.18f),
-            animatedSecondary.copy(alpha = if (isDark) 0.16f else 0.06f),
+            animatedTertiary.copy(alpha = if (effectiveDark) 0.35f else 0.18f),
+            animatedSecondary.copy(alpha = if (effectiveDark) 0.16f else 0.06f),
             Color.Transparent
         )
     }
 
-    val orb4Colors = remember(animatedAccent, animatedPrimary, isDark) {
+    val orb4Colors = remember(animatedAccent, animatedPrimary, effectiveDark) {
         listOf(
-            animatedAccent.copy(alpha = if (isDark) 0.30f else 0.15f),
-            animatedPrimary.copy(alpha = if (isDark) 0.12f else 0.05f),
+            animatedAccent.copy(alpha = if (effectiveDark) 0.30f else 0.15f),
+            animatedPrimary.copy(alpha = if (effectiveDark) 0.12f else 0.05f),
             Color.Transparent
         )
     }
 
-    val overlayColors = remember(isDark, animatedBg) {
-        if (isDark) {
+    val overlayColors = remember(effectiveDark, animatedBg) {
+        if (effectiveDark) {
             listOf(
                 Color(0xFF0C0D12).copy(alpha = 0.48f),
                 Color(0xFF0C0D12).copy(alpha = 0.26f),
@@ -271,7 +272,7 @@ fun AmbientGlowBackground(
                 modifier = Modifier
                     .fillMaxSize()
                     .graphicsLayer {
-                        alpha = if (isDark) (if (isDynamicAurora) 0.55f else 0.65f) else (if (isDynamicAurora) 0.40f else 0.45f)
+                        alpha = if (effectiveDark) (if (isDynamicAurora) 0.55f else 0.65f) else (if (isDynamicAurora) 0.40f else 0.45f)
                         scaleX = 1.45f
                         scaleY = 1.45f
                     }
