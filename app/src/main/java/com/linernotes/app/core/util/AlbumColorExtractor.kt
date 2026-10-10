@@ -107,12 +107,12 @@ object AlbumColorExtractor {
             val g = (pixel ushr 8) and 0xFF
             val b = pixel and 0xFF
 
-            android.graphics.Color.RGBToColor(r, g, b, hsl)
+            android.graphics.Color.RGBToHSV(r, g, b, hsl)
             val sat = hsl[1]
-            val lum = hsl[2]
+            val value = hsl[2]
 
             // 过滤极暗无彩度像素与刺眼纯白高光，保留鲜艳饱满的音乐主色
-            if (lum < 0.12f || lum > 0.88f || sat < 0.18f) continue
+            if (value < 0.15f || value > 0.95f || sat < 0.18f) continue
 
             // 按色相 30 度为一个色区聚类 (共 12 个主色区)
             val hueBucket = (hsl[0] / 30f).toInt().coerceIn(0, 11)

@@ -24,6 +24,7 @@ import android.view.WindowManager
 import android.view.animation.DecelerateInterpolator
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.remember
 import androidx.compose.ui.platform.ComposeView
 import kotlin.math.roundToInt
 import androidx.core.app.NotificationCompat

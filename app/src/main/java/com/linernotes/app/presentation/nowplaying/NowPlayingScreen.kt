@@ -120,6 +120,7 @@ fun NowPlayingScreen(
     }
 
     val isDark = MaterialTheme.colorScheme.background.luminance() < 0.5f
+    val strings = LocalStrings.current
 
     Box(
         modifier = Modifier
@@ -179,6 +180,7 @@ fun NowPlayingScreen(
                     isTraditional = state.isTraditionalChinese,
                     isLoadingLyrics = nowData.isLoadingLyrics,
                     isDark = isDark,
+                    isAmoledMode = state.isAmoledMode,
                     trackState = trackState,
                     lyricOffsetMs = state.lyricOffsetMs,
                     isWordByWordEnabled = state.isWordByWordEnabled,
@@ -693,6 +695,7 @@ private fun NowPlayingLyricsContent(
     isTraditional: Boolean,
     isLoadingLyrics: Boolean,
     isDark: Boolean,
+    isAmoledMode: Boolean = false,
     trackState: TrackPlaybackState,
     lyricOffsetMs: Long = 0L,
     isWordByWordEnabled: Boolean = true,
@@ -1042,7 +1045,7 @@ private fun NowPlayingLyricsContent(
             val isScrolledAbove = visibleFocalIndex < currentLineIndex
             Surface(
                 color = if (isDark) {
-                    if (state.isAmoledMode) Color(0xFF0C0C0E) else Color(0xFF1E202B).copy(alpha = 0.94f)
+                    if (isAmoledMode) Color(0xFF0C0C0E) else Color(0xFF1E202B).copy(alpha = 0.94f)
                 } else {
                     MaterialTheme.colorScheme.surface.copy(alpha = 0.96f)
                 },
@@ -1050,7 +1053,7 @@ private fun NowPlayingLyricsContent(
                 border = BorderStroke(
                     1.dp,
                     if (isDark) {
-                        if (state.isAmoledMode) Color(0xFF222226) else Color.White.copy(alpha = 0.16f)
+                        if (isAmoledMode) Color(0xFF222226) else Color.White.copy(alpha = 0.16f)
                     } else {
                         Color.Black.copy(alpha = 0.10f)
                     }
@@ -1412,6 +1415,7 @@ private fun LyricAnnotationBadge(
     isDark: Boolean,
     onClick: () -> Unit
 ) {
+    val strings = LocalStrings.current
     // 活跃行柔和呼吸光晕
     val infiniteTransition = rememberInfiniteTransition(label = "badgeGlow")
     val glowAlpha by infiniteTransition.animateFloat(
