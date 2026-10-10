@@ -37,6 +37,7 @@ import androidx.compose.ui.draw.drawWithContent
 import androidx.compose.ui.graphics.BlendMode
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.luminance
@@ -842,27 +843,40 @@ private fun NowPlayingLyricsContent(
         )
     }
 
+    val configuration = LocalConfiguration.current
+    val screenHeightDp = configuration.screenHeightDp.dp
+    val topFocalPadding = (screenHeightDp * 0.34f).coerceAtLeast(140.dp)
+    val bottomFocalPadding = (screenHeightDp * 0.48f).coerceAtLeast(260.dp)
+
+    // 采用统一流体物理弹簧规范 (450ms 优雅磁吸无机械顿挫)
+    val lyricFluidSpring = remember {
+        spring<Float>(
+            dampingRatio = 0.86f, // 次临界柔和阻尼：零机械顿挫，优雅磁吸微缓冲
+            stiffness = 180f      // 柔和流体刚度：~450ms 连续平滑位移，与人类语速天然共振
+        )
+    }
+
     // 监听用户真实手指触摸拖拽交互 (不被程序化滚动所污染)
     val isUserDragging by listState.interactionSource.collectIsDraggedAsState()
     var userScrolledAway by remember { mutableStateOf(false) }
-    var lastUserDragReleaseTime by remember { mutableLongStateOf(0L) }
 
-    // 当用户用手指触摸拖拽时，标记用户偏离当前播放位置；松手时记录时间戳
+    // 当用户用手指触摸拖拽时，标记用户偏离当前播放位置
     LaunchedEffect(isUserDragging) {
         if (isUserDragging) {
             userScrolledAway = true
-        } else if (userScrolledAway) {
-            lastUserDragReleaseTime = System.currentTimeMillis()
         }
     }
 
+    // 切歌时立即重置浏览状态并回正焦点至第 0 行
+    LaunchedEffect(trackState.track?.title, trackState.track?.artist) {
+        userScrolledAway = false
+    }
+
     // 苹果原生 2.5 秒无交互自动平滑弹簧回正 (2500ms Idle Auto-Return)
-    LaunchedEffect(userScrolledAway, isUserDragging, lastUserDragReleaseTime, isPlaying) {
-        if (userScrolledAway && !isUserDragging && isPlaying && lastUserDragReleaseTime > 0L) {
+    LaunchedEffect(userScrolledAway, isUserDragging) {
+        if (userScrolledAway && !isUserDragging) {
             delay(2500L)
-            if (!isUserDragging) {
-                userScrolledAway = false
-            }
+            userScrolledAway = false
         }
     }
 
@@ -873,7 +887,7 @@ private fun NowPlayingLyricsContent(
         }
     }
 
-    // 动态计算当前视口黄金视线带（约 38% 高度处）最中央的歌词行索引，用于视口相对阅读聚焦
+    // 动态计算当前视口黄金视线带（约 36% 高度处）最中央的歌词行索引，用于视口相对阅读聚焦
     val visibleFocalIndex by remember {
         derivedStateOf {
             val layoutInfo = listState.layoutInfo
@@ -881,7 +895,7 @@ private fun NowPlayingLyricsContent(
             if (visibleItems.isEmpty()) return@derivedStateOf currentLineIndex.coerceAtLeast(0)
 
             val viewportHeight = layoutInfo.viewportSize.height.toFloat()
-            val targetFocalY = if (viewportHeight > 0f) viewportHeight * 0.38f else 300f
+            val targetFocalY = if (viewportHeight > 0f) viewportHeight * 0.36f else 300f
             val closest = visibleItems.minByOrNull { item ->
                 val itemCenter = item.offset.toFloat() + (item.size.toFloat() / 2f)
                 kotlin.math.abs(itemCenter - targetFocalY)
@@ -912,7 +926,7 @@ private fun NowPlayingLyricsContent(
         if (lyrics.isNotEmpty()) {
             val targetIndex = if (currentLineIndex in lyrics.indices) currentLineIndex else 0
             val viewportHeight = listState.layoutInfo.viewportSize.height.toFloat()
-            val targetFocalY = if (viewportHeight > 0f) viewportHeight * 0.38f else 300f
+            val targetFocalY = if (viewportHeight > 0f) viewportHeight * 0.36f else 300f
             listState.scrollToItem(targetIndex)
             val item = listState.layoutInfo.visibleItemsInfo.find { it.index == targetIndex }
             if (item != null && viewportHeight > 0f) {
@@ -934,7 +948,7 @@ private fun NowPlayingLyricsContent(
         }
         if (currentLineIndex in lyrics.indices) {
             val viewportHeight = listState.layoutInfo.viewportSize.height.toFloat()
-            val targetFocalY = if (viewportHeight > 0f) viewportHeight * 0.38f else 300f
+            val targetFocalY = if (viewportHeight > 0f) viewportHeight * 0.36f else 300f
             val visibleItem = listState.layoutInfo.visibleItemsInfo.find { it.index == currentLineIndex }
 
             if (visibleItem != null && viewportHeight > 0f) {
@@ -968,9 +982,9 @@ private fun NowPlayingLyricsContent(
 
     val isAlignLeft = lyricAlignment == AiPreferences.LYRIC_ALIGN_LEFT
     val listPadding = if (isAlignLeft) {
-        PaddingValues(top = 135.dp, bottom = 220.dp, start = 20.dp, end = 48.dp)
+        PaddingValues(top = topFocalPadding, bottom = bottomFocalPadding, start = 20.dp, end = 48.dp)
     } else {
-        PaddingValues(top = 135.dp, bottom = 220.dp, start = 24.dp, end = 24.dp)
+        PaddingValues(top = topFocalPadding, bottom = bottomFocalPadding, start = 24.dp, end = 24.dp)
     }
 
     Box(modifier = Modifier.fillMaxSize()) {
@@ -1020,7 +1034,6 @@ private fun NowPlayingLyricsContent(
                     lyricAlignment = lyricAlignment,
                     onClick = {
                         userScrolledAway = false
-                        lastUserDragReleaseTime = 0L
                         onLineClicked(line)
                     },
                     onAnnotationClick = {
@@ -1071,10 +1084,9 @@ private fun NowPlayingLyricsContent(
                     coroutineScope.launch {
                         // 核心：立即重置用户偏离标记，让播放进度跟随立刻接管！
                         userScrolledAway = false
-                        lastUserDragReleaseTime = 0L
 
                         val viewportHeight = listState.layoutInfo.viewportSize.height.toFloat()
-                        val targetFocalY = if (viewportHeight > 0f) viewportHeight * 0.38f else 300f
+                        val targetFocalY = if (viewportHeight > 0f) viewportHeight * 0.36f else 300f
 
                         val visibleItem = listState.layoutInfo.visibleItemsInfo.find { it.index == currentLineIndex }
                         if (visibleItem != null && viewportHeight > 0f) {
@@ -1147,8 +1159,8 @@ private fun LyricLineRow(
     onAnnotationClick: () -> Unit
 ) {
     // 空间景深动力学与自由阅读增强 (符合 WCAG AAA 标准，高对比聚光灯聚焦)：
-    // 1. 活跃行拥有绝对聚光灯聚焦：纯白高对比度 (1.0f)，从左原点锚定缩放；
-    // 2. 常规跟随状态下，非活跃行大幅柔化退居次席 (相邻行 0.38f，其余 0.18f)；
+    // 1. 活跃行拥有绝对聚光灯聚焦：纯白高对比度 (1.0f)，从左原点锚定放大 (1.05f)，零虚化 (0dp)；
+    // 2. 常规跟随状态下，非活跃行统一柔化退居次席 (0.40f)，微缩 (0.94f)，柔和景深虚化 (1.5dp)；
     // 3. 翻阅浏览模式下，视口中央行与周边行整体提升可读性。
     val targetOriginalAlpha = when {
         isBrowsing -> {
@@ -1160,13 +1172,7 @@ private fun LyricLineRow(
             }
         }
         isActive -> 1.0f
-        else -> {
-            when (distance) {
-                1 -> if (isDark) 0.48f else 0.45f
-                2 -> if (isDark) 0.30f else 0.28f
-                else -> if (isDark) 0.18f else 0.16f
-            }
-        }
+        else -> if (isDark) 0.40f else 0.45f
     }
 
     val targetTransAlpha = when {
@@ -1179,13 +1185,7 @@ private fun LyricLineRow(
             }
         }
         isActive -> 0.90f
-        else -> {
-            when (distance) {
-                1 -> if (isDark) 0.30f else 0.28f
-                2 -> if (isDark) 0.18f else 0.16f
-                else -> if (isDark) 0.10f else 0.08f
-            }
-        }
+        else -> if (isDark) 0.28f else 0.32f
     }
 
     // 缩放策略：实时活跃行应用 1.05f 聚光灯聚焦，非活跃行 0.94f，左侧锚点 TransformOrigin(0f, 0.5f)
@@ -1204,11 +1204,10 @@ private fun LyricLineRow(
     }
 
     // Apple Music 电影级空间景深虚化 (Depth-of-field Blur)：
-    // 聚焦行绝对清晰 (0dp)，相邻行微虚 (1.5dp)，外围行柔和退景 (3.0dp)；用户翻阅时全部解除虚化
+    // 聚焦行绝对清晰 (0dp)，相邻行柔和景深 (1.5dp)；用户翻阅时全部解除虚化
     val targetBlur = when {
         isBrowsing || isActive -> 0.dp
-        distance == 1 -> 1.5.dp
-        else -> 3.0.dp
+        else -> 1.5.dp
     }
 
     val animatedBlur by animateDpAsState(
@@ -1285,8 +1284,8 @@ private fun LyricLineRow(
             .padding(horizontal = 8.dp, vertical = 4.dp),
         horizontalAlignment = if (isAlignLeft) Alignment.Start else Alignment.CenterHorizontally
     ) {
-        // 1. 原文歌词 (Apple Music 纯净高对比连续流光排版，活跃与非活跃行平滑过渡，零重构突跳)
-        if (isWordByWordEnabled && line.words.isNotEmpty()) {
+        // 1. 原文歌词 (Apple Music 纯净高对比连续流光排版：仅活跃行执行逐字流光，非活跃行轻量单层呈现)
+        if (isActive && isWordByWordEnabled && line.words.isNotEmpty()) {
             AppleMusicDualLayerLyricLine(
                 text = displayOriginal,
                 words = line.words,

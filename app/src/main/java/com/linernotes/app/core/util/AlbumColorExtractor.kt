@@ -72,12 +72,16 @@ object AlbumColorExtractor {
             }
 
             val colors = extractVibrantColorsFromBitmap(bitmap)
-            val palette = if (colors.size >= 3) {
+            val palette = if (colors.isNotEmpty()) {
+                val p0 = colors[0]
+                val p1 = if (colors.size > 1) colors[1] else shiftHue(p0, 35f)
+                val p2 = if (colors.size > 2) colors[2] else shiftHue(p0, -35f)
+                val p3 = if (colors.size > 3) colors[3] else shiftHue(p1, 45f)
                 AuroraPalette(
-                    primary = colors[0],
-                    secondary = colors[1],
-                    tertiary = colors[2],
-                    accent = if (colors.size > 3) colors[3] else colors[0]
+                    primary = p0,
+                    secondary = p1,
+                    tertiary = p2,
+                    accent = p3
                 )
             } else {
                 createFallback(fallbackPrimary, fallbackSecondary, fallbackTertiary)
@@ -98,6 +102,7 @@ object AlbumColorExtractor {
 
         val hsl = FloatArray(3)
         val clusters = mutableMapOf<Int, MutableList<Int>>()
+        val allValidPixels = mutableListOf<Int>()
 
         for (pixel in pixels) {
             val alpha = (pixel ushr 24) and 0xFF
@@ -108,18 +113,23 @@ object AlbumColorExtractor {
             val b = pixel and 0xFF
 
             android.graphics.Color.RGBToHSV(r, g, b, hsl)
+            val hue = hsl[0]
             val sat = hsl[1]
             val value = hsl[2]
 
-            // 过滤极暗无彩度像素与刺眼纯白高光，保留鲜艳饱满的音乐主色
-            if (value < 0.15f || value > 0.95f || sat < 0.18f) continue
+            // 过滤极暗死黑 (value < 0.08) 与极刺眼无彩纯白 (sat < 0.08 && value > 0.94)
+            // 马卡龙粉红、明黄等高明度专辑色 (如 IGOR 的粉色：H=339, S=0.33, V=0.97) 必须完整保留！
+            if (value < 0.08f) continue
+            if (sat < 0.08f && value > 0.94f) continue
 
-            // 按色相 30 度为一个色区聚类 (共 12 个主色区)
-            val hueBucket = (hsl[0] / 30f).toInt().coerceIn(0, 11)
-            clusters.getOrPut(hueBucket) { mutableListOf() }.add(pixel)
+            allValidPixels.add(pixel)
+
+            // 按色相 30 度聚类 (共 12 个主色区)
+            if (sat >= 0.12f) {
+                val hueBucket = (hue / 30f).toInt().coerceIn(0, 11)
+                clusters.getOrPut(hueBucket) { mutableListOf() }.add(pixel)
+            }
         }
-
-        if (clusters.isEmpty()) return emptyList()
 
         // 选出像素最多且平均饱和度最高的前几个色相聚类
         val sortedClusters = clusters.entries.sortedByDescending { it.value.size }
@@ -144,7 +154,36 @@ object AlbumColorExtractor {
             result.add(avgColor)
         }
 
+        // 如果聚类为空 (例如纯黑白/灰阶唱片封面)，从有效像素中均匀抽样提取基础色
+        if (result.isEmpty() && allValidPixels.isNotEmpty()) {
+            val step = (allValidPixels.size / 4).coerceAtLeast(1)
+            for (i in 0 until 4) {
+                val idx = (i * step).coerceIn(0, allValidPixels.lastIndex)
+                val p = allValidPixels[idx]
+                result.add(
+                    Color(
+                        red = (p ushr 16) and 0xFF,
+                        green = (p ushr 8) and 0xFF,
+                        blue = p and 0xFF
+                    )
+                )
+            }
+        }
+
         return result
+    }
+
+    private fun shiftHue(color: Color, deltaHue: Float): Color {
+        val hsv = FloatArray(3)
+        android.graphics.Color.RGBToHSV(
+            (color.red * 255).toInt(),
+            (color.green * 255).toInt(),
+            (color.blue * 255).toInt(),
+            hsv
+        )
+        hsv[0] = (hsv[0] + deltaHue + 360f) % 360f
+        val argb = android.graphics.Color.HSVToColor(hsv)
+        return Color(argb)
     }
 
     private fun createFallback(

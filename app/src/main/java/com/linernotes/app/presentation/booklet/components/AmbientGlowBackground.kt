@@ -208,32 +208,32 @@ fun AmbientGlowBackground(
     val effectiveDark = isDark || isDynamicAurora
     val orb1Colors = remember(animatedPrimary, animatedTertiary, effectiveDark) {
         listOf(
-            animatedPrimary.copy(alpha = if (effectiveDark) 0.42f else 0.24f),
-            animatedTertiary.copy(alpha = if (effectiveDark) 0.22f else 0.12f),
+            animatedPrimary.copy(alpha = if (effectiveDark) 0.68f else 0.45f),
+            animatedTertiary.copy(alpha = if (effectiveDark) 0.32f else 0.18f),
             Color.Transparent
         )
     }
 
     val orb2Colors = remember(animatedSecondary, animatedPrimary, effectiveDark) {
         listOf(
-            animatedSecondary.copy(alpha = if (effectiveDark) 0.38f else 0.20f),
-            animatedPrimary.copy(alpha = if (effectiveDark) 0.18f else 0.08f),
+            animatedSecondary.copy(alpha = if (effectiveDark) 0.62f else 0.40f),
+            animatedPrimary.copy(alpha = if (effectiveDark) 0.28f else 0.14f),
             Color.Transparent
         )
     }
 
     val orb3Colors = remember(animatedTertiary, animatedSecondary, effectiveDark) {
         listOf(
-            animatedTertiary.copy(alpha = if (effectiveDark) 0.35f else 0.18f),
-            animatedSecondary.copy(alpha = if (effectiveDark) 0.16f else 0.06f),
+            animatedTertiary.copy(alpha = if (effectiveDark) 0.55f else 0.35f),
+            animatedSecondary.copy(alpha = if (effectiveDark) 0.24f else 0.12f),
             Color.Transparent
         )
     }
 
     val orb4Colors = remember(animatedAccent, animatedPrimary, effectiveDark) {
         listOf(
-            animatedAccent.copy(alpha = if (effectiveDark) 0.30f else 0.15f),
-            animatedPrimary.copy(alpha = if (effectiveDark) 0.12f else 0.05f),
+            animatedAccent.copy(alpha = if (effectiveDark) 0.50f else 0.30f),
+            animatedPrimary.copy(alpha = if (effectiveDark) 0.20f else 0.10f),
             Color.Transparent
         )
     }
@@ -241,17 +241,17 @@ fun AmbientGlowBackground(
     val overlayColors = remember(effectiveDark, animatedBg) {
         if (effectiveDark) {
             listOf(
-                Color(0xFF0C0D12).copy(alpha = 0.48f),
-                Color(0xFF0C0D12).copy(alpha = 0.26f),
-                Color(0xFF090A0E).copy(alpha = 0.68f),
-                Color(0xFF090A0E)
+                Color.Black.copy(alpha = 0.35f),
+                Color.Black.copy(alpha = 0.20f),
+                Color.Black.copy(alpha = 0.30f),
+                Color.Black.copy(alpha = 0.48f)
             )
         } else {
             listOf(
-                animatedBg.copy(alpha = 0.72f),
                 animatedBg.copy(alpha = 0.42f),
-                animatedBg.copy(alpha = 0.80f),
-                animatedBg
+                animatedBg.copy(alpha = 0.22f),
+                animatedBg.copy(alpha = 0.35f),
+                animatedBg.copy(alpha = 0.50f)
             )
         }
     }
@@ -272,7 +272,7 @@ fun AmbientGlowBackground(
                 modifier = Modifier
                     .fillMaxSize()
                     .graphicsLayer {
-                        alpha = if (effectiveDark) (if (isDynamicAurora) 0.55f else 0.65f) else (if (isDynamicAurora) 0.40f else 0.45f)
+                        alpha = if (effectiveDark) (if (isDynamicAurora) 0.65f else 0.70f) else (if (isDynamicAurora) 0.48f else 0.52f)
                         scaleX = 1.45f
                         scaleY = 1.45f
                     }
@@ -299,7 +299,7 @@ fun AmbientGlowBackground(
                             center = Offset(w * 0.28f + orb1OffsetX, h * 0.25f + orb1OffsetY),
                             radius = (w * 0.75f) * orb1Scale
                         ),
-                        alpha = if (isDark) 0.46f else 0.32f
+                        alpha = if (isDark) 0.55f else 0.38f
                     )
 
                     // 光斑 2 (副色调)
@@ -309,7 +309,7 @@ fun AmbientGlowBackground(
                             center = Offset(w * 0.72f + orb2OffsetX, h * 0.65f + orb2OffsetY),
                             radius = w * 0.82f
                         ),
-                        alpha = if (isDark) 0.42f else 0.28f
+                        alpha = if (isDark) 0.48f else 0.34f
                     )
 
                     // 仅在动态流体极光模式下激活光斑 3 与光斑 4，交织为高阶极光网格
@@ -321,7 +321,7 @@ fun AmbientGlowBackground(
                                 center = Offset(w * 0.45f + orb3OffsetX, h * 0.82f + orb3OffsetY),
                                 radius = w * 0.78f
                             ),
-                            alpha = if (isDark) 0.38f else 0.22f
+                            alpha = if (isDark) 0.44f else 0.28f
                         )
 
                         // 光斑 4 (空灵浮动点缀)
@@ -331,11 +331,11 @@ fun AmbientGlowBackground(
                                 center = Offset(w * 0.60f + orb4OffsetX, h * 0.35f + orb4OffsetY),
                                 radius = w * 0.60f
                             ),
-                            alpha = if (isDark) 0.32f else 0.18f
+                            alpha = if (isDark) 0.38f else 0.24f
                         )
                     }
 
-                    // 纵深渐变遮罩：顶部保护状态栏/标题对比度，中部通透，底部深沉融合
+                    // 纵深渐变遮罩：顶部保护状态栏/标题对比度，中部通透，底部柔和半透（杜绝死黑）
                     drawRect(
                         brush = Brush.verticalGradient(colors = overlayColors)
                     )
