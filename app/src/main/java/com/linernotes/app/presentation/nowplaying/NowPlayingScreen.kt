@@ -135,15 +135,15 @@ fun NowPlayingScreen(
         modifier = Modifier
             .fillMaxSize()
             .background(
-                if (isDark) {
-                    if (state.isAmoledMode) Color.Black else Color(0xFF090A0E)
+                if (isDarkUi) {
+                    if (state.isAmoledMode) Color.Black else Color(0xFF070709)
                 } else MaterialTheme.colorScheme.background
             )
     ) {
         // 1. 灵动流体弥散背景 (纯净温润呼吸，AMOLED 模式下纯黑 0-nits 彻底休眠像素)
         AmbientGlowBackground(
             coverUrl = trackState.coverUrl,
-            isDark = isDark,
+            isDark = isDarkUi,
             isAmoledMode = state.isAmoledMode,
             isDynamicAurora = state.isDynamicAuroraEnabled,
             modifier = Modifier.fillMaxSize()
@@ -202,7 +202,7 @@ fun NowPlayingScreen(
                 )
             } else {
                 NowPlayingIdleContent(
-                    isDark = isDark,
+                    isDark = isDarkUi,
                     isNotificationGranted = isGranted.value,
                     onGrantPermission = {
                         MediaPlaybackSyncService.openNotificationAccessSettings(context)
@@ -219,7 +219,7 @@ fun NowPlayingScreen(
                 trackState = trackState,
                 hasSongStory = nowData.songStory != null,
                 isTraditional = state.isTraditionalChinese,
-                isDark = isDark,
+                isDark = isDarkUi,
                 onOpenSongStory = onOpenSongStory,
                 onOpenQueue = onOpenQueue,
                 onOpenSettings = onOpenSettings,
@@ -237,7 +237,7 @@ fun NowPlayingScreen(
                     .padding(top = 56.dp, start = 16.dp, end = 16.dp)
             ) {
                 Surface(
-                    color = if (isDark) {
+                    color = if (isDarkUi) {
                         if (state.isAmoledMode) Color(0xFF0C0C0E) else Color(0xFF1E202B).copy(alpha = 0.94f)
                     } else {
                         MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.95f)
@@ -245,7 +245,7 @@ fun NowPlayingScreen(
                     shape = RoundedCornerShape(20.dp),
                     border = BorderStroke(
                         1.dp,
-                        if (isDark) {
+                        if (isDarkUi) {
                             if (state.isAmoledMode) Color(0xFF222226) else Color.White.copy(alpha = 0.12f)
                         } else {
                             Color.Black.copy(alpha = 0.08f)
@@ -267,7 +267,7 @@ fun NowPlayingScreen(
                         }
                         Text(
                             text = noticeMsg,
-                            color = if (isDark) Color.White.copy(alpha = 0.85f) else MaterialTheme.colorScheme.onSurface,
+                            color = if (isDarkUi) Color.White.copy(alpha = 0.85f) else MaterialTheme.colorScheme.onSurface,
                             fontSize = 12.sp,
                             fontFamily = FontFamily.SansSerif,
                             maxLines = 1,
@@ -281,7 +281,7 @@ fun NowPlayingScreen(
                                 horizontalArrangement = Arrangement.spacedBy(4.dp),
                                 modifier = Modifier.padding(horizontal = 4.dp)
                             ) {
-                                val geniusAccent = if (isDark) Color(0xFF1ED760) else Color(0xFF0A8F3F)
+                                val geniusAccent = if (isDarkUi) Color(0xFF1ED760) else Color(0xFF0A8F3F)
                                 CircularProgressIndicator(
                                     modifier = Modifier.size(10.dp),
                                     strokeWidth = 1.5.dp,
@@ -296,7 +296,7 @@ fun NowPlayingScreen(
                                 )
                             }
                         } else {
-                            val geniusAccent = if (isDark) Color(0xFF1ED760) else Color(0xFF0A8F3F)
+                            val geniusAccent = if (isDarkUi) Color(0xFF1ED760) else Color(0xFF0A8F3F)
                             Text(
                                 text = strings.retryBtn,
                                 color = geniusAccent,
@@ -312,7 +312,7 @@ fun NowPlayingScreen(
                         Icon(
                             imageVector = Icons.Default.Close,
                             contentDescription = strings.closeBtn,
-                            tint = if (isDark) Color.White.copy(alpha = 0.5f) else MaterialTheme.colorScheme.onSurface.copy(alpha = 0.5f),
+                            tint = if (isDarkUi) Color.White.copy(alpha = 0.5f) else MaterialTheme.colorScheme.onSurface.copy(alpha = 0.5f),
                             modifier = Modifier
                                 .size(16.dp)
                                 .clip(CircleShape)
@@ -332,7 +332,7 @@ fun NowPlayingScreen(
                 NowPlayingFloatingGlassPlayer(
                     trackState = trackState,
                     isTraditional = state.isTraditionalChinese,
-                    isDark = isDark,
+                    isDark = isDarkUi,
                     isAmoledMode = state.isAmoledMode,
                     onPlayPause = onPlayPause,
                     onNext = onNext,
@@ -822,23 +822,24 @@ private fun NowPlayingLyricsContent(
     val listState = rememberLazyListState()
     val coroutineScope = rememberCoroutineScope()
 
-    // 60fps 高精度毫秒级播放进度采样器 (驱动活跃行 Apple Music 风格逐字光效扫掠)
-    var currentEstimatedPosition by remember { mutableLongStateOf(0L) }
+    // 60fps 高精度毫秒级播放进度采样器 (仅在 draw 阶段读取，重构率为 0，驱动活跃行 Apple Music 风格逐字光效扫掠)
+    val currentPositionState = remember { mutableLongStateOf(0L) }
     LaunchedEffect(isPlaying, trackState, lyricOffsetMs, isWordByWordEnabled) {
         if (isPlaying && isWordByWordEnabled) {
             while (isActive) {
-                currentEstimatedPosition = (trackState.getEstimatedPositionMs() + lyricOffsetMs).coerceAtLeast(0L)
+                currentPositionState.longValue = (trackState.getEstimatedPositionMs() + lyricOffsetMs).coerceAtLeast(0L)
                 delay(16) // 60fps 丝滑插值更新
             }
         } else {
-            currentEstimatedPosition = (trackState.getEstimatedPositionMs() + lyricOffsetMs).coerceAtLeast(0L)
+            currentPositionState.longValue = (trackState.getEstimatedPositionMs() + lyricOffsetMs).coerceAtLeast(0L)
         }
     }
+    val currentPositionMsProvider: () -> Long = remember { { currentPositionState.longValue } }
 
     val configuration = LocalConfiguration.current
     val screenHeightDp = configuration.screenHeightDp.dp
-    val topFocalPadding = (screenHeightDp * 0.34f).coerceAtLeast(140.dp)
-    val bottomFocalPadding = (screenHeightDp * 0.48f).coerceAtLeast(260.dp)
+    val topFocalPadding = screenHeightDp * 0.34f
+    val bottomFocalPadding = screenHeightDp * 0.64f
 
     // 采用统一流体物理弹簧规范 (450ms 优雅磁吸无机械顿挫)
     val lyricFluidSpring = remember {
@@ -913,13 +914,16 @@ private fun NowPlayingLyricsContent(
         if (currentLineIndex >= 0) currentLineIndex else visibleFocalIndex
     }
 
-    // 首次载入歌词时，直接对齐至当前播放行几何中心 (若处于曲目前奏期，定位至首行预备)
-    LaunchedEffect(lyrics.isNotEmpty()) {
+    // 首次载入或切歌更新歌词时，直接对齐至当前播放行几何中心
+    LaunchedEffect(trackState.title, lyrics) {
         if (lyrics.isNotEmpty()) {
             val targetIndex = if (currentLineIndex in lyrics.indices) currentLineIndex else 0
+            listState.scrollToItem(targetIndex)
+            if (listState.layoutInfo.viewportSize.height == 0) {
+                delay(32)
+            }
             val viewportHeight = listState.layoutInfo.viewportSize.height.toFloat()
             val targetFocalY = if (viewportHeight > 0f) viewportHeight * 0.36f else 300f
-            listState.scrollToItem(targetIndex)
             val item = listState.layoutInfo.visibleItemsInfo.find { it.index == targetIndex }
             if (item != null && viewportHeight > 0f) {
                 val itemCenterY = item.offset.toFloat() + (item.size.toFloat() / 2f)
@@ -1022,7 +1026,7 @@ private fun NowPlayingLyricsContent(
                     isTraditional = isTraditional,
                     isDark = isDark,
                     isWordByWordEnabled = isWordByWordEnabled,
-                    currentPositionMsProvider = { currentEstimatedPosition },
+                    currentPositionMsProvider = currentPositionMsProvider,
                     lyricAlignment = lyricAlignment,
                     onClick = {
                         userScrolledAway = false
@@ -1073,38 +1077,8 @@ private fun NowPlayingLyricsContent(
                 ),
                 shadowElevation = 8.dp,
                 modifier = Modifier.bouncyClickable(pressedScale = 0.93f) {
-                    coroutineScope.launch {
-                        // 核心：立即重置用户偏离标记，让播放进度跟随立刻接管！
-                        userScrolledAway = false
-
-                        val viewportHeight = listState.layoutInfo.viewportSize.height.toFloat()
-                        val targetFocalY = if (viewportHeight > 0f) viewportHeight * 0.36f else 300f
-
-                        val visibleItem = listState.layoutInfo.visibleItemsInfo.find { it.index == currentLineIndex }
-                        if (visibleItem != null && viewportHeight > 0f) {
-                            val itemCenterY = visibleItem.offset.toFloat() + (visibleItem.size.toFloat() / 2f)
-                            val scrollDelta = itemCenterY - targetFocalY
-                            if (kotlin.math.abs(scrollDelta) > 1.0f) {
-                                listState.animateScrollBy(
-                                    value = scrollDelta,
-                                    animationSpec = lyricFluidSpring
-                                )
-                            }
-                        } else {
-                            listState.animateScrollToItem(currentLineIndex)
-                            val itemAfter = listState.layoutInfo.visibleItemsInfo.find { it.index == currentLineIndex }
-                            if (itemAfter != null && viewportHeight > 0f) {
-                                val itemCenterY = itemAfter.offset.toFloat() + (itemAfter.size.toFloat() / 2f)
-                                val scrollDelta = itemCenterY - targetFocalY
-                                if (kotlin.math.abs(scrollDelta) > 1.0f) {
-                                    listState.animateScrollBy(
-                                        value = scrollDelta,
-                                        animationSpec = lyricFluidSpring
-                                    )
-                                }
-                            }
-                        }
-                    }
+                    // 核心：立即重置用户偏离标记，触发跟随模式流畅回滚
+                    userScrolledAway = false
                 }
             ) {
                 Row(
@@ -1180,11 +1154,11 @@ private fun LyricLineRow(
         else -> if (isDark) 0.28f else 0.32f
     }
 
-    // 缩放策略：实时活跃行应用 1.05f 聚光灯聚焦，非活跃行 0.94f，左侧锚点 TransformOrigin(0f, 0.5f)
+    // 缩放策略：Apple Music 官方视觉基准，微小视差保持基线绝对稳固 (活跃行 1.02f，非活跃行 0.98f，杜绝夸张跳动)
     val targetScale = when {
-        isBrowsing -> if (distance == 0) 1.03f else 0.96f
-        isActive -> 1.05f
-        else -> 0.94f
+        isBrowsing -> if (distance == 0) 1.02f else 0.98f
+        isActive -> 1.02f
+        else -> 0.98f
     }
 
     // 采用与视口垂直滚动物理弹簧（dampingRatio = 0.86f, stiffness = 180f）完全相同曲线
@@ -1276,14 +1250,15 @@ private fun LyricLineRow(
             .padding(horizontal = 8.dp, vertical = 4.dp),
         horizontalAlignment = if (isAlignLeft) Alignment.Start else Alignment.CenterHorizontally
     ) {
-        // 1. 原文歌词 (Apple Music 纯净高对比连续流光排版：仅活跃行执行逐字流光，非活跃行轻量单层呈现)
-        if (isActive && isWordByWordEnabled && line.words.isNotEmpty()) {
+        // 1. 原文歌词 (Apple Music 纯净高对比连续流光排版：有逐字数据时常驻双层流光，行切换平滑过渡零跳变)
+        if (isWordByWordEnabled && line.words.isNotEmpty()) {
             AppleMusicDualLayerLyricLine(
                 text = displayOriginal,
                 words = line.words,
                 currentPositionMsProvider = currentPositionMsProvider,
                 lyricColor = lyricColor,
-                isAlignLeft = isAlignLeft
+                isAlignLeft = isAlignLeft,
+                isTraditional = isTraditional
             )
         } else {
             Text(
@@ -1345,11 +1320,14 @@ private fun AppleMusicDualLayerLyricLine(
     currentPositionMsProvider: () -> Long,
     lyricColor: Color,
     isAlignLeft: Boolean,
+    isTraditional: Boolean = false,
     modifier: Modifier = Modifier
 ) {
-    val cleanWords = remember(words) {
+    val cleanWords = remember(words, isTraditional) {
         val cleaned = words.map {
-            it.copy(text = LyricWordParser.cleanInlineTimestamps(it.text))
+            val raw = LyricWordParser.cleanInlineTimestamps(it.text)
+            val converted = if (isTraditional) ChineseConverter.toTraditional(raw) else raw
+            it.copy(text = converted)
         }.filter { it.text.isNotEmpty() }
 
         cleaned.mapIndexed { index, w ->
@@ -1404,6 +1382,8 @@ private fun AppleMusicWordUnit(
     val duration = word.durationMs.coerceAtLeast(1L)
     val start = word.startTimeMs
     val end = start + duration
+    val density = LocalDensity.current
+    val fadeWidth = remember(density) { with(density) { 14.dp.toPx() } }
 
     Box(contentAlignment = Alignment.TopStart) {
         // 1. 底层：浅白色未唱文本 (50% alpha，前瞻预览，基线绝对稳固，零阴影)
@@ -1428,16 +1408,6 @@ private fun AppleMusicWordUnit(
             letterSpacing = (-0.5).sp,
             modifier = Modifier
                 .graphicsLayer(compositingStrategy = CompositingStrategy.Offscreen)
-                .graphicsLayer {
-                    val now = currentPositionMsProvider()
-                    if (now < start) {
-                        alpha = 0f
-                    } else if (now >= end) {
-                        alpha = 1f
-                    } else {
-                        alpha = 1f
-                    }
-                }
                 .drawWithContent {
                     val now = currentPositionMsProvider()
                     if (now < start) {
@@ -1451,7 +1421,6 @@ private fun AppleMusicWordUnit(
                     // 正在演唱过程中：单词局域平滑渐变掠过 (浅白向纯白流体递进，零突变)
                     val progress = ((now - start).toFloat() / duration.toFloat()).coerceIn(0f, 1f)
                     val sweepX = size.width * progress
-                    val fadeWidth = 14.dp.toPx()
 
                     val brush = Brush.horizontalGradient(
                         0f to Color.White,

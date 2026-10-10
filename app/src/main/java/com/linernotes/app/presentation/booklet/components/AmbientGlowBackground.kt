@@ -241,10 +241,10 @@ fun AmbientGlowBackground(
     val overlayColors = remember(effectiveDark, animatedBg) {
         if (effectiveDark) {
             listOf(
-                Color.Black.copy(alpha = 0.35f),
-                Color.Black.copy(alpha = 0.20f),
-                Color.Black.copy(alpha = 0.30f),
-                Color.Black.copy(alpha = 0.48f)
+                Color.Black.copy(alpha = 0.28f),
+                Color.Black.copy(alpha = 0.12f),
+                Color.Black.copy(alpha = 0.16f),
+                Color.Black.copy(alpha = 0.38f)
             )
         } else {
             listOf(
@@ -272,7 +272,7 @@ fun AmbientGlowBackground(
                 modifier = Modifier
                     .fillMaxSize()
                     .graphicsLayer {
-                        alpha = if (effectiveDark) (if (isDynamicAurora) 0.65f else 0.70f) else (if (isDynamicAurora) 0.48f else 0.52f)
+                        alpha = if (effectiveDark) (if (isDynamicAurora) 0.72f else 0.70f) else (if (isDynamicAurora) 0.48f else 0.52f)
                         scaleX = 1.45f
                         scaleY = 1.45f
                     }
@@ -299,7 +299,7 @@ fun AmbientGlowBackground(
                             center = Offset(w * 0.28f + orb1OffsetX, h * 0.25f + orb1OffsetY),
                             radius = (w * 0.75f) * orb1Scale
                         ),
-                        alpha = if (isDark) 0.55f else 0.38f
+                        alpha = if (effectiveDark) 0.65f else 0.40f
                     )
 
                     // 光斑 2 (副色调)
@@ -309,7 +309,7 @@ fun AmbientGlowBackground(
                             center = Offset(w * 0.72f + orb2OffsetX, h * 0.65f + orb2OffsetY),
                             radius = w * 0.82f
                         ),
-                        alpha = if (isDark) 0.48f else 0.34f
+                        alpha = if (effectiveDark) 0.55f else 0.35f
                     )
 
                     // 仅在动态流体极光模式下激活光斑 3 与光斑 4，交织为高阶极光网格
@@ -321,7 +321,7 @@ fun AmbientGlowBackground(
                                 center = Offset(w * 0.45f + orb3OffsetX, h * 0.82f + orb3OffsetY),
                                 radius = w * 0.78f
                             ),
-                            alpha = if (isDark) 0.44f else 0.28f
+                            alpha = if (effectiveDark) 0.50f else 0.30f
                         )
 
                         // 光斑 4 (空灵浮动点缀)
@@ -331,7 +331,7 @@ fun AmbientGlowBackground(
                                 center = Offset(w * 0.60f + orb4OffsetX, h * 0.35f + orb4OffsetY),
                                 radius = w * 0.60f
                             ),
-                            alpha = if (isDark) 0.38f else 0.24f
+                            alpha = if (effectiveDark) 0.45f else 0.25f
                         )
                     }
 
