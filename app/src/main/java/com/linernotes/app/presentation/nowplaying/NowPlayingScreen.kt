@@ -65,6 +65,7 @@ import com.linernotes.app.core.i18n.LocalStrings
 import com.linernotes.app.core.playback.MediaPlaybackSyncService
 import com.linernotes.app.core.playback.QueueTrackItem
 import com.linernotes.app.core.playback.TrackPlaybackState
+import com.linernotes.app.core.lyric.LyricWordParser
 import com.linernotes.app.core.preference.AiPreferences
 import com.linernotes.app.core.util.ChineseConverter
 import com.linernotes.app.data.local.entity.LyricAnnotationEntity
