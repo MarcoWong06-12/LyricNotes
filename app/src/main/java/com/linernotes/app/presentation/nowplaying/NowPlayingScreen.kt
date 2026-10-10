@@ -27,6 +27,7 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.blur
 import androidx.compose.ui.draw.clip
 import androidx.compose.foundation.gestures.detectHorizontalDragGestures
 import androidx.compose.foundation.gestures.detectTapGestures
@@ -39,8 +40,10 @@ import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.CompositingStrategy
 import androidx.compose.ui.graphics.Shadow
+import androidx.compose.ui.text.TextLayoutResult
 import androidx.compose.ui.graphics.TransformOrigin
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
@@ -1197,6 +1200,23 @@ private fun LyricLineRow(
         )
     }
 
+    // Apple Music 电影级空间景深虚化 (Depth-of-field Blur)：
+    // 聚焦行绝对清晰 (0dp)，相邻行微虚 (1.5dp)，外围行如梦似幻光斑退景 (3.5dp)；用户翻阅时全部解除虚化
+    val targetBlur = when {
+        isBrowsing || isActive -> 0.dp
+        distance == 1 -> 1.5.dp
+        else -> 3.5.dp
+    }
+
+    val animatedBlur by animateDpAsState(
+        targetValue = targetBlur,
+        animationSpec = spring(
+            dampingRatio = 0.86f,
+            stiffness = 180f
+        ),
+        label = "lineBlur"
+    )
+
     val animatedOriginalAlpha by animateFloatAsState(
         targetValue = targetOriginalAlpha,
         animationSpec = lyricMotionSpring,
@@ -1236,6 +1256,7 @@ private fun LyricLineRow(
                 scaleY = animatedScale
                 transformOrigin = if (isAlignLeft) TransformOrigin(0f, 0.5f) else TransformOrigin(0.5f, 0.5f)
             }
+            .blur(animatedBlur)
             .clip(RoundedCornerShape(14.dp))
             .bouncyPress(
                 interactionSource = interactionSource,
@@ -1260,24 +1281,24 @@ private fun LyricLineRow(
             .padding(horizontal = 8.dp, vertical = 4.dp),
         horizontalAlignment = if (isAlignLeft) Alignment.Start else Alignment.CenterHorizontally
     ) {
-        // 1. 原文歌词 (Apple Music 纯净高对比排版)
+        // 1. 原文歌词 (Apple Music 纯净高对比双层连续流光排版)
         if (isActive && isWordByWordEnabled && line.words.isNotEmpty()) {
-            WordByWordLyricLine(
+            AppleMusicDualLayerLyricLine(
+                text = displayOriginal,
                 words = line.words,
                 currentPositionMsProvider = currentPositionMsProvider,
                 lyricColor = lyricColor,
-                isAlignLeft = isAlignLeft,
-                isTraditional = isTraditional
+                isAlignLeft = isAlignLeft
             )
         } else {
             Text(
                 text = displayOriginal,
                 color = lyricColor,
-                fontSize = if (isActive) 28.sp else 20.5.sp,
+                fontSize = if (isActive) 30.sp else 21.sp,
                 fontWeight = if (isActive) FontWeight.Bold else FontWeight.SemiBold,
                 fontFamily = FontFamily.SansSerif,
-                lineHeight = if (isActive) 38.sp else 29.sp,
-                letterSpacing = if (isActive) (-0.5).sp else (-0.2).sp,
+                lineHeight = if (isActive) 40.sp else 30.sp,
+                letterSpacing = if (isActive) (-0.6).sp else (-0.3).sp,
                 textAlign = if (isAlignLeft) TextAlign.Start else TextAlign.Center,
                 modifier = Modifier
                     .fillMaxWidth()
@@ -1291,10 +1312,10 @@ private fun LyricLineRow(
             Text(
                 text = displayTranslation,
                 color = lyricColor,
-                fontSize = if (isActive) 16.5.sp else 14.5.sp,
+                fontSize = if (isActive) 17.sp else 14.5.sp,
                 fontWeight = if (isActive) FontWeight.Bold else FontWeight.Medium,
                 fontFamily = FontFamily.SansSerif,
-                lineHeight = if (isActive) 23.sp else 20.sp,
+                lineHeight = if (isActive) 24.sp else 20.sp,
                 textAlign = if (isAlignLeft) TextAlign.Start else TextAlign.Center,
                 modifier = Modifier
                     .fillMaxWidth()
@@ -1316,128 +1337,182 @@ private fun LyricLineRow(
 }
 
 /**
- * Apple Music 原生级别逐字流光歌词渲染组件 (Apple Music-style Word-by-word Karaoke Motion)
+ * Apple Music 官方原生双层连续流光渲染组件 (Apple Music-style Dual-Layer Continuous Sweep)
  *
- * 核心动力学与视效架构：
- * 1. 采用 FlowRow 自适应排版，完美兼容长歌词自动折行与语元对齐；
- * 2. 已演唱单元 (Passed)：100% 亮白高对比度，附带环境基底微光晕；
- * 3. 正在演唱单元 (Current)：
- *    - 柔和羽化流光笔刷 (Horizontal Gradient Brush with Feathering Leading-Edge)；
- *    - 物理动能抬升 (Kinetic Float translationY) 与微缩放呼吸 (Breathing Scale) 锚定基线弹跳；
- *    - 白炽灯辐射辉光 (Incandescent Text Shadow Bloom)，随正弦波律动发光发热；
- * 4. 待演唱单元 (Upcoming)：35% 柔和半透明引导底色，提供前瞻视觉动线。
+ * 彻底废除生硬的独立词块拆分与逐字跳跃，1:1 还原 Apple Music 官方渲染机制：
+ * 1. 统一文本排版：底层（Base Layer）与高光层（Highlight Layer）共用同一个完整文本布局，
+ *    字间距、折行与字体度量 100% 严丝合缝，零文字晃动；
+ * 2. 液体水平流光遮罩 (Liquid Continuous Mask)：
+ *    在 GPU 离屏图层 (CompositingStrategy.Offscreen) 上利用 BlendMode.DstIn 绘制
+ *    随毫秒进度平滑推进的羽化渐变遮罩，使亮白光泽如水银抚过字符；
+ * 3. 多行自动换行适配：多行文本按行独立计算起止 X 轴，前一行常亮，当前行流光扫掠，后续行等待；
+ * 4. 基线绝对稳固：文字完全依附于排版基线，杜绝任何怪异的垂直跳动与弹跳。
  */
-@OptIn(ExperimentalLayoutApi::class)
 @Composable
-private fun WordByWordLyricLine(
+private fun AppleMusicDualLayerLyricLine(
+    text: String,
     words: List<com.linernotes.app.domain.model.LyricWord>,
     currentPositionMsProvider: () -> Long,
     lyricColor: Color,
     isAlignLeft: Boolean,
-    isTraditional: Boolean,
     modifier: Modifier = Modifier
 ) {
     val currentPositionMs = currentPositionMsProvider()
-    val density = LocalDensity.current
+    var textLayoutResult by remember { mutableStateOf<TextLayoutResult?>(null) }
 
-    FlowRow(
-        modifier = modifier.fillMaxWidth(),
-        horizontalArrangement = if (isAlignLeft) Arrangement.Start else Arrangement.Center,
-        verticalArrangement = Arrangement.spacedBy(0.dp)
-    ) {
-        for (word in words) {
-            val rawText = word.text
-            val displayText = if (isTraditional) ChineseConverter.toTraditional(rawText) else rawText
-            val wordStart = word.startTimeMs
-            val wordDuration = word.durationMs.coerceAtLeast(1L)
-            val wordEnd = wordStart + wordDuration
-
-            val isPassed = currentPositionMs >= wordEnd
-            val isUpcoming = currentPositionMs < wordStart
-            val isCurrent = !isPassed && !isUpcoming
-
-            val progress = if (isCurrent) {
-                ((currentPositionMs - wordStart).toFloat() / wordDuration.toFloat()).coerceIn(0f, 1f)
-            } else if (isPassed) 1f else 0f
-
-            val unhighlightedColor = lyricColor.copy(alpha = 0.35f)
-            val highlightedColor = lyricColor
-
-            if (isPassed) {
-                Text(
-                    text = displayText,
-                    color = highlightedColor,
-                    fontSize = 28.sp,
-                    fontWeight = FontWeight.Bold,
-                    fontFamily = FontFamily.SansSerif,
-                    lineHeight = 38.sp,
-                    letterSpacing = (-0.5).sp,
-                    style = TextStyle(
-                        shadow = Shadow(
-                            color = highlightedColor.copy(alpha = 0.16f),
-                            offset = Offset.Zero,
-                            blurRadius = 4f
-                        )
-                    )
-                )
-            } else if (isUpcoming) {
-                Text(
-                    text = displayText,
-                    color = unhighlightedColor,
-                    fontSize = 28.sp,
-                    fontWeight = FontWeight.Bold,
-                    fontFamily = FontFamily.SansSerif,
-                    lineHeight = 38.sp,
-                    letterSpacing = (-0.5).sp
-                )
-            } else {
-                // 正在演唱的词：
-                // 1. 正弦波弹动包络 (AMLL / Apple Music 核心动能)
-                val bounce = kotlin.math.sin(progress * Math.PI.toFloat())
-
-                // 2. 白炽灯辐射辉光 (Incandescent Bloom)
-                val glowAlpha = (0.85f * bounce).coerceIn(0f, 1f)
-                val glowBlur = 18f * bounce
-                val bloomShadow = Shadow(
-                    color = highlightedColor.copy(alpha = glowAlpha),
-                    offset = Offset.Zero,
-                    blurRadius = glowBlur
-                )
-
-                // 3. 柔和羽化边缘扫光笔刷 (防硬切，提供真实流光感)
-                val p = progress.coerceIn(0f, 1f)
-                val feather = 0.14f
-                val stop1 = (p - 0.04f).coerceIn(0f, 1f)
-                val stop2 = (p + feather).coerceIn(stop1, 1f)
-                val sweepBrush = Brush.horizontalGradient(
-                    0.0f to highlightedColor,
-                    stop1 to highlightedColor,
-                    stop2 to unhighlightedColor,
-                    1.0f to unhighlightedColor
-                )
-
-                Text(
-                    text = displayText,
-                    style = TextStyle(
-                        brush = sweepBrush,
-                        fontSize = 28.sp,
-                        fontWeight = FontWeight.Bold,
-                        fontFamily = FontFamily.SansSerif,
-                        lineHeight = 38.sp,
-                        letterSpacing = (-0.5).sp,
-                        shadow = bloomShadow
-                    ),
-                    modifier = Modifier.graphicsLayer {
-                        // 4. 动力学上浮与微膨胀 (基于基线 TransformOrigin 锚点)
-                        translationY = -3.2f * bounce * density.density
-                        val scale = 1.0f + (0.07f * bounce)
-                        scaleX = scale
-                        scaleY = scale
-                        transformOrigin = TransformOrigin(0.5f, 1.0f)
-                    }
-                )
-            }
+    // 计算各词在纯文本中的字符起止范围
+    val wordCharSpans = remember(text, words) {
+        var charCursor = 0
+        words.map { w ->
+            val cleanWord = LyricWordParser.cleanInlineTimestamps(w.text)
+            val len = cleanWord.length.coerceAtLeast(1)
+            val start = charCursor.coerceAtMost(text.length)
+            val end = (start + len).coerceAtMost(text.length)
+            charCursor = end
+            Triple(w, start, end)
         }
+    }
+
+    Box(
+        modifier = modifier.fillMaxWidth(),
+        contentAlignment = if (isAlignLeft) Alignment.TopStart else Alignment.TopCenter
+    ) {
+        // 底层：35% 半透明暗底文本 (提供前瞻未唱状态)
+        Text(
+            text = text,
+            color = lyricColor.copy(alpha = 0.35f),
+            fontSize = 30.sp,
+            fontWeight = FontWeight.Bold,
+            fontFamily = FontFamily.SansSerif,
+            lineHeight = 40.sp,
+            letterSpacing = (-0.6).sp,
+            textAlign = if (isAlignLeft) TextAlign.Start else TextAlign.Center,
+            modifier = Modifier.fillMaxWidth()
+        )
+
+        // 高光层：100% 亮白文本 + 柔和白炽辉光 + 硬件级 DstIn 连续扫光遮罩
+        Text(
+            text = text,
+            color = lyricColor,
+            fontSize = 30.sp,
+            fontWeight = FontWeight.Bold,
+            fontFamily = FontFamily.SansSerif,
+            lineHeight = 40.sp,
+            letterSpacing = (-0.6).sp,
+            textAlign = if (isAlignLeft) TextAlign.Start else TextAlign.Center,
+            style = TextStyle(
+                shadow = Shadow(
+                    color = lyricColor.copy(alpha = 0.28f),
+                    offset = Offset.Zero,
+                    blurRadius = 10f
+                )
+            ),
+            onTextLayout = { result ->
+                textLayoutResult = result
+            },
+            modifier = Modifier
+                .fillMaxWidth()
+                .graphicsLayer(compositingStrategy = CompositingStrategy.Offscreen)
+                .drawWithContent {
+                    drawContent()
+
+                    val layout = textLayoutResult
+                    if (layout == null || words.isEmpty()) {
+                        return@drawWithContent
+                    }
+
+                    val firstStart = words.first().startTimeMs
+                    val lastEnd = words.last().startTimeMs + words.last().durationMs
+
+                    if (currentPositionMs < firstStart) {
+                        // 尚未开唱：全遮罩透明，高光层不显现
+                        drawRect(
+                            color = Color.Transparent,
+                            blendMode = BlendMode.DstIn
+                        )
+                        return@drawWithContent
+                    }
+
+                    if (currentPositionMs >= lastEnd) {
+                        // 整句演唱完毕：保留全部高光层
+                        return@drawWithContent
+                    }
+
+                    // 定位当前正在演唱的词/字
+                    val activeIndex = wordCharSpans.indexOfFirst { (w, _, _) ->
+                        currentPositionMs >= w.startTimeMs && currentPositionMs < (w.startTimeMs + w.durationMs)
+                    }.let { idx ->
+                        if (idx >= 0) idx
+                        else {
+                            val lastPassed = wordCharSpans.indexOfLast { (w, _, _) -> currentPositionMs >= w.startTimeMs }
+                            if (lastPassed >= 0) lastPassed else 0
+                        }
+                    }
+
+                    val (activeWord, startChar, endChar) = wordCharSpans[activeIndex]
+                    val intraProgress = if (activeWord.durationMs > 0) {
+                        ((currentPositionMs - activeWord.startTimeMs).toFloat() / activeWord.durationMs.toFloat()).coerceIn(0f, 1f)
+                    } else 1f
+
+                    val charSpan = (endChar - startChar).coerceAtLeast(1)
+                    val floatCharOffset = (startChar + charSpan * intraProgress).coerceIn(0f, text.length.toFloat())
+                    val baseCharOffset = floatCharOffset.toInt().coerceIn(0, (text.length - 1).coerceAtLeast(0))
+                    val nextCharOffset = (baseCharOffset + 1).coerceAtMost(text.length)
+                    val fraction = floatCharOffset - baseCharOffset
+
+                    val currentLine = layout.getLineForOffset(baseCharOffset)
+                    val charLeftX = layout.getHorizontalPosition(baseCharOffset, true)
+                    val nextLine = if (nextCharOffset < text.length) layout.getLineForOffset(nextCharOffset) else currentLine
+                    val charRightX = if (nextLine == currentLine && nextCharOffset < text.length) {
+                        layout.getHorizontalPosition(nextCharOffset, true)
+                    } else {
+                        layout.getLineRight(currentLine)
+                    }
+                    val sweepX = charLeftX + (charRightX - charLeftX) * fraction.coerceIn(0f, 1f)
+
+                    val fadeWidth = 28.dp.toPx()
+
+                    for (l in 0 until layout.lineCount) {
+                        val lineTop = layout.getLineTop(l)
+                        val lineBottom = layout.getLineBottom(l)
+                        val lineHeight = lineBottom - lineTop
+                        val lineL = layout.getLineLeft(l)
+
+                        if (l < currentLine) {
+                            // 已唱完的行：保持完全不透明 (亮白常亮)
+                            drawRect(
+                                color = Color.White,
+                                topLeft = Offset(0f, lineTop),
+                                size = Size(size.width, lineHeight),
+                                blendMode = BlendMode.DstIn
+                            )
+                        } else if (l == currentLine) {
+                            // 正在演唱的行：从行首至 sweepX 进行羽化渐变
+                            val startFade = (sweepX - fadeWidth * 0.45f).coerceAtLeast(lineL)
+                            val endFade = (sweepX + fadeWidth * 0.55f).coerceAtMost(size.width)
+
+                            val stop1 = (startFade / size.width).coerceIn(0f, 1f)
+                            val stop2 = (endFade / size.width).coerceIn(stop1, 1f)
+
+                            val brush = Brush.horizontalGradient(
+                                0.0f to Color.White,
+                                stop1 to Color.White,
+                                stop2 to Color.Transparent,
+                                1.0f to Color.Transparent,
+                                startX = 0f,
+                                endX = size.width
+                            )
+                            drawRect(
+                                brush = brush,
+                                topLeft = Offset(0f, lineTop),
+                                size = Size(size.width, lineHeight),
+                                blendMode = BlendMode.DstIn
+                            )
+                        }
+                        // l > currentLine 保持未绘制透明 (在 Layer 2 上完全透明，底层 35% 显现)
+                    }
+                }
+        )
     }
 }
 
