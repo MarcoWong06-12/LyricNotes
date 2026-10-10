@@ -38,7 +38,9 @@ import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.luminance
+import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.CompositingStrategy
+import androidx.compose.ui.graphics.Shadow
 import androidx.compose.ui.graphics.TransformOrigin
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
@@ -1155,8 +1157,8 @@ private fun LyricLineRow(
         else -> {
             when (distance) {
                 1 -> if (isDark) 0.40f else 0.38f
-                2 -> if (isDark) 0.26f else 0.24f
-                else -> if (isDark) 0.18f else 0.16f
+                2 -> if (isDark) 0.24f else 0.22f
+                else -> if (isDark) 0.14f else 0.12f
             }
         }
     }
@@ -1173,17 +1175,17 @@ private fun LyricLineRow(
         isActive -> 0.90f
         else -> {
             when (distance) {
-                1 -> if (isDark) 0.32f else 0.30f
-                2 -> if (isDark) 0.20f else 0.18f
-                else -> if (isDark) 0.14f else 0.12f
+                1 -> if (isDark) 0.30f else 0.28f
+                2 -> if (isDark) 0.18f else 0.16f
+                else -> if (isDark) 0.10f else 0.08f
             }
         }
     }
 
-    // 缩放策略：实时活跃行应用 1.05f 聚光灯聚焦，非活跃行 0.96f，左侧锚点 TransformOrigin(0f, 0.5f)
+    // 缩放策略：实时活跃行应用 1.06f 聚光灯聚焦，非活跃行 0.96f，左侧锚点 TransformOrigin(0f, 0.5f)
     val targetScale = when {
-        isBrowsing -> if (distance == 0) 1.02f else 0.97f
-        isActive -> 1.05f
+        isBrowsing -> if (distance == 0) 1.03f else 0.97f
+        isActive -> 1.06f
         else -> 0.96f
     }
 
@@ -1258,7 +1260,7 @@ private fun LyricLineRow(
             .padding(horizontal = 8.dp, vertical = 4.dp),
         horizontalAlignment = if (isAlignLeft) Alignment.Start else Alignment.CenterHorizontally
     ) {
-        // 1. 原文歌词 (紧凑加粗 Sans-Serif 纯净对齐)
+        // 1. 原文歌词 (Apple Music 纯净高对比排版)
         if (isActive && isWordByWordEnabled && line.words.isNotEmpty()) {
             WordByWordLyricLine(
                 words = line.words,
@@ -1271,11 +1273,11 @@ private fun LyricLineRow(
             Text(
                 text = displayOriginal,
                 color = lyricColor,
-                fontSize = 25.sp,
-                fontWeight = FontWeight.Bold,
+                fontSize = if (isActive) 28.sp else 20.5.sp,
+                fontWeight = if (isActive) FontWeight.Bold else FontWeight.SemiBold,
                 fontFamily = FontFamily.SansSerif,
-                lineHeight = 34.sp,
-                letterSpacing = (-0.4).sp,
+                lineHeight = if (isActive) 38.sp else 29.sp,
+                letterSpacing = if (isActive) (-0.5).sp else (-0.2).sp,
                 textAlign = if (isAlignLeft) TextAlign.Start else TextAlign.Center,
                 modifier = Modifier
                     .fillMaxWidth()
@@ -1289,10 +1291,10 @@ private fun LyricLineRow(
             Text(
                 text = displayTranslation,
                 color = lyricColor,
-                fontSize = 15.5.sp,
-                fontWeight = FontWeight.Bold,
+                fontSize = if (isActive) 16.5.sp else 14.5.sp,
+                fontWeight = if (isActive) FontWeight.Bold else FontWeight.Medium,
                 fontFamily = FontFamily.SansSerif,
-                lineHeight = 22.sp,
+                lineHeight = if (isActive) 23.sp else 20.sp,
                 textAlign = if (isAlignLeft) TextAlign.Start else TextAlign.Center,
                 modifier = Modifier
                     .fillMaxWidth()
@@ -1314,13 +1316,16 @@ private fun LyricLineRow(
 }
 
 /**
- * Apple Music 风格逐字流光歌词渲染组件 (Word-by-word Karaoke Sweep)
+ * Apple Music 原生级别逐字流光歌词渲染组件 (Apple Music-style Word-by-word Karaoke Motion)
  *
- * 1. 采用 FlowRow 自适应文本容器，纯净支持长歌词自动折行与多端设备无损排版；
- * 2. 已演唱字/词：纯白高亮 100% 不透明度 (Color.White)；
- * 3. 正在演唱字/词：应用高精度水平渐变笔刷 (Horizontal Gradient Brush)，随毫秒级进度向右流光扫掠，
- *    辅以柔和微弹性缩放 (1.04f)；
- * 4. 待演唱字/词：保留 35% 柔和底色，形成鲜明前瞻视线引导。
+ * 核心动力学与视效架构：
+ * 1. 采用 FlowRow 自适应排版，完美兼容长歌词自动折行与语元对齐；
+ * 2. 已演唱单元 (Passed)：100% 亮白高对比度，附带环境基底微光晕；
+ * 3. 正在演唱单元 (Current)：
+ *    - 柔和羽化流光笔刷 (Horizontal Gradient Brush with Feathering Leading-Edge)；
+ *    - 物理动能抬升 (Kinetic Float translationY) 与微缩放呼吸 (Breathing Scale) 锚定基线弹跳；
+ *    - 白炽灯辐射辉光 (Incandescent Text Shadow Bloom)，随正弦波律动发光发热；
+ * 4. 待演唱单元 (Upcoming)：35% 柔和半透明引导底色，提供前瞻视觉动线。
  */
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
@@ -1333,6 +1338,8 @@ private fun WordByWordLyricLine(
     modifier: Modifier = Modifier
 ) {
     val currentPositionMs = currentPositionMsProvider()
+    val density = LocalDensity.current
+
     FlowRow(
         modifier = modifier.fillMaxWidth(),
         horizontalArrangement = if (isAlignLeft) Arrangement.Start else Arrangement.Center,
@@ -1360,45 +1367,73 @@ private fun WordByWordLyricLine(
                 Text(
                     text = displayText,
                     color = highlightedColor,
-                    fontSize = 25.sp,
+                    fontSize = 28.sp,
                     fontWeight = FontWeight.Bold,
                     fontFamily = FontFamily.SansSerif,
-                    lineHeight = 34.sp,
-                    letterSpacing = (-0.4).sp
+                    lineHeight = 38.sp,
+                    letterSpacing = (-0.5).sp,
+                    style = TextStyle(
+                        shadow = Shadow(
+                            color = highlightedColor.copy(alpha = 0.16f),
+                            offset = Offset.Zero,
+                            blurRadius = 4f
+                        )
+                    )
                 )
             } else if (isUpcoming) {
                 Text(
                     text = displayText,
                     color = unhighlightedColor,
-                    fontSize = 25.sp,
+                    fontSize = 28.sp,
                     fontWeight = FontWeight.Bold,
                     fontFamily = FontFamily.SansSerif,
-                    lineHeight = 34.sp,
-                    letterSpacing = (-0.4).sp
+                    lineHeight = 38.sp,
+                    letterSpacing = (-0.5).sp
                 )
             } else {
-                // 正在演唱的词：高光流光笔刷扫掠 + 柔和 1.04f 弹性微放大
+                // 正在演唱的词：
+                // 1. 正弦波弹动包络 (AMLL / Apple Music 核心动能)
+                val bounce = kotlin.math.sin(progress * Math.PI.toFloat())
+
+                // 2. 白炽灯辐射辉光 (Incandescent Bloom)
+                val glowAlpha = (0.85f * bounce).coerceIn(0f, 1f)
+                val glowBlur = 18f * bounce
+                val bloomShadow = Shadow(
+                    color = highlightedColor.copy(alpha = glowAlpha),
+                    offset = Offset.Zero,
+                    blurRadius = glowBlur
+                )
+
+                // 3. 柔和羽化边缘扫光笔刷 (防硬切，提供真实流光感)
+                val p = progress.coerceIn(0f, 1f)
+                val feather = 0.14f
+                val stop1 = (p - 0.04f).coerceIn(0f, 1f)
+                val stop2 = (p + feather).coerceIn(stop1, 1f)
                 val sweepBrush = Brush.horizontalGradient(
                     0.0f to highlightedColor,
-                    progress to highlightedColor,
-                    (progress + 0.12f).coerceAtMost(1f) to unhighlightedColor,
+                    stop1 to highlightedColor,
+                    stop2 to unhighlightedColor,
                     1.0f to unhighlightedColor
                 )
+
                 Text(
                     text = displayText,
                     style = TextStyle(
                         brush = sweepBrush,
-                        fontSize = 25.sp,
+                        fontSize = 28.sp,
                         fontWeight = FontWeight.Bold,
                         fontFamily = FontFamily.SansSerif,
-                        lineHeight = 34.sp,
-                        letterSpacing = (-0.4).sp
+                        lineHeight = 38.sp,
+                        letterSpacing = (-0.5).sp,
+                        shadow = bloomShadow
                     ),
                     modifier = Modifier.graphicsLayer {
-                        val pulse = 1.0f + (0.04f * kotlin.math.sin(progress * Math.PI.toFloat()))
-                        scaleX = pulse
-                        scaleY = pulse
-                        transformOrigin = TransformOrigin(0f, 0.5f)
+                        // 4. 动力学上浮与微膨胀 (基于基线 TransformOrigin 锚点)
+                        translationY = -3.2f * bounce * density.density
+                        val scale = 1.0f + (0.07f * bounce)
+                        scaleX = scale
+                        scaleY = scale
+                        transformOrigin = TransformOrigin(0.5f, 1.0f)
                     }
                 )
             }

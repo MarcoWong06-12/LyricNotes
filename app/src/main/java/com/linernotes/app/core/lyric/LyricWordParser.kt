@@ -104,11 +104,18 @@ object LyricWordParser {
         val tokens = TOKEN_REGEX.findAll(cleanText).map { it.value }.filter { it.isNotEmpty() }.toList()
         if (tokens.isEmpty()) return emptyList()
 
-        val totalLineDuration = if (endTimeMs != null && endTimeMs > startTimeMs) {
-            (endTimeMs - startTimeMs).coerceIn(800L, 12000L)
+        val rawGap = if (endTimeMs != null && endTimeMs > startTimeMs) endTimeMs - startTimeMs else null
+        val totalLineDuration = if (rawGap != null) {
+            // 歌唱生理声学启发式算法：
+            // 人声实际演唱通常占据行与行时间间隔的前 65%~75%，剩余为乐器停顿与伴奏留白尾音。
+            // 避免把短句平摊至长达数秒的整段空白，导致逐字扫掠极度拖沓迟缓。
+            // 依据自然演唱速度 (每字/词约 280ms~360ms) 计算人声区间，上限不超过间隔的 72%，且保留至少 200ms 伴奏尾音。
+            val estimatedVocal = (tokens.size * 320L).coerceIn(600L, 6000L)
+            val maxPhrasing = (rawGap * 0.72f).toLong().coerceAtLeast(600L)
+            minOf(estimatedVocal, maxPhrasing).coerceAtMost(maxOf(500L, rawGap - 200L))
         } else {
-            // 若为最后一句或下一句未定，按语元总数给一个自然的持续时长 (每字/词约 280ms)
-            (tokens.size * 280L).coerceIn(1200L, 5000L)
+            // 若为最后一句或下一句未定，按语元总数给一个自然的持续时长 (每字/词约 300ms)
+            (tokens.size * 300L).coerceIn(1000L, 4500L)
         }
 
         // 计算各语元权重 (CJK 单字 1.4f，英文词按字母长度计算，遇标点赋予微休止符)
