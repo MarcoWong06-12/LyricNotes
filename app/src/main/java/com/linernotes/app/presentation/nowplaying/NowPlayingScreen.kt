@@ -838,8 +838,8 @@ private fun NowPlayingLyricsContent(
 
     val configuration = LocalConfiguration.current
     val screenHeightDp = configuration.screenHeightDp.dp
-    val topFocalPadding = screenHeightDp * 0.34f
-    val bottomFocalPadding = screenHeightDp * 0.64f
+    val topFocalPadding = screenHeightDp * 0.22f
+    val bottomFocalPadding = screenHeightDp * 0.75f
 
     // 采用统一流体物理弹簧规范 (450ms 优雅磁吸无机械顿挫)
     val lyricFluidSpring = remember {
@@ -880,7 +880,7 @@ private fun NowPlayingLyricsContent(
         }
     }
 
-    // 动态计算当前视口黄金视线带（约 36% 高度处）最中央的歌词行索引，用于视口相对阅读聚焦
+    // 动态计算当前视口黄金视线带（偏上 ~22% 高度处）最中央的歌词行索引，用于视口相对阅读聚焦
     val visibleFocalIndex by remember {
         derivedStateOf {
             val layoutInfo = listState.layoutInfo
@@ -888,10 +888,10 @@ private fun NowPlayingLyricsContent(
             if (visibleItems.isEmpty()) return@derivedStateOf currentLineIndex.coerceAtLeast(0)
 
             val viewportHeight = layoutInfo.viewportSize.height.toFloat()
-            val targetFocalY = if (viewportHeight > 0f) viewportHeight * 0.36f else 300f
+            val targetFocalY = if (viewportHeight > 0f) viewportHeight * 0.22f else 200f
             val closest = visibleItems.minByOrNull { item ->
-                val itemCenter = item.offset.toFloat() + (item.size.toFloat() / 2f)
-                kotlin.math.abs(itemCenter - targetFocalY)
+                val itemVisualTop = item.offset.toFloat() - layoutInfo.viewportStartOffset
+                kotlin.math.abs(itemVisualTop - targetFocalY)
             }
             closest?.index ?: currentLineIndex.coerceAtLeast(0)
         }
@@ -914,53 +914,25 @@ private fun NowPlayingLyricsContent(
         if (currentLineIndex >= 0) currentLineIndex else visibleFocalIndex
     }
 
-    // 物理级黄金视线重心对齐动力学 (流体顺滑吸附)
-    // 监听播放焦点变化、歌词就绪、切歌或浏览状态恢复：统一协调丝滑滚动至黄金视线带 (~36% 视口高度)
-    LaunchedEffect(currentLineIndex, lyrics, isPlaying, userScrolledAway, trackState.title) {
-        // 当暂停播放、用户正在手动翻阅或歌词尚未加载时，保持静止
-        if (!isPlaying || userScrolledAway || lyrics.isEmpty()) {
+    // 跟踪上一首歌曲标题，用于精准区分切歌跳转与同一首歌内部的平滑逐行推进
+    var lastSongTitle by remember { mutableStateOf("") }
+
+    // Apple Music 原生偏上视线动力学流体跟随 (锚定屏幕偏上方 ~22% 黄金视线带，下方留足 3~4 句前瞻歌词)
+    LaunchedEffect(currentLineIndex, lyrics, userScrolledAway, trackState.title) {
+        // 用户处于手指拖拽翻阅浏览状态时保持静止，保障自由沉浸阅读
+        if (userScrolledAway || lyrics.isEmpty()) {
             return@LaunchedEffect
         }
         val targetIndex = if (currentLineIndex in lyrics.indices) currentLineIndex else 0
+        val isSongChanged = trackState.title != lastSongTitle
 
-        // 确保视口高度与初始排版已就绪
-        if (listState.layoutInfo.viewportSize.height == 0) {
-            delay(32)
-        }
-        var viewportHeight = listState.layoutInfo.viewportSize.height.toFloat()
-        if (viewportHeight <= 0f) {
-            delay(32)
-            viewportHeight = listState.layoutInfo.viewportSize.height.toFloat()
-        }
-        if (viewportHeight <= 0f) return@LaunchedEffect
-        val targetFocalY = viewportHeight * 0.36f
-
-        val visibleItem = listState.layoutInfo.visibleItemsInfo.find { it.index == targetIndex }
-        if (visibleItem != null) {
-            // 统一以活跃行的垂直几何中心与黄金重心对齐，消除行高不同引起的上下颠簸
-            val itemCenterY = visibleItem.offset.toFloat() + (visibleItem.size.toFloat() / 2f)
-            val scrollDelta = itemCenterY - targetFocalY
-
-            if (kotlin.math.abs(scrollDelta) > 1.5f) {
-                listState.animateScrollBy(
-                    value = scrollDelta,
-                    animationSpec = lyricFluidSpring
-                )
-            }
+        if (isSongChanged) {
+            lastSongTitle = trackState.title
+            // 切歌或首次载入新曲目：瞬移直接锚定至目标行，杜绝长距离回滚与动画割裂
+            listState.scrollToItem(targetIndex, scrollOffset = 0)
         } else {
-            // 目标行脱离视口（初次载入、快进拖动进度条、切歌跳转）：先平滑定位于目标行
-            listState.animateScrollToItem(targetIndex)
-            val itemAfter = listState.layoutInfo.visibleItemsInfo.find { it.index == targetIndex }
-            if (itemAfter != null) {
-                val itemCenterY = itemAfter.offset.toFloat() + (itemAfter.size.toFloat() / 2f)
-                val scrollDelta = itemCenterY - targetFocalY
-                if (kotlin.math.abs(scrollDelta) > 1.5f) {
-                    listState.animateScrollBy(
-                        value = scrollDelta,
-                        animationSpec = lyricFluidSpring
-                    )
-                }
-            }
+            // 播放过程中的逐行跟进或点击寻轨跳转：平滑弹簧滑入偏上 ~22% 焦点位
+            listState.animateScrollToItem(targetIndex, scrollOffset = 0)
         }
     }
 
