@@ -1,5 +1,6 @@
 package com.linernotes.app.core.lyric
 
+import com.linernotes.app.core.util.HtmlUtils
 import java.util.regex.Pattern
 
 /**
@@ -164,9 +165,10 @@ object LyricSanitizer {
      * @param uncensoredRefLine 可选的无审查参考行 (如来自 Genius 或 LRCLIB)
      */
     fun decensorLine(censoredLine: String, uncensoredRefLine: String? = null): String {
-        if (!hasCensorship(censoredLine)) return censoredLine
+        val unescaped = HtmlUtils.unescapeHtml(censoredLine)
+        if (!hasCensorship(unescaped)) return unescaped
 
-        var text = censoredLine
+        var text = unescaped
 
         // 阶段 1：若提供了无审查参考行，优先执行词级严格对齐替换（准确率最高）
         if (!uncensoredRefLine.isNullOrBlank()) {
@@ -301,12 +303,14 @@ object LyricSanitizer {
      * 整首中文歌词反和谐
      */
     fun decensorChineseLyrics(censoredChineseLyrics: String?, uncensoredEnglishLyrics: String? = null): String? {
-        if (censoredChineseLyrics.isNullOrBlank() || !censoredChineseLyrics.contains('*')) {
-            return censoredChineseLyrics
+        if (censoredChineseLyrics.isNullOrBlank()) return censoredChineseLyrics
+        val unescaped = HtmlUtils.unescapeHtml(censoredChineseLyrics)
+        if (!unescaped.contains('*')) {
+            return unescaped
         }
 
-        val cLines = censoredChineseLyrics.lines()
-        val eLines = uncensoredEnglishLyrics?.lines() ?: emptyList()
+        val cLines = unescaped.lines()
+        val eLines = uncensoredEnglishLyrics?.let { HtmlUtils.unescapeHtml(it) }?.lines() ?: emptyList()
 
         return cLines.mapIndexed { idx, cLine ->
             val eLine = eLines.getOrNull(idx)
@@ -325,11 +329,12 @@ object LyricSanitizer {
      * 基于参考行列表（如来自 Genius 注释引文列表）反和谐整首歌曲歌词
      */
     fun decensorLyrics(censoredLyrics: String, refLines: List<String>): String {
-        if (!hasCensorship(censoredLyrics)) return censoredLyrics
-        if (refLines.isEmpty()) return decensorLyrics(censoredLyrics, null as String?)
+        val unescaped = HtmlUtils.unescapeHtml(censoredLyrics)
+        if (!hasCensorship(unescaped)) return unescaped
+        if (refLines.isEmpty()) return decensorLyrics(unescaped, null as String?)
 
-        val flattenedRef = refLines.flatMap { it.lines() }.map { it.trim() }.filter { it.isNotBlank() }
-        val cLines = censoredLyrics.lines()
+        val flattenedRef = refLines.flatMap { it.lines() }.map { HtmlUtils.unescapeHtml(it).trim() }.filter { it.isNotBlank() }
+        val cLines = unescaped.lines()
 
         val sanitizedLines = cLines.map { cl ->
             val clClean = cl.replace(TIMESTAMP_REGEX, "").trim()
@@ -358,14 +363,15 @@ object LyricSanitizer {
      * @param uncensoredRefLyrics 可选的无审查全球参考歌词 (如 LRCLIB 返回的英文纯净歌词)
      */
     fun decensorLyrics(censoredLyrics: String, uncensoredRefLyrics: String? = null): String {
-        if (!hasCensorship(censoredLyrics)) return censoredLyrics
+        val unescaped = HtmlUtils.unescapeHtml(censoredLyrics)
+        if (!hasCensorship(unescaped)) return unescaped
 
-        val cLines = censoredLyrics.lines()
+        val cLines = unescaped.lines()
         if (uncensoredRefLyrics.isNullOrBlank()) {
             return cLines.joinToString("\n") { decensorLine(it, null) }
         }
 
-        val rLines = uncensoredRefLyrics.lines()
+        val rLines = HtmlUtils.unescapeHtml(uncensoredRefLyrics).lines()
 
         // 构建参考行提取器（按时间戳优先匹配，否则按顺序匹配）
         val refMapByTimestamp = mutableMapOf<String, String>()

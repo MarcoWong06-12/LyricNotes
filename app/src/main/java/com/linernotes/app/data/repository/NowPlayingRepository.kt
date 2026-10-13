@@ -449,10 +449,13 @@ class NowPlayingRepository @Inject constructor(
 
             // 等待并发抓取完成
             lyricsJob.await()
+            val curPos = (_nowPlayingData.value.playbackState.getEstimatedPositionMs() + lyricOffsetMs).coerceAtLeast(0L)
+            val lineIdx = calculateActiveLineIndex(fetchedLyrics, curPos)
             _nowPlayingData.update {
                 it.copy(
                     lyrics = fetchedLyrics,
-                    isLoadingLyrics = false
+                    isLoadingLyrics = false,
+                    currentLineIndex = lineIdx
                 )
             }
 

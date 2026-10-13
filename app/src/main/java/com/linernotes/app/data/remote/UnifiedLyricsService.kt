@@ -307,21 +307,23 @@ object UnifiedLyricsService {
     }
 
     private fun sanitizeResult(result: OnlineLyricsResult, refResult: OnlineLyricsResult?): OnlineLyricsResult {
-        val hasOrigCensor = LyricSanitizer.hasCensorship(result.originalLyrics)
-        val hasTransCensor = LyricSanitizer.hasCensorship(result.translatedLyrics)
-        val hasTitleCensor = LyricSanitizer.hasCensorship(result.title)
-        if (!hasOrigCensor && !hasTransCensor && !hasTitleCensor) {
-            return result
-        }
+        val unescapedOrig = com.linernotes.app.core.util.HtmlUtils.unescapeHtml(result.originalLyrics)
+        val unescapedTrans = result.translatedLyrics?.let { com.linernotes.app.core.util.HtmlUtils.unescapeHtml(it) }
+        val unescapedTitle = com.linernotes.app.core.util.HtmlUtils.unescapeHtml(result.title)
+
+        val hasOrigCensor = LyricSanitizer.hasCensorship(unescapedOrig)
+        val hasTransCensor = LyricSanitizer.hasCensorship(unescapedTrans)
+        val hasTitleCensor = LyricSanitizer.hasCensorship(unescapedTitle)
+
         val cleanLyrics = if (hasOrigCensor) {
-            LyricSanitizer.decensorLyrics(result.originalLyrics, refResult?.originalLyrics)
-        } else result.originalLyrics
+            LyricSanitizer.decensorLyrics(unescapedOrig, refResult?.originalLyrics)
+        } else unescapedOrig
         val cleanChinese = if (hasTransCensor) {
-            LyricSanitizer.decensorChineseLyrics(result.translatedLyrics, cleanLyrics)
-        } else result.translatedLyrics
+            LyricSanitizer.decensorChineseLyrics(unescapedTrans, cleanLyrics)
+        } else unescapedTrans
         val cleanTitle = if (hasTitleCensor) {
-            LyricSanitizer.decensorTitle(result.title, refResult?.title)
-        } else result.title
+            LyricSanitizer.decensorTitle(unescapedTitle, refResult?.title)
+        } else unescapedTitle
         return result.copy(title = cleanTitle, originalLyrics = cleanLyrics, translatedLyrics = cleanChinese)
     }
 

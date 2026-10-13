@@ -7,7 +7,10 @@ import com.linernotes.app.core.util.HtmlUtils
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.supervisorScope
+import kotlinx.coroutines.sync.Semaphore
+import kotlinx.coroutines.sync.withPermit
 import kotlinx.coroutines.withContext
 import okhttp3.FormBody
 import okhttp3.OkHttpClient
@@ -152,40 +155,53 @@ class TranslationService(
         }
 
         val textsToTranslate = nonBlankEntries.map { it.second }
-        // 8 行智能紧凑带序号分块并发翻译（更小的分块能彻底避免长文本末尾丢行与截断）
-        val chunks = textsToTranslate.chunked(8)
+        // 12 行智能分块，配合并发限制与微延迟，彻底避免触发有道反爬限流与连接重置
+        val chunks = textsToTranslate.chunked(12)
+        val semaphore = Semaphore(2)
         val translatedTexts = try {
             val translatedChunks = supervisorScope {
-                chunks.map { chunk ->
+                chunks.mapIndexed { chunkIdx, chunk ->
                     async {
-                        val indexedChunkText = chunk.mapIndexed { idx, line -> "${idx + 1}. $line" }.joinToString("\n")
-                        val youdaoResult = translateChunkViaYoudao(indexedChunkText)
-                        var parsed = if (youdaoResult != null && youdaoResult.isNotEmpty()) {
-                            parseIndexedLines(youdaoResult.map { HtmlUtils.cleanTranslationOutput(it) }, chunk.size)
-                        } else emptyList()
+                        semaphore.withPermit {
+                            if (chunkIdx > 0) delay(40L)
+                            val indexedChunkText = chunk.mapIndexed { idx, line -> "${idx + 1}. $line" }.joinToString("\n")
+                            var parsed = emptyList<String>()
 
-                        // 容灾检查：若有道丢行较多，平滑回退至 Google Translate 或逐行重试
-                        if (parsed.isEmpty() || parsed.count { it.isNotBlank() } < (chunk.size + 1) / 2) {
-                            val googleFallback = translateViaGoogle(indexedChunkText, targetIso, "https://translate.googleapis.com/translate_a/single")
-                            if (!googleFallback.isNullOrBlank()) {
-                                parsed = parseIndexedLines(googleFallback.lines().map { HtmlUtils.cleanTranslationOutput(it) }, chunk.size)
-                            } else {
-                                val memoryFallback = translateViaMyMemory(indexedChunkText, targetIso)?.lines() ?: emptyList()
-                                parsed = parseIndexedLines(memoryFallback.map { HtmlUtils.cleanTranslationOutput(it) }, chunk.size)
+                            // 优先尝试有道极速端点（带重试机制）
+                            for (attempt in 0..1) {
+                                val youdaoResult = translateChunkViaYoudao(indexedChunkText)
+                                if (!youdaoResult.isNullOrEmpty()) {
+                                    parsed = parseIndexedLines(youdaoResult.map { HtmlUtils.cleanTranslationOutput(it) }, chunk.size)
+                                    if (parsed.isNotEmpty() && parsed.count { it.isNotBlank() } >= (chunk.size + 1) / 2) {
+                                        break
+                                    }
+                                }
+                                if (attempt == 0) delay(100L)
                             }
-                        }
 
-                        // 对每行译文进行音乐俚语语义润色
-                        (0 until chunk.size).map { idx ->
-                            val rawTrans = parsed.getOrNull(idx) ?: ""
-                            refineMusicSlang(rawTrans, chunk[idx])
+                            // 容灾检查：若有道丢行较多，平滑回退至备选服务
+                            if (parsed.isEmpty() || parsed.count { it.isNotBlank() } < (chunk.size + 1) / 2) {
+                                val googleFallback = translateViaGoogle(indexedChunkText, targetIso, "https://translate.googleapis.com/translate_a/single")
+                                if (!googleFallback.isNullOrBlank()) {
+                                    parsed = parseIndexedLines(googleFallback.lines().map { HtmlUtils.cleanTranslationOutput(it) }, chunk.size)
+                                } else {
+                                    val memoryFallback = translateViaMyMemory(indexedChunkText, targetIso)?.lines() ?: emptyList()
+                                    parsed = parseIndexedLines(memoryFallback.map { HtmlUtils.cleanTranslationOutput(it) }, chunk.size)
+                                }
+                            }
+
+                            // 对每行译文进行音乐俚语语义润色
+                            (0 until chunk.size).map { idx ->
+                                val rawTrans = parsed.getOrNull(idx) ?: ""
+                                refineMusicSlang(rawTrans, chunk[idx])
+                            }
                         }
                     }
                 }.awaitAll()
             }
             translatedChunks.flatten()
         } catch (e: Exception) {
-            textsToTranslate
+            emptyList()
         }
 
         // 将翻译结果精确拼回原位置并还原时间戳标签
@@ -423,10 +439,27 @@ class TranslationService(
             if (!response.isSuccessful) return null
 
             val html = response.body?.string() ?: return null
-            val match = YOUDAO_RESULT_REGEX.find(html) ?: return null
-            val rawResult = match.groupValues[1].trim()
-            val unescaped = HtmlUtils.unescapeHtml(rawResult)
-            unescaped.lines()
+            val ulMatch = Regex("""<ul id="translateResult">(.*?)</ul>""", RegexOption.DOT_MATCHES_ALL).find(html)
+            val listItems = if (ulMatch != null) {
+                Regex("""<li>(.*?)</li>""", RegexOption.DOT_MATCHES_ALL)
+                    .findAll(ulMatch.groupValues[1])
+                    .map { HtmlUtils.cleanPlainText(it.groupValues[1]) }
+                    .filter { it.isNotBlank() }
+                    .toList()
+            } else {
+                emptyList()
+            }
+
+            if (listItems.isNotEmpty()) {
+                listItems
+            } else {
+                val match = YOUDAO_RESULT_REGEX.find(html)
+                if (match != null) {
+                    val rawResult = match.groupValues[1].trim()
+                    val unescaped = HtmlUtils.unescapeHtml(rawResult)
+                    unescaped.lines().map { HtmlUtils.cleanPlainText(it) }.filter { it.isNotBlank() }
+                } else null
+            }
         } catch (e: Exception) {
             null
         }

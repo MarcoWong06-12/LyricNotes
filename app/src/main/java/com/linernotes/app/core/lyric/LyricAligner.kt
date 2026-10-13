@@ -1,5 +1,6 @@
 package com.linernotes.app.core.lyric
 
+import com.linernotes.app.core.util.HtmlUtils
 import com.linernotes.app.domain.model.BilingualLyricLine
 
 object LyricAligner {
@@ -12,7 +13,7 @@ object LyricAligner {
         if (withoutTime.matches(LRC_METADATA_REGEX)) {
             return ""
         }
-        return withoutTime
+        return HtmlUtils.unescapeHtml(withoutTime)
     }
 
     fun extractTimestampMs(line: String): Long? {
@@ -499,7 +500,8 @@ object LyricAligner {
 
     private fun sanitizeText(text: String?): String {
         if (text.isNullOrBlank()) return ""
-        val lines = text.lines().toMutableList()
+        val unescaped = HtmlUtils.unescapeHtml(text)
+        val lines = unescaped.lines().toMutableList()
         // 移除开头与结尾可能存在的 markdown 代码块标签（如 ``` 或 ```markdown）
         while (lines.isNotEmpty() && lines.first().trim().startsWith("```")) {
             lines.removeAt(0)

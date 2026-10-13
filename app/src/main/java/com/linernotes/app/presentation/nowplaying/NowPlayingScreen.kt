@@ -914,63 +914,51 @@ private fun NowPlayingLyricsContent(
         if (currentLineIndex >= 0) currentLineIndex else visibleFocalIndex
     }
 
-    // 首次载入或切歌更新歌词时，直接对齐至当前播放行几何中心
-    LaunchedEffect(trackState.title, lyrics) {
-        if (lyrics.isNotEmpty()) {
-            val targetIndex = if (currentLineIndex in lyrics.indices) currentLineIndex else 0
-            listState.scrollToItem(targetIndex)
-            if (listState.layoutInfo.viewportSize.height == 0) {
-                delay(32)
-            }
-            val viewportHeight = listState.layoutInfo.viewportSize.height.toFloat()
-            val targetFocalY = if (viewportHeight > 0f) viewportHeight * 0.36f else 300f
-            val item = listState.layoutInfo.visibleItemsInfo.find { it.index == targetIndex }
-            if (item != null && viewportHeight > 0f) {
-                val itemCenterY = item.offset.toFloat() + (item.size.toFloat() / 2f)
-                val scrollDelta = itemCenterY - targetFocalY
-                if (kotlin.math.abs(scrollDelta) > 1.0f) {
-                    listState.scrollBy(scrollDelta)
-                }
-            }
-        }
-    }
-
     // 物理级黄金视线重心对齐动力学 (流体顺滑吸附)
-    // 监听当前歌词改变以及播放状态切换：跟随模式下每一行歌词切换均如丝绸般滑入焦点
-    LaunchedEffect(currentLineIndex, isPlaying, userScrolledAway) {
-        // 当暂停播放或用户正在手动翻阅时，绝对不强制回滚，完全保障自由沉浸
-        if (!isPlaying || userScrolledAway) {
+    // 监听播放焦点变化、歌词就绪、切歌或浏览状态恢复：统一协调丝滑滚动至黄金视线带 (~36% 视口高度)
+    LaunchedEffect(currentLineIndex, lyrics, isPlaying, userScrolledAway, trackState.title) {
+        // 当暂停播放、用户正在手动翻阅或歌词尚未加载时，保持静止
+        if (!isPlaying || userScrolledAway || lyrics.isEmpty()) {
             return@LaunchedEffect
         }
-        if (currentLineIndex in lyrics.indices) {
-            val viewportHeight = listState.layoutInfo.viewportSize.height.toFloat()
-            val targetFocalY = if (viewportHeight > 0f) viewportHeight * 0.36f else 300f
-            val visibleItem = listState.layoutInfo.visibleItemsInfo.find { it.index == currentLineIndex }
+        val targetIndex = if (currentLineIndex in lyrics.indices) currentLineIndex else 0
 
-            if (visibleItem != null && viewportHeight > 0f) {
-                // 统一以活跃行的垂直几何中心与黄金重心对齐，彻底消除行高不同引起的上下颠簸
-                val itemCenterY = visibleItem.offset.toFloat() + (visibleItem.size.toFloat() / 2f)
+        // 确保视口高度与初始排版已就绪
+        if (listState.layoutInfo.viewportSize.height == 0) {
+            delay(32)
+        }
+        var viewportHeight = listState.layoutInfo.viewportSize.height.toFloat()
+        if (viewportHeight <= 0f) {
+            delay(32)
+            viewportHeight = listState.layoutInfo.viewportSize.height.toFloat()
+        }
+        if (viewportHeight <= 0f) return@LaunchedEffect
+        val targetFocalY = viewportHeight * 0.36f
+
+        val visibleItem = listState.layoutInfo.visibleItemsInfo.find { it.index == targetIndex }
+        if (visibleItem != null) {
+            // 统一以活跃行的垂直几何中心与黄金重心对齐，消除行高不同引起的上下颠簸
+            val itemCenterY = visibleItem.offset.toFloat() + (visibleItem.size.toFloat() / 2f)
+            val scrollDelta = itemCenterY - targetFocalY
+
+            if (kotlin.math.abs(scrollDelta) > 1.5f) {
+                listState.animateScrollBy(
+                    value = scrollDelta,
+                    animationSpec = lyricFluidSpring
+                )
+            }
+        } else {
+            // 目标行脱离视口（初次载入、快进拖动进度条、切歌跳转）：先平滑定位于目标行
+            listState.animateScrollToItem(targetIndex)
+            val itemAfter = listState.layoutInfo.visibleItemsInfo.find { it.index == targetIndex }
+            if (itemAfter != null) {
+                val itemCenterY = itemAfter.offset.toFloat() + (itemAfter.size.toFloat() / 2f)
                 val scrollDelta = itemCenterY - targetFocalY
-
-                if (kotlin.math.abs(scrollDelta) > 1.0f) {
+                if (kotlin.math.abs(scrollDelta) > 1.5f) {
                     listState.animateScrollBy(
                         value = scrollDelta,
                         animationSpec = lyricFluidSpring
                     )
-                }
-            } else {
-                // 若由于跳转或初次加载导致当前行脱离视口，先顺畅滑动到目标行
-                listState.animateScrollToItem(currentLineIndex)
-                val itemAfter = listState.layoutInfo.visibleItemsInfo.find { it.index == currentLineIndex }
-                if (itemAfter != null && viewportHeight > 0f) {
-                    val itemCenterY = itemAfter.offset.toFloat() + (itemAfter.size.toFloat() / 2f)
-                    val scrollDelta = itemCenterY - targetFocalY
-                    if (kotlin.math.abs(scrollDelta) > 1.0f) {
-                        listState.animateScrollBy(
-                            value = scrollDelta,
-                            animationSpec = lyricFluidSpring
-                        )
-                    }
                 }
             }
         }
