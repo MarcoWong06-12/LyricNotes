@@ -1038,7 +1038,7 @@ private fun NowPlayingLyricsContent(
             val curPos = currentPositionState.longValue
             val curLine = lyrics[currentLineIndex]
             val curEnd = curLine.words.lastOrNull()?.let {
-                (curLine.startTimeMs ?: 0L) + it.timeOffsetMs + it.durationMs
+                it.startTimeMs + it.durationMs
             } ?: (nextStart - 300L).coerceAtLeast(curLine.startTimeMs ?: 0L)
 
             if (curPos >= curEnd && curPos >= (nextStart - 260L)) {
