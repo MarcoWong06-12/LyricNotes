@@ -13,8 +13,10 @@ import kotlinx.coroutines.sync.Semaphore
 import kotlinx.coroutines.sync.withPermit
 import kotlinx.coroutines.withContext
 import okhttp3.FormBody
+import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.OkHttpClient
 import okhttp3.Request
+import okhttp3.RequestBody.Companion.toRequestBody
 import org.json.JSONArray
 import org.json.JSONObject
 import java.net.URLEncoder
@@ -167,33 +169,51 @@ class TranslationService(
                             val indexedChunkText = chunk.mapIndexed { idx, line -> "${idx + 1}. $line" }.joinToString("\n")
                             var parsed = emptyList<String>()
 
-                            // 优先尝试有道极速端点（带重试机制）
-                            for (attempt in 0..1) {
-                                val youdaoResult = translateChunkViaYoudao(indexedChunkText)
-                                if (!youdaoResult.isNullOrEmpty()) {
-                                    parsed = parseIndexedLines(youdaoResult.map { HtmlUtils.cleanTranslationOutput(it) }, chunk.size)
-                                    if (parsed.isNotEmpty() && parsed.count { it.isNotBlank() } >= (chunk.size + 1) / 2) {
-                                        break
-                                    }
-                                }
-                                if (attempt == 0) delay(100L)
+                            // 1. 优先尝试 Microsoft Edge 官方极速翻译（原生批量 JSON 数组，绝不串行丢行、100% 结构对齐）
+                            val edgeResult = translateViaMicrosoftEdge(chunk, targetIso)
+                            if (!edgeResult.isNullOrEmpty() && edgeResult.size == chunk.size && edgeResult.any { it.isNotBlank() }) {
+                                parsed = edgeResult
                             }
 
-                            // 容灾检查：若有道丢行较多，平滑回退至备选服务
+                            // 2. 备选：有道极速端点（带中/日/韩/英智能语种匹配与重试机制）
+                            if (parsed.isEmpty() || parsed.count { it.isNotBlank() } < (chunk.size + 1) / 2) {
+                                for (attempt in 0..1) {
+                                    val youdaoResult = translateChunkViaYoudao(indexedChunkText, chunk.firstOrNull() ?: "")
+                                    if (!youdaoResult.isNullOrEmpty()) {
+                                        val candidate = parseIndexedLines(youdaoResult.map { HtmlUtils.cleanTranslationOutput(it) }, chunk.size)
+                                        if (candidate.isNotEmpty() && candidate.count { it.isNotBlank() } >= (chunk.size + 1) / 2) {
+                                            parsed = candidate
+                                            break
+                                        }
+                                    }
+                                    if (attempt == 0) delay(100L)
+                                }
+                            }
+
+                            // 3. 备选：Google Translate 公共服务
                             if (parsed.isEmpty() || parsed.count { it.isNotBlank() } < (chunk.size + 1) / 2) {
                                 val googleFallback = translateViaGoogle(indexedChunkText, targetIso, "https://translate.googleapis.com/translate_a/single")
                                 if (!googleFallback.isNullOrBlank()) {
-                                    parsed = parseIndexedLines(googleFallback.lines().map { HtmlUtils.cleanTranslationOutput(it) }, chunk.size)
-                                } else {
-                                    val memoryFallback = translateViaMyMemory(indexedChunkText, targetIso)?.lines() ?: emptyList()
-                                    parsed = parseIndexedLines(memoryFallback.map { HtmlUtils.cleanTranslationOutput(it) }, chunk.size)
+                                    val candidate = parseIndexedLines(googleFallback.lines().map { HtmlUtils.cleanTranslationOutput(it) }, chunk.size)
+                                    if (candidate.isNotEmpty()) {
+                                        parsed = candidate
+                                    }
                                 }
                             }
 
-                            // 对每行译文进行音乐俚语语义润色
+                            // 4. 严格防告警降级兜底：MyMemory
+                            if (parsed.isEmpty() || parsed.count { it.isNotBlank() } < (chunk.size + 1) / 2) {
+                                val memoryFallback = translateViaMyMemory(indexedChunkText, targetIso)?.lines() ?: emptyList()
+                                val validMemory = memoryFallback.filterNot { isInvalidTranslation(it) }
+                                if (validMemory.isNotEmpty() && validMemory.size == memoryFallback.size) {
+                                    parsed = parseIndexedLines(validMemory.map { HtmlUtils.cleanTranslationOutput(it) }, chunk.size)
+                                }
+                            }
+
+                            // 对每行译文进行音乐俚语语义润色与非法告警过滤
                             (0 until chunk.size).map { idx ->
                                 val rawTrans = parsed.getOrNull(idx) ?: ""
-                                refineMusicSlang(rawTrans, chunk[idx])
+                                if (isInvalidTranslation(rawTrans)) "" else refineMusicSlang(rawTrans, chunk[idx])
                             }
                         }
                     }
@@ -275,14 +295,20 @@ class TranslationService(
         val cleanInput = HtmlUtils.cleanPlainText(unitText)
         if (cleanInput.isBlank()) return ""
 
-        // 1. 优先使用有道移动端极速端点
+        // 1. 优先使用 Microsoft Edge 官方极速翻译
+        val edge = translateViaMicrosoftEdge(listOf(cleanInput), targetIso)?.firstOrNull()
+        if (!edge.isNullOrBlank() && !isInvalidTranslation(edge)) {
+            return refineMusicSlang(edge, cleanInput)
+        }
+
+        // 2. 备选：使用有道移动端极速端点
         var youdaoResultText = ""
         for (attempt in 0..1) {
-            val youdaoResult = translateChunkViaYoudao(cleanInput)
+            val youdaoResult = translateChunkViaYoudao(cleanInput, cleanInput)
             if (!youdaoResult.isNullOrEmpty()) {
                 val fullTranslated = youdaoResult.joinToString("\n").trim()
                 val cleaned = HtmlUtils.cleanTranslationOutput(fullTranslated)
-                if (cleaned.isNotBlank()) {
+                if (cleaned.isNotBlank() && !isInvalidTranslation(cleaned)) {
                     youdaoResultText = cleaned
                     break
                 }
@@ -298,24 +324,24 @@ class TranslationService(
             return refineMusicSlang(youdaoResultText, cleanInput)
         }
 
-        // 2. 容灾回退至 Google Translate 公共端点（彻底补齐被截断的末尾段落与长句）
+        // 3. 容灾回退至 Google Translate 公共端点（彻底补齐被截断的末尾段落与长句）
         val google = translateViaGoogle(cleanInput, targetIso, "https://translate.googleapis.com/translate_a/single")
         if (!google.isNullOrBlank()) {
             val cleaned = HtmlUtils.cleanTranslationOutput(google)
-            if (cleaned.isNotBlank() && (Regex("""[\u4e00-\u9fa5]""").containsMatchIn(cleaned) || targetIso != "zh-CN")) {
+            if (cleaned.isNotBlank() && !isInvalidTranslation(cleaned) && (Regex("""[\u4e00-\u9fa5]""").containsMatchIn(cleaned) || targetIso != "zh-CN")) {
                 return refineMusicSlang(cleaned, cleanInput)
             }
         }
 
-        // 3. 容灾回退至 MyMemory
+        // 4. 容灾回退至 MyMemory (严格过滤限流警告)
         val myMemory = translateViaMyMemory(cleanInput, targetIso)
-        if (!myMemory.isNullOrBlank()) {
+        if (!myMemory.isNullOrBlank() && !isInvalidTranslation(myMemory)) {
             val cleaned = HtmlUtils.cleanTranslationOutput(myMemory)
-            if (cleaned.isNotBlank()) return refineMusicSlang(cleaned, cleanInput)
+            if (cleaned.isNotBlank() && !isInvalidTranslation(cleaned)) return refineMusicSlang(cleaned, cleanInput)
         }
 
         // 保底：若全部失败但有道有部分文字则至少返回有道，否则原样返回
-        return if (youdaoResultText.isNotBlank()) refineMusicSlang(youdaoResultText, cleanInput) else cleanInput
+        return if (youdaoResultText.isNotBlank() && !isInvalidTranslation(youdaoResultText)) refineMusicSlang(youdaoResultText, cleanInput) else cleanInput
     }
 
     /**
@@ -418,14 +444,117 @@ class TranslationService(
         return res
     }
 
+    @Volatile
+    private var edgeAuthToken: String? = null
+    @Volatile
+    private var edgeAuthTokenExpiryTimeMs: Long = 0L
+
+    fun isInvalidTranslation(text: String?): Boolean {
+        if (text.isNullOrBlank()) return true
+        val lower = text.lowercase()
+        return lower.contains("mymemory") ||
+                lower.contains("translated.net") ||
+                lower.contains("usage limit") ||
+                lower.contains("usagelimits") ||
+                lower.contains("free translations") ||
+                lower.contains("rate limit") ||
+                lower.contains("too many requests") ||
+                lower.contains("quota exceeded") ||
+                lower.contains("403 forbidden") ||
+                lower.contains("429 too many") ||
+                lower.contains("service unavailable")
+    }
+
+    private fun getEdgeAuthToken(): String? {
+        val now = System.currentTimeMillis()
+        val cached = edgeAuthToken
+        if (!cached.isNullOrBlank() && now < edgeAuthTokenExpiryTimeMs) {
+            return cached
+        }
+        return try {
+            val req = Request.Builder()
+                .url("https://edge.microsoft.com/translate/auth")
+                .header("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36 Edg/120.0.0.0")
+                .build()
+            val resp = client.newCall(req).execute()
+            if (resp.isSuccessful) {
+                val token = resp.body?.string()?.trim()
+                if (!token.isNullOrBlank()) {
+                    edgeAuthToken = token
+                    edgeAuthTokenExpiryTimeMs = now + 9 * 60 * 1000L
+                    token
+                } else null
+            } else null
+        } catch (e: Exception) {
+            null
+        }
+    }
+
+    private fun translateViaMicrosoftEdge(lines: List<String>, targetIso: String): List<String>? {
+        if (lines.isEmpty()) return emptyList()
+        val token = getEdgeAuthToken() ?: return null
+        return try {
+            val msTargetIso = when (targetIso.lowercase()) {
+                "zh-cn", "zh" -> "zh-Hans"
+                "zh-tw", "zh-hk" -> "zh-Hant"
+                else -> targetIso
+            }
+
+            val jsonArray = JSONArray()
+            for (line in lines) {
+                val clean = LyricAligner.cleanLine(line).ifBlank { " " }
+                val obj = JSONObject()
+                obj.put("Text", clean)
+                jsonArray.put(obj)
+            }
+
+            val mediaType = "application/json; charset=utf-8".toMediaType()
+            val body = jsonArray.toString().toRequestBody(mediaType)
+
+            val req = Request.Builder()
+                .url("https://api-edge.cognitive.microsofttranslator.com/translate?from=&to=$msTargetIso&api-version=3.0")
+                .header("Authorization", "Bearer $token")
+                .header("Content-Type", "application/json")
+                .header("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36 Edg/120.0.0.0")
+                .post(body)
+                .build()
+
+            val resp = client.newCall(req).execute()
+            if (!resp.isSuccessful) return null
+            val respStr = resp.body?.string() ?: return null
+            val respArray = JSONArray(respStr)
+
+            val results = mutableListOf<String>()
+            for (i in 0 until respArray.length()) {
+                val item = respArray.getJSONObject(i)
+                val translations = item.optJSONArray("translations")
+                val trans = translations?.optJSONObject(0)?.optString("text")?.trim() ?: ""
+                val clean = if (isInvalidTranslation(trans)) "" else trans
+                results.add(clean)
+            }
+
+            if (results.size == lines.size) results else null
+        } catch (e: Exception) {
+            null
+        }
+    }
+
     /**
      * 有道移动端极速翻译端点 (国内全网 5G/WiFi 直连，无 API Key，响应 200ms)
      */
-    private fun translateChunkViaYoudao(text: String): List<String>? {
+    private fun translateChunkViaYoudao(text: String, sampleLine: String = ""): List<String>? {
         return try {
+            val probe = sampleLine.ifBlank { text }
+            val youdaoType = when {
+                Regex("""[\u3040-\u30ff]""").containsMatchIn(probe) -> "JA2ZH_CN"
+                Regex("""[\uac00-\ud7af]""").containsMatchIn(probe) -> "KR2ZH_CN"
+                Regex("""[a-zA-Z]""").containsMatchIn(probe) -> "EN2ZH_CN"
+                else -> "AUTO"
+            }
+
             val formBody = FormBody.Builder()
                 .add("inputtext", text)
-                .add("type", "AUTO")
+                .add("type", youdaoType)
                 .build()
 
             val request = Request.Builder()
@@ -450,7 +579,7 @@ class TranslationService(
                 emptyList()
             }
 
-            if (listItems.isNotEmpty()) {
+            val rawList = if (listItems.isNotEmpty()) {
                 listItems
             } else {
                 val match = YOUDAO_RESULT_REGEX.find(html)
@@ -460,6 +589,7 @@ class TranslationService(
                     unescaped.lines().map { HtmlUtils.cleanPlainText(it) }.filter { it.isNotBlank() }
                 } else null
             }
+            rawList?.filterNot { isInvalidTranslation(it) }
         } catch (e: Exception) {
             null
         }
@@ -512,24 +642,32 @@ class TranslationService(
     private fun translateViaMyMemory(text: String, targetIso: String): String? {
         return try {
             val lines = text.lines()
-            val translatedLines = lines.map { line ->
+            val translatedLines = mutableListOf<String>()
+            for (line in lines) {
                 val clean = LyricAligner.cleanLine(line)
                 if (clean.isBlank()) {
-                    line
+                    translatedLines.add(line)
                 } else {
                     val encoded = URLEncoder.encode(clean, "UTF-8")
                     val queryUrl = "https://api.mymemory.translated.net/get?q=$encoded&langpair=auto|$targetIso"
                     val req = Request.Builder().url(queryUrl).build()
                     val resp = client.newCall(req).execute()
-                    val body = resp.body?.string()
-                    if (body != null) {
-                        val obj = JSONObject(body)
-                        val trans = obj.optJSONObject("responseData")?.optString("translatedText", clean) ?: clean
-                        val match = Regex("""^(\[\d{1,2}:\d{2}(?:\.\d{1,3})?\])""").find(line)
-                        if (match != null) "${match.value}$trans" else trans
-                    } else {
-                        line
+                    if (!resp.isSuccessful) return null
+                    val body = resp.body?.string() ?: return null
+                    val obj = JSONObject(body)
+                    val status = obj.optInt("responseStatus", 200)
+                    if (status != 200) {
+                        // 配额耗尽或服务拒绝，立即熔断返回 null，绝不继续请求
+                        return null
                     }
+                    val trans = obj.optJSONObject("responseData")?.optString("translatedText", "") ?: ""
+                    if (trans.isBlank() || isInvalidTranslation(trans)) {
+                        // 发现配额告警或空译文，立即熔断
+                        return null
+                    }
+                    val match = Regex("""^(\[\d{1,2}:\d{2}(?:\.\d{1,3})?\])""").find(line)
+                    val lineTrans = if (match != null) "${match.value}$trans" else trans
+                    translatedLines.add(lineTrans)
                 }
             }
             translatedLines.joinToString("\n")

@@ -76,4 +76,31 @@ class LyricAlignerTest {
         assertTrue(alignedTrans.contains("[00:15.00]"))
         assertTrue(alignedTrans.contains("患妄想症的少女"))
     }
+
+    @Test
+    fun testRefusalText_detectsMyMemoryQuotaWarning() {
+        val warning = "MYMEMORY WARNING: YOU USED ALL AVAILABLE FREE TRANSLATIONS FOR TODAY. NEXT AVAILABLE IN 01 HOURS 23 MINUTES 15 SECONDS VISIT HTTPS://MYMEMORY.TRANSLATED.NET/DOC/USAGELIMITS.PHP TO TRANSLATE MORE"
+        assertTrue(LyricAligner.isRefusalText(warning))
+        assertTrue(LyricAligner.isInvalidTranslationLine(warning))
+    }
+
+    @Test
+    fun testAlign_filtersMyMemoryWarningFromTranslation() {
+        val orig = """
+            [00:10.00] 貴方に降り註ぐものが譬え
+            [00:25.00] 雨だろうが運命だろうが
+        """.trimIndent()
+
+        val warningTrans = """
+            [00:10.00] MYMEMORY WARNING: YOU USED ALL AVAILABLE FREE TRANSLATIONS FOR TODAY. NEXT AVAILABLE IN 01 HOURS 23 MINUTES 15 SECONDS VISIT HTTPS://MYMEMORY.TRANSLATED.NET/DOC/USAGELIMITS.PHP TO TRANSLATE MORE
+            [00:25.00] MYMEMORY WARNING: YOU USED ALL AVAILABLE FREE TRANSLATIONS FOR TODAY. NEXT AVAILABLE IN 01 HOURS 23 MINUTES 15 SECONDS VISIT HTTPS://MYMEMORY.TRANSLATED.NET/DOC/USAGELIMITS.PHP TO TRANSLATE MORE
+        """.trimIndent()
+
+        val aligned = LyricAligner.align(orig, warningTrans)
+        assertEquals(2, aligned.size)
+        assertEquals("貴方に降り註ぐものが譬え", aligned[0].original)
+        assertEquals("", aligned[0].translation)
+        assertEquals("雨だろうが運命だろうが", aligned[1].original)
+        assertEquals("", aligned[1].translation)
+    }
 }

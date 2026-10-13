@@ -13,6 +13,9 @@ object LyricAligner {
         if (withoutTime.matches(LRC_METADATA_REGEX)) {
             return ""
         }
+        if (isInvalidTranslationLine(withoutTime)) {
+            return ""
+        }
         return HtmlUtils.unescapeHtml(withoutTime)
     }
 
@@ -38,6 +41,21 @@ object LyricAligner {
         return String.format(java.util.Locale.US, "[%02d:%02d.%02d]", min, sec, frac)
     }
 
+    fun isInvalidTranslationLine(text: String?): Boolean {
+        if (text.isNullOrBlank()) return false
+        val lower = text.lowercase()
+        return lower.contains("mymemory") ||
+                lower.contains("translated.net") ||
+                lower.contains("usage limit") ||
+                lower.contains("usagelimits") ||
+                lower.contains("free translations") ||
+                lower.contains("rate limit") ||
+                lower.contains("too many requests") ||
+                lower.contains("quota exceeded") ||
+                lower.contains("403 forbidden") ||
+                lower.contains("429 too many")
+    }
+
     fun isRefusalText(text: String?): Boolean {
         if (text.isNullOrBlank()) return false
         val refusalMarkers = listOf(
@@ -49,7 +67,11 @@ object LyricAligner {
             "90 个字符", "90 個字元", "90个字符", "90個字元",
             "主题摘要", "主題摘要", "意象与情绪", "意象與情緒",
             "copyrighted", "copyright protection", "copyright infringement",
-            "cannot translate", "unable to translate", "cannot reproduce"
+            "cannot translate", "unable to translate", "cannot reproduce",
+            "mymemory", "translated.net", "usagelimits", "usage limits",
+            "free translations for today", "you used all available",
+            "quota exceeded", "rate limit", "too many requests",
+            "service unavailable", "403 forbidden", "429 too many"
         )
         val lower = text.lowercase()
         if (refusalMarkers.any { lower.contains(it) }) {
@@ -147,7 +169,7 @@ object LyricAligner {
                         BilingualLyricLine(
                             lineNumber = i + 1,
                             original = orig,
-                            translation = trans,
+                            translation = if (isInvalidTranslationLine(trans)) "" else trans,
                             isStanzaBreak = false,
                             startTimeMs = time
                         )
@@ -196,7 +218,7 @@ object LyricAligner {
                 BilingualLyricLine(
                     lineNumber = i + 1,
                     original = orig,
-                    translation = trans,
+                    translation = if (isInvalidTranslationLine(trans)) "" else trans,
                     isStanzaBreak = orig.isBlank() && trans.isBlank(),
                     startTimeMs = time
                 )

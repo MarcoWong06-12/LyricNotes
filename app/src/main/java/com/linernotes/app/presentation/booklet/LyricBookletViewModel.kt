@@ -268,8 +268,14 @@ class LyricBookletViewModel @Inject constructor(
                         val hasOrigCensor = LyricSanitizer.hasCensorship(t.originalLyrics)
                         val hasTransCensor = LyricSanitizer.hasCensorship(t.translatedLyrics)
                         val hasTitleCensor = LyricSanitizer.hasCensorship(t.title)
+                        val hasCorruptedTrans = LyricAligner.isRefusalText(t.translatedLyrics) || t.translatedLyrics?.lines()?.any { LyricAligner.isInvalidTranslationLine(it) } == true
 
-                        if (hasOrigCensor || hasTransCensor || hasTitleCensor) {
+                        if (hasCorruptedTrans) {
+                            viewModelScope.launch(Dispatchers.IO) {
+                                repository.updateTrackTranslation(t.id, t.translatedTitle, t.originalLyrics, null)
+                            }
+                            t.copy(translatedLyrics = null)
+                        } else if (hasOrigCensor || hasTransCensor || hasTitleCensor) {
                             val cleanLyrics = if (hasOrigCensor) LyricSanitizer.decensorLyrics(t.originalLyrics ?: "") else (t.originalLyrics ?: "")
                             val cleanChinese = if (hasTransCensor) LyricSanitizer.decensorChineseLyrics(t.translatedLyrics, cleanLyrics) else t.translatedLyrics
                             val cleanTitle = if (hasTitleCensor) LyricSanitizer.decensorTitle(t.title) else t.title

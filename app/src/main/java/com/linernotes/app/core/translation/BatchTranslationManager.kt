@@ -101,14 +101,19 @@ class BatchTranslationManager @Inject constructor(
                             trackTitle = track.title,
                             originalLyrics = track.originalLyrics!!
                         )
-                        repository.updateTrackTranslation(
-                            trackId = track.id,
-                            translatedTitle = result.translatedTitle ?: track.translatedTitle,
-                            originalLyrics = track.originalLyrics,
-                            translatedLyrics = result.translatedLyrics
-                        )
-                        successfulTracks.add(track)
-                        Log.d("BatchTranslation", "《${track.title}》翻译完成并已落库")
+                        if (result.translatedLyrics.isNotBlank() && !LyricAligner.isRefusalText(result.translatedLyrics)) {
+                            repository.updateTrackTranslation(
+                                trackId = track.id,
+                                translatedTitle = result.translatedTitle ?: track.translatedTitle,
+                                originalLyrics = track.originalLyrics,
+                                translatedLyrics = result.translatedLyrics
+                            )
+                            successfulTracks.add(track)
+                            Log.d("BatchTranslation", "《${track.title}》翻译完成并已落库")
+                        } else {
+                            failedTracks.add(track)
+                            Log.e("BatchTranslation", "《${track.title}》翻译结果无效或被拦截，已加入末尾补译队列")
+                        }
                     } catch (e: Exception) {
                         failedTracks.add(track)
                         Log.e("BatchTranslation", "《${track.title}》第一轮暂未完成: ${e.message}，已加入末尾补译队列")

@@ -213,16 +213,20 @@ class NowPlayingRepository @Inject constructor(
 
         // 检查内存缓存：只有当歌词具备且（典故已具备 或 失败通知已结算）时，才视为完全命中缓存直接秒开
         val cached = memoryCache[songKey]
-        val isCachedTranslationSeverelyIncomplete = cached != null &&
-            cached.lyrics.size > 5 &&
-            cached.lyrics.count { it.translation.isNotBlank() } <= (cached.lyrics.size * 0.25).toInt()
+        val isCachedTranslationSeverelyIncomplete = cached != null && (
+            (cached.lyrics.size > 5 && cached.lyrics.count { it.translation.isNotBlank() && !LyricAligner.isInvalidTranslationLine(it.translation) } <= (cached.lyrics.size * 0.25).toInt()) ||
+            cached.lyrics.any { LyricAligner.isInvalidTranslationLine(it.translation) }
+        )
 
         if (cached != null && !isCachedTranslationSeverelyIncomplete && cached.lyrics.isNotEmpty() && (cached.annotatedLines.isNotEmpty() || cached.songStory != null || cached.geniusNotice != null)) {
+            val safeLyrics = cached.lyrics.map { line ->
+                if (LyricAligner.isInvalidTranslationLine(line.translation)) line.copy(translation = "") else line
+            }
             _nowPlayingData.update {
                 val currentPos = (it.playbackState.getEstimatedPositionMs() + lyricOffsetMs).coerceAtLeast(0L)
-                val lineIndex = calculateActiveLineIndex(cached.lyrics, currentPos)
+                val lineIndex = calculateActiveLineIndex(safeLyrics, currentPos)
                 it.copy(
-                    lyrics = cached.lyrics,
+                    lyrics = safeLyrics,
                     annotatedLines = cached.annotatedLines,
                     songStory = cached.songStory,
                     isLoadingLyrics = false,
@@ -237,11 +241,14 @@ class NowPlayingRepository @Inject constructor(
 
         // 若歌词已就绪但典故尚未获取，立刻展示歌词，后台并发补全典故
         if (cached != null && !isCachedTranslationSeverelyIncomplete && cached.lyrics.isNotEmpty()) {
+            val safeLyrics = cached.lyrics.map { line ->
+                if (LyricAligner.isInvalidTranslationLine(line.translation)) line.copy(translation = "") else line
+            }
             _nowPlayingData.update {
                 val currentPos = (it.playbackState.getEstimatedPositionMs() + lyricOffsetMs).coerceAtLeast(0L)
-                val lineIndex = calculateActiveLineIndex(cached.lyrics, currentPos)
+                val lineIndex = calculateActiveLineIndex(safeLyrics, currentPos)
                 it.copy(
-                    lyrics = cached.lyrics,
+                    lyrics = safeLyrics,
                     annotatedLines = cached.annotatedLines,
                     songStory = cached.songStory,
                     isLoadingLyrics = false,
@@ -268,7 +275,8 @@ class NowPlayingRepository @Inject constructor(
         }
 
         dataLoadJob = repositoryScope.launch {
-            var fetchedLyrics: List<BilingualLyricLine> = cached?.lyrics ?: emptyList()
+            val hasCorruptedTranslation = cached?.lyrics?.any { LyricAligner.isInvalidTranslationLine(it.translation) } == true
+            var fetchedLyrics: List<BilingualLyricLine> = if (hasCorruptedTranslation) emptyList() else (cached?.lyrics ?: emptyList())
             var fetchedStory: SongStoryEntity? = cached?.songStory
             var fetchedAnnotations: List<LyricAnnotationEntity> = emptyList()
 
@@ -325,6 +333,9 @@ class NowPlayingRepository @Inject constructor(
 
                         var origLyrics = rawResult.originalLyrics
                         var transLyrics = rawResult.translatedLyrics
+                        if (transLyrics != null && (LyricAligner.isRefusalText(transLyrics) || transLyrics.lines().any { LyricAligner.isInvalidTranslationLine(it) })) {
+                            transLyrics = null
+                        }
 
                         // 如果抓取到的歌词没有中文翻译，优先向网易云与 QQ 音乐查询官方人工双语精翻！
                         val isOfficialTransLacking = transLyrics.isNullOrBlank() || run {
@@ -348,7 +359,7 @@ class NowPlayingRepository @Inject constructor(
                         }
 
                         // 若官方平台仍无人工译文或译文严重残缺，触发内置极速翻译引擎（带序号硬锚定，零错位）
-                        val isNeedMachineTrans = transLyrics.isNullOrBlank() || run {
+                        val isNeedMachineTrans = transLyrics.isNullOrBlank() || LyricAligner.isRefusalText(transLyrics) || run {
                             val origCount = origLyrics.lines().count { it.replace(LyricAligner.LRC_TIMESTAMP_REGEX, "").trim().isNotBlank() }
                             val transCount = transLyrics?.lines()?.count { it.replace(LyricAligner.LRC_TIMESTAMP_REGEX, "").trim().isNotBlank() } ?: 0
                             origCount > 4 && transCount <= (origCount * 0.35).toInt()
@@ -356,7 +367,7 @@ class NowPlayingRepository @Inject constructor(
                         if (isNeedMachineTrans) {
                             try {
                                 val transResult = translationService.translateTrack(title, origLyrics)
-                                if (transResult != null && transResult.translatedLyrics.isNotBlank()) {
+                                if (transResult != null && transResult.translatedLyrics.isNotBlank() && !LyricAligner.isRefusalText(transResult.translatedLyrics)) {
                                     transLyrics = transResult.translatedLyrics
                                 }
                             } catch (e: Exception) {
@@ -650,6 +661,9 @@ class NowPlayingRepository @Inject constructor(
 
             var origLyrics = rawResult.originalLyrics
             var transLyrics = rawResult.translatedLyrics
+            if (transLyrics != null && (LyricAligner.isRefusalText(transLyrics) || transLyrics.lines().any { LyricAligner.isInvalidTranslationLine(it) })) {
+                transLyrics = null
+            }
 
             // 如果抓取到的歌词没有中文翻译，优先向网易云与 QQ 音乐查询官方人工双语精翻！
             val isOfficialTransLacking = transLyrics.isNullOrBlank() || run {
@@ -673,7 +687,7 @@ class NowPlayingRepository @Inject constructor(
             }
 
             // 若官方平台仍无人工译文或译文严重残缺，触发内置极速翻译引擎（带序号硬锚定，零错位）
-            val isNeedMachineTrans = transLyrics.isNullOrBlank() || run {
+            val isNeedMachineTrans = transLyrics.isNullOrBlank() || LyricAligner.isRefusalText(transLyrics) || run {
                 val origCount = origLyrics.lines().count { it.replace(LyricAligner.LRC_TIMESTAMP_REGEX, "").trim().isNotBlank() }
                 val transCount = transLyrics?.lines()?.count { it.replace(LyricAligner.LRC_TIMESTAMP_REGEX, "").trim().isNotBlank() } ?: 0
                 origCount > 4 && transCount <= (origCount * 0.35).toInt()
@@ -681,7 +695,7 @@ class NowPlayingRepository @Inject constructor(
             if (isNeedMachineTrans) {
                 try {
                     val transResult = translationService.translateTrack(title, origLyrics)
-                    if (transResult != null && transResult.translatedLyrics.isNotBlank()) {
+                    if (transResult != null && transResult.translatedLyrics.isNotBlank() && !LyricAligner.isRefusalText(transResult.translatedLyrics)) {
                         transLyrics = transResult.translatedLyrics
                     }
                 } catch (e: Exception) {
@@ -988,11 +1002,14 @@ class NowPlayingRepository @Inject constructor(
         if (rawResult != null && rawResult.originalLyrics.isNotBlank()) {
             var origLyrics = rawResult.originalLyrics
             var transLyrics = rawResult.translatedLyrics
+            if (transLyrics != null && (LyricAligner.isRefusalText(transLyrics) || transLyrics.lines().any { LyricAligner.isInvalidTranslationLine(it) })) {
+                transLyrics = null
+            }
 
-            if (transLyrics.isNullOrBlank()) {
+            if (transLyrics.isNullOrBlank() || LyricAligner.isRefusalText(transLyrics)) {
                 try {
                     val transResult = translationService.translateTrack(trackTitle, origLyrics)
-                    if (transResult != null && transResult.translatedLyrics.isNotBlank()) {
+                    if (transResult != null && transResult.translatedLyrics.isNotBlank() && !LyricAligner.isRefusalText(transResult.translatedLyrics)) {
                         transLyrics = transResult.translatedLyrics
                     }
                 } catch (e: Exception) {
