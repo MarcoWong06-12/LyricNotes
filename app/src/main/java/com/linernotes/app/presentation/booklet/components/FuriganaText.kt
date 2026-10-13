@@ -1,5 +1,6 @@
 package com.linernotes.app.presentation.booklet.components
 
+import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.foundation.layout.FlowRow
@@ -24,11 +25,16 @@ fun FuriganaText(
     rubyTextStyle: TextStyle = baseTextStyle.copy(fontSize = baseTextStyle.fontSize * 0.5f),
     isActive: Boolean = false,
     activeColor: Color = Color(0xFFEDEDED),
-    inactiveColor: Color = Color(0xFF9E9EA7)
+    inactiveColor: Color = Color(0xFF9E9EA7),
+    horizontalArrangement: Arrangement.Horizontal = Arrangement.Start
 ) {
     val textColor = if (isActive) activeColor else inactiveColor
 
-    FlowRow(modifier = modifier) {
+    FlowRow(
+        modifier = modifier,
+        horizontalArrangement = horizontalArrangement,
+        verticalArrangement = Arrangement.Bottom
+    ) {
         segments.forEach { segment ->
             if (segment.reading != null && mode != FuriganaMode.OFF) {
                 val rubyText = when (mode) {

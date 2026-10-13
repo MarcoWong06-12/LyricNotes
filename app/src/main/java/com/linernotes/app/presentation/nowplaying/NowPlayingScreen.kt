@@ -77,6 +77,11 @@ import com.linernotes.app.presentation.nowplaying.components.LyricNotesSettingsS
 import com.linernotes.app.presentation.nowplaying.components.NowPlayingGeniusSheet
 import com.linernotes.app.presentation.nowplaying.components.NowPlayingQueueSheet
 import com.linernotes.app.presentation.nowplaying.components.NowPlayingSongStorySheet
+import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.runtime.withFrameMillis
+import com.linernotes.app.core.lyric.FuriganaEngine
+import com.linernotes.app.presentation.booklet.components.FuriganaMode
+import com.linernotes.app.presentation.booklet.components.FuriganaText
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
 
@@ -91,7 +96,12 @@ fun NowPlayingScreen(
     val context = LocalContext.current
 
     val hasTrack = trackState.hasValidTrack
+    var isImmersiveMode by rememberSaveable { mutableStateOf(false) }
     val isGranted = remember { mutableStateOf(MediaPlaybackSyncService.isNotificationAccessGranted(context)) }
+
+    LaunchedEffect(hasTrack) {
+        if (!hasTrack) isImmersiveMode = false
+    }
 
     // 检查通知监听权限
     LaunchedEffect(Unit) {
@@ -193,7 +203,8 @@ fun NowPlayingScreen(
                     lyricOffsetMs = state.lyricOffsetMs,
                     isWordByWordEnabled = state.isWordByWordEnabled,
                     lyricAlignment = state.lyricAlignment,
-                    showPlaybackControls = state.showPlaybackControls,
+                    showPlaybackControls = state.showPlaybackControls && !isImmersiveMode,
+                    furiganaMode = state.furiganaMode,
                     onLineClicked = onLineClicked,
                     onAnnotationClicked = onAnnotationClicked,
                     onRetryLyrics = onRetryLyrics,
@@ -213,21 +224,67 @@ fun NowPlayingScreen(
                 )
             }
 
-            // 3. 极简顶部状态微栏 (为歌词留出 80% 屏幕纵向空间，集成外层歌曲故事直达入口)
-            NowPlayingTopBar(
-                trackState = trackState,
-                hasSongStory = nowData.songStory != null,
-                isTraditional = state.isTraditionalChinese,
-                isDark = isDarkUi,
-                onOpenSongStory = onOpenSongStory,
-                onOpenQueue = onOpenQueue,
-                onOpenSettings = onOpenSettings,
+            // 3. 极简顶部状态微栏 (为歌词留出 80% 屏幕纵向空间，集成外层歌曲故事直达入口与全屏沉浸入口)
+            AnimatedVisibility(
+                visible = !isImmersiveMode,
+                enter = fadeIn(tween(180)) + slideInVertically(spring(dampingRatio = 0.88f, stiffness = 320f)) { -it / 2 },
+                exit = fadeOut(tween(160)) + slideOutVertically(tween(220)) { -it / 2 },
                 modifier = Modifier.align(Alignment.TopCenter)
-            )
+            ) {
+                NowPlayingTopBar(
+                    trackState = trackState,
+                    hasSongStory = nowData.songStory != null,
+                    isTraditional = state.isTraditionalChinese,
+                    isDark = isDarkUi,
+                    onOpenSongStory = onOpenSongStory,
+                    onOpenQueue = onOpenQueue,
+                    onOpenSettings = onOpenSettings,
+                    onToggleImmersive = { isImmersiveMode = !isImmersiveMode }
+                )
+            }
+
+            // 全屏沉浸模式：浮动退出微胶囊 (灵动毛玻璃，轻触恢复标准视口)
+            AnimatedVisibility(
+                visible = isImmersiveMode && hasTrack,
+                enter = fadeIn(spring(dampingRatio = 0.86f, stiffness = 320f)) + scaleIn(spring(dampingRatio = 0.86f, stiffness = 320f), initialScale = 0.85f),
+                exit = fadeOut(tween(160)) + scaleOut(tween(160), targetScale = 0.85f),
+                modifier = Modifier
+                    .align(Alignment.TopEnd)
+                    .statusBarsPadding()
+                    .padding(top = 16.dp, end = 20.dp)
+            ) {
+                Surface(
+                    color = if (isDarkUi) Color(0xFF1E2230).copy(alpha = 0.85f) else MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.88f),
+                    shape = RoundedCornerShape(20.dp),
+                    border = BorderStroke(0.5.dp, if (isDarkUi) Color.White.copy(alpha = 0.22f) else Color.Black.copy(alpha = 0.12f)),
+                    modifier = Modifier
+                        .bouncyClickable(pressedScale = 0.92f) { isImmersiveMode = false }
+                ) {
+                    Row(
+                        modifier = Modifier.padding(horizontal = 12.dp, vertical = 7.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(6.dp)
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.FullscreenExit,
+                            contentDescription = "退出全屏",
+                            tint = if (isDarkUi) Color.White else MaterialTheme.colorScheme.onSurface,
+                            modifier = Modifier.size(16.dp)
+                        )
+                        Text(
+                            text = if (state.isTraditionalChinese) "退出全屏" else "退出全屏",
+                            color = if (isDarkUi) Color.White else MaterialTheme.colorScheme.onSurface,
+                            fontSize = 12.sp,
+                            fontWeight = FontWeight.Medium,
+                            fontFamily = FontFamily.SansSerif
+                        )
+                    }
+                }
+            }
 
             // 4. Genius 获取失败/状态提醒微浮标 (iOS Dynamic Island 悬浮微胶囊风格)
             AnimatedVisibility(
-                visible = (nowData.geniusNoticeMessage != null || nowData.isLoadingGenius) && hasTrack,
+                visible = !isImmersiveMode && (nowData.geniusNoticeMessage != null || nowData.isLoadingGenius) && hasTrack,
                 enter = fadeIn(tween(180)) + slideInVertically(spring(dampingRatio = 0.85f, stiffness = 420f)) { -it / 2 } + scaleIn(initialScale = 0.94f),
                 exit = fadeOut(tween(160)) + slideOutVertically(tween(220)) { -it / 2 } + scaleOut(targetScale = 0.94f),
                 modifier = Modifier
@@ -323,7 +380,7 @@ fun NowPlayingScreen(
 
             // 5. 方案 1：底栏悬浮毛玻璃全能胶囊 (物理弹簧与呼吸式扩展，集合歌曲信息、滑条与播控)
             AnimatedVisibility(
-                visible = hasTrack && state.showPlaybackControls,
+                visible = hasTrack && state.showPlaybackControls && !isImmersiveMode,
                 enter = fadeIn(tween(180)) + slideInVertically(spring(dampingRatio = 0.88f, stiffness = 320f)) { it / 3 } + scaleIn(initialScale = 0.95f),
                 exit = fadeOut(tween(160)) + slideOutVertically(tween(220)) { it / 3 } + scaleOut(targetScale = 0.95f),
                 modifier = Modifier.align(Alignment.BottomCenter)
@@ -474,6 +531,7 @@ private fun NowPlayingTopBar(
     onOpenSongStory: () -> Unit,
     onOpenQueue: () -> Unit,
     onOpenSettings: () -> Unit,
+    onToggleImmersive: () -> Unit = {},
     modifier: Modifier = Modifier
 ) {
     val topGradBase = if (isDark) Color(0xFF090A10) else MaterialTheme.colorScheme.background
@@ -684,6 +742,27 @@ private fun NowPlayingTopBar(
                     )
                 }
             }
+
+            // 全屏沉浸模式快捷切换按键 (Apple Music / Spotify 旗舰纯净视口)
+            Surface(
+                color = pillBg,
+                shape = CircleShape,
+                border = BorderStroke(0.5.dp, pillBorder),
+                modifier = Modifier
+                    .size(38.dp)
+                    .bouncyIconClickable(
+                        onClick = onToggleImmersive
+                    )
+            ) {
+                Box(contentAlignment = Alignment.Center) {
+                    Icon(
+                        imageVector = Icons.Default.Fullscreen,
+                        contentDescription = "全屏沉浸",
+                        tint = pillIconTint,
+                        modifier = Modifier.size(20.dp)
+                    )
+                }
+            }
         }
     }
 }
@@ -709,6 +788,7 @@ private fun NowPlayingLyricsContent(
     isWordByWordEnabled: Boolean = true,
     lyricAlignment: Int = AiPreferences.LYRIC_ALIGN_LEFT,
     showPlaybackControls: Boolean = true,
+    furiganaMode: FuriganaDisplayMode = FuriganaDisplayMode.OFF,
     onLineClicked: (BilingualLyricLine) -> Unit,
     onAnnotationClicked: (LyricAnnotationEntity) -> Unit,
     onRetryLyrics: () -> Unit = {},
@@ -821,13 +901,14 @@ private fun NowPlayingLyricsContent(
     val listState = rememberLazyListState()
     val coroutineScope = rememberCoroutineScope()
 
-    // 60fps 高精度毫秒级播放进度采样器 (仅在 draw 阶段读取，重构率为 0，驱动活跃行 Apple Music 风格逐字光效扫掠)
+    // 120Hz/90Hz/60Hz VSYNC 高精度硬件级播放进度采样器 (仅在 draw 阶段读取，重构率为 0，息屏与后台自动彻底休眠，驱动活跃行 Apple Music 风格逐字光效扫掠)
     val currentPositionState = remember { mutableLongStateOf(0L) }
     LaunchedEffect(isPlaying, trackState, lyricOffsetMs, isWordByWordEnabled) {
         if (isPlaying && isWordByWordEnabled) {
             while (isActive) {
-                currentPositionState.longValue = (trackState.getEstimatedPositionMs() + lyricOffsetMs).coerceAtLeast(0L)
-                delay(16) // 60fps 丝滑插值更新
+                withFrameMillis {
+                    currentPositionState.longValue = (trackState.getEstimatedPositionMs() + lyricOffsetMs).coerceAtLeast(0L)
+                }
             }
         } else {
             currentPositionState.longValue = (trackState.getEstimatedPositionMs() + lyricOffsetMs).coerceAtLeast(0L)
@@ -930,7 +1011,18 @@ private fun NowPlayingLyricsContent(
             // 切歌或首次载入新曲目：瞬移直接锚定至目标行，杜绝长距离回滚与动画割裂
             listState.scrollToItem(targetIndex, scrollOffset = 0)
         } else {
-            // 播放过程中的逐行跟进或点击寻轨跳转：平滑弹簧滑入偏上 ~22% 焦点位
+            // 播放过程中的逐行跟进或点击寻轨跳转：
+            // 当长距离跳行 (> 6 行) 时，先极速预跳转至目标前 2 行，随后柔和滑入聚焦位，消除跨屏巨幅排版计算掉帧
+            val currentIndex = listState.firstVisibleItemIndex
+            val distance = kotlin.math.abs(targetIndex - currentIndex)
+            if (distance > 6) {
+                val preSnapIndex = if (targetIndex > currentIndex) {
+                    (targetIndex - 2).coerceAtLeast(0)
+                } else {
+                    (targetIndex + 2).coerceAtMost(lyrics.lastIndex)
+                }
+                listState.scrollToItem(preSnapIndex, scrollOffset = 0)
+            }
             listState.animateScrollToItem(targetIndex, scrollOffset = 0)
         }
     }
@@ -991,6 +1083,7 @@ private fun NowPlayingLyricsContent(
                     isWordByWordEnabled = isWordByWordEnabled,
                     currentPositionMsProvider = currentPositionMsProvider,
                     lyricAlignment = lyricAlignment,
+                    furiganaMode = furiganaMode,
                     onClick = {
                         userScrolledAway = false
                         onLineClicked(line)
@@ -1084,6 +1177,7 @@ private fun LyricLineRow(
     isWordByWordEnabled: Boolean = true,
     currentPositionMsProvider: () -> Long = { 0L },
     lyricAlignment: Int = AiPreferences.LYRIC_ALIGN_LEFT,
+    furiganaMode: FuriganaDisplayMode = FuriganaDisplayMode.OFF,
     onClick: () -> Unit,
     onAnnotationClick: () -> Unit
 ) {
@@ -1196,8 +1290,39 @@ private fun LyricLineRow(
             .padding(horizontal = 8.dp, vertical = 4.dp),
         horizontalAlignment = if (isAlignLeft) Alignment.Start else Alignment.CenterHorizontally
     ) {
-        // 1. 原文歌词 (Apple Music 纯净高对比连续流光排版：仅活跃行执行逐字流光，非活跃行高性能纯净渲染)
-        if (isActive && isWordByWordEnabled && line.words.isNotEmpty()) {
+        // 1. 原文歌词 (Apple Music 纯净高对比连续流光排版：支持日文假名注音，仅活跃行执行逐字流光，非活跃行高性能纯净渲染)
+        val showFurigana = furiganaMode != FuriganaDisplayMode.OFF && FuriganaEngine.isJapanese(displayOriginal)
+        if (showFurigana) {
+            val segments = remember(displayOriginal) { FuriganaEngine.segmentText(displayOriginal) }
+            val baseStyle = TextStyle(
+                fontSize = 28.sp,
+                fontWeight = FontWeight.Bold,
+                fontFamily = FontFamily.SansSerif,
+                lineHeight = 38.sp,
+                letterSpacing = (-0.5).sp,
+                textAlign = if (isAlignLeft) TextAlign.Start else TextAlign.Center
+            )
+            val rubyStyle = TextStyle(
+                fontSize = 13.5.sp,
+                fontWeight = FontWeight.Normal,
+                fontFamily = FontFamily.SansSerif
+            )
+            FuriganaText(
+                segments = segments,
+                mode = when (furiganaMode) {
+                    FuriganaDisplayMode.ROMAJI -> FuriganaMode.ROMAJI
+                    FuriganaDisplayMode.HIRAGANA -> FuriganaMode.HIRAGANA
+                    else -> FuriganaMode.OFF
+                },
+                baseTextStyle = baseStyle,
+                rubyTextStyle = rubyStyle,
+                isActive = isActive,
+                activeColor = lyricColor,
+                inactiveColor = lyricColor,
+                horizontalArrangement = if (isAlignLeft) Arrangement.Start else Arrangement.Center,
+                modifier = Modifier.fillMaxWidth()
+            )
+        } else if (isActive && isWordByWordEnabled && line.words.isNotEmpty()) {
             AppleMusicDualLayerLyricLine(
                 text = displayOriginal,
                 words = line.words,
