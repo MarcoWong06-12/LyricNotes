@@ -28,7 +28,6 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.blur
 import androidx.compose.ui.draw.clip
 import androidx.compose.foundation.gestures.detectHorizontalDragGestures
 import androidx.compose.foundation.gestures.detectTapGestures
@@ -943,6 +942,17 @@ private fun NowPlayingLyricsContent(
         PaddingValues(top = topFocalPadding, bottom = bottomFocalPadding, start = 24.dp, end = 24.dp)
     }
 
+    val fadeBrush = remember {
+        Brush.verticalGradient(
+            0.0f to Color.Transparent,
+            0.02f to Color.Transparent,
+            0.05f to Color.Black,
+            0.88f to Color.Black,
+            0.97f to Color.Transparent,
+            1.0f to Color.Transparent
+        )
+    }
+
     Box(modifier = Modifier.fillMaxSize()) {
         LazyColumn(
             state = listState,
@@ -955,14 +965,7 @@ private fun NowPlayingLyricsContent(
                     drawContent()
                     // 硬件级上下边缘羽化蒙版 (Apple Music 纯净两端羽化虚空过渡)
                     drawRect(
-                        brush = Brush.verticalGradient(
-                            0.0f to Color.Transparent,
-                            0.02f to Color.Transparent,
-                            0.05f to Color.Black,
-                            0.88f to Color.Black,
-                            0.97f to Color.Transparent,
-                            1.0f to Color.Transparent
-                        ),
+                        brush = fadeBrush,
                         blendMode = BlendMode.DstIn
                     )
                 }
@@ -1129,22 +1132,6 @@ private fun LyricLineRow(
         )
     }
 
-    // Apple Music 电影级空间景深虚化 (Depth-of-field Blur)：
-    // 聚焦行绝对清晰 (0dp)，相邻行柔和景深 (1.5dp)；用户翻阅时全部解除虚化
-    val targetBlur = when {
-        isBrowsing || isActive -> 0.dp
-        else -> 1.5.dp
-    }
-
-    val animatedBlur by animateDpAsState(
-        targetValue = targetBlur,
-        animationSpec = spring(
-            dampingRatio = 0.86f,
-            stiffness = 180f
-        ),
-        label = "lineBlur"
-    )
-
     val animatedOriginalAlpha by animateFloatAsState(
         targetValue = targetOriginalAlpha,
         animationSpec = lyricMotionSpring,
@@ -1185,7 +1172,6 @@ private fun LyricLineRow(
                 alpha = animatedOriginalAlpha
                 transformOrigin = if (isAlignLeft) TransformOrigin(0f, 0.5f) else TransformOrigin(0.5f, 0.5f)
             }
-            .blur(animatedBlur)
             .clip(RoundedCornerShape(14.dp))
             .bouncyPress(
                 interactionSource = interactionSource,
@@ -1210,8 +1196,8 @@ private fun LyricLineRow(
             .padding(horizontal = 8.dp, vertical = 4.dp),
         horizontalAlignment = if (isAlignLeft) Alignment.Start else Alignment.CenterHorizontally
     ) {
-        // 1. 原文歌词 (Apple Music 纯净高对比连续流光排版：有逐字数据时常驻双层流光，行切换平滑过渡零跳变)
-        if (isWordByWordEnabled && line.words.isNotEmpty()) {
+        // 1. 原文歌词 (Apple Music 纯净高对比连续流光排版：仅活跃行执行逐字流光，非活跃行高性能纯净渲染)
+        if (isActive && isWordByWordEnabled && line.words.isNotEmpty()) {
             AppleMusicDualLayerLyricLine(
                 text = displayOriginal,
                 words = line.words,
@@ -1367,7 +1353,14 @@ private fun AppleMusicWordUnit(
             lineHeight = 38.sp,
             letterSpacing = (-0.5).sp,
             modifier = Modifier
-                .graphicsLayer(compositingStrategy = CompositingStrategy.Offscreen)
+                .graphicsLayer {
+                    val now = currentPositionMsProvider()
+                    compositingStrategy = if (now in start until end) {
+                        CompositingStrategy.Offscreen
+                    } else {
+                        CompositingStrategy.Auto
+                    }
+                }
                 .drawWithContent {
                     val now = currentPositionMsProvider()
                     if (now < start) {
@@ -1482,18 +1475,11 @@ private fun LyricAnnotationBadge(
  * 下半部：歌曲封面缩略图 (44dp) + 歌曲名(支持跑马灯) + 歌手名 + 随机 / 上一首 / 播放·暂停 / 下一首
  */
 @Composable
-private fun NowPlayingFloatingGlassPlayer(
+private fun PlayerProgressSection(
     trackState: TrackPlaybackState,
-    isTraditional: Boolean,
     isDark: Boolean,
-    isAmoledMode: Boolean = false,
-    onPlayPause: () -> Unit,
-    onNext: () -> Unit,
-    onPrevious: () -> Unit,
-    onToggleShuffle: () -> Unit,
+    onPlayerTextSec: Color,
     onSeekTo: (Long) -> Unit,
-    onOpenQueue: () -> Unit,
-    onOpenSettings: () -> Unit,
     modifier: Modifier = Modifier
 ) {
     var estimatedPosition by remember { mutableLongStateOf(trackState.currentPositionMs) }
@@ -1515,6 +1501,63 @@ private fun NowPlayingFloatingGlassPlayer(
         return "%02d:%02d".format(m, s)
     }
 
+    Row(
+        modifier = modifier.fillMaxWidth(),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.SpaceBetween
+    ) {
+        Text(
+            text = formatMs(estimatedPosition),
+            color = onPlayerTextSec,
+            fontSize = 11.sp,
+            fontFamily = FontFamily.Monospace,
+            modifier = Modifier.width(38.dp),
+            textAlign = TextAlign.Start
+        )
+
+        SleekTrackScrubber(
+            progress = progress,
+            isDark = isDark,
+            onSeekToFraction = { frac ->
+                val targetMs = (frac * duration).toLong()
+                onSeekTo(targetMs)
+            },
+            modifier = Modifier
+                .weight(1f)
+                .padding(horizontal = 8.dp)
+        )
+
+        Text(
+            text = formatMs(duration),
+            color = onPlayerTextSec.copy(alpha = 0.75f),
+            fontSize = 11.sp,
+            fontFamily = FontFamily.Monospace,
+            modifier = Modifier.width(38.dp),
+            textAlign = TextAlign.End
+        )
+    }
+}
+
+/**
+ * 方案 1：底栏悬浮毛玻璃全能胶囊 (极简流体悬浮坞)
+ * 上半部：当前进度时间 01:24 + 极细平滑声学进度条 (3dp 无白块) + 总时长 04:36
+ * 下半部：歌曲封面缩略图 (44dp) + 歌曲名(支持跑马灯) + 歌手名 + 随机 / 上一首 / 播放·暂停 / 下一首
+ */
+@Composable
+private fun NowPlayingFloatingGlassPlayer(
+    trackState: TrackPlaybackState,
+    isTraditional: Boolean,
+    isDark: Boolean,
+    isAmoledMode: Boolean = false,
+    onPlayPause: () -> Unit,
+    onNext: () -> Unit,
+    onPrevious: () -> Unit,
+    onToggleShuffle: () -> Unit,
+    onSeekTo: (Long) -> Unit,
+    onOpenQueue: () -> Unit,
+    onOpenSettings: () -> Unit,
+    modifier: Modifier = Modifier
+) {
     val playerBg = if (isDark) {
         if (isAmoledMode) Color(0xFF0C0C0E) else Color(0xFF0F1118).copy(alpha = 0.94f)
     } else {
@@ -1555,43 +1598,13 @@ private fun NowPlayingFloatingGlassPlayer(
                     .padding(horizontal = 16.dp, vertical = 12.dp)
             ) {
                 // 上半部：极细时间指示与平滑时间轴 (纯净 3dp 进度线与 8dp 小圆点，杜绝粗大白块)
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(bottom = 6.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.SpaceBetween
-                ) {
-                    Text(
-                        text = formatMs(estimatedPosition),
-                        color = onPlayerTextSec,
-                        fontSize = 11.sp,
-                        fontFamily = FontFamily.Monospace,
-                        modifier = Modifier.width(38.dp),
-                        textAlign = TextAlign.Start
-                    )
-
-                    SleekTrackScrubber(
-                        progress = progress,
-                        isDark = isDark,
-                        onSeekToFraction = { frac ->
-                            val targetMs = (frac * duration).toLong()
-                            onSeekTo(targetMs)
-                        },
-                        modifier = Modifier
-                            .weight(1f)
-                            .padding(horizontal = 8.dp)
-                    )
-
-                    Text(
-                        text = formatMs(duration),
-                        color = onPlayerTextSec.copy(alpha = 0.75f),
-                        fontSize = 11.sp,
-                        fontFamily = FontFamily.Monospace,
-                        modifier = Modifier.width(38.dp),
-                        textAlign = TextAlign.End
-                    )
-                }
+                PlayerProgressSection(
+                    trackState = trackState,
+                    isDark = isDark,
+                    onPlayerTextSec = onPlayerTextSec,
+                    onSeekTo = onSeekTo,
+                    modifier = Modifier.padding(bottom = 6.dp)
+                )
 
                 // 下半部：歌曲封面缩略图 + 歌曲信息 + 播放控制群
                 Row(
