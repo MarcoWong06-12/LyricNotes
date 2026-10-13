@@ -4,6 +4,7 @@ import android.content.Context
 import android.content.Intent
 import android.os.Build
 import android.util.Log
+import com.linernotes.app.core.lyric.LyricAligner
 import com.linernotes.app.core.preference.AiPreferences
 import com.linernotes.app.data.local.entity.TrackEntity
 import com.linernotes.app.data.remote.TranslationService
