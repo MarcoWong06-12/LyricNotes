@@ -935,11 +935,11 @@ private fun NowPlayingLyricsContent(
     val topFocalPadding = (screenHeightDp * 0.26f).coerceAtLeast(130.dp)
     val bottomFocalPadding = screenHeightDp * 0.72f
 
-    // 采用与 Apple Music / AMLL 官方完全一致的次临界柔性弹簧 (柔和阻尼 + 顺滑刚度，~480ms 连续平滑位移)
+    // 采用与 Apple Music / AMLL 官方完全一致的次临界柔性弹簧 (柔和阻尼 + 顺滑刚度，~580ms 连续平滑流体位移)
     val lyricFluidSpring = remember {
         spring<Float>(
-            dampingRatio = 0.84f, // Apple Music 官方次临界柔和阻尼：零机械顿挫，优雅磁吸微缓冲
-            stiffness = 160f      // 柔和流体刚度：~480ms 连续平滑位移，与人类语速天然共振
+            dampingRatio = 0.75f, // Apple Music 官方次临界黄金阻尼：告别提前硬刹车，释放柔性磁吸微过冲
+            stiffness = 105f      // 苹果 600ms 流体响应刚度：如奶油般厚重滑翔
         )
     }
 
@@ -1239,40 +1239,40 @@ private fun LyricLineRow(
     val isVisuallyActive = isActive || isGlowing
 
     // 空间景深动力学与自由阅读增强 (符合 WCAG AAA 标准，Apple Music 渐进式层次)：
-    // 1. 活跃行拥有绝对聚光灯聚焦：纯白高对比度 (1.0f)，从左原点锚定放大 (1.02f)，零虚化 (0dp)；
-    // 2. 紧邻上下行 (distance = 1)：柔和前瞻与回味 (0.65f)，标准比例 (1.00f)，清晰无虚化 (0dp)；
-    // 3. 次级邻行 (distance = 2)：退居次席 (0.45f)，轻微缩小 (0.98f)，轻柔景深 (0.8dp)；
-    // 4. 远端歌词 (distance >= 3)：环境景深 (0.30f)，缩小 (0.97f)，景深虚化 (1.8dp)。
+    // 1. 活跃行拥有绝对聚光灯聚焦：纯白高对比度 (1.0f)，从左原点锚定显著呼吸放大 (1.065f)，零虚化 (0dp)；
+    // 2. 紧邻上下行 (distance = 1)：柔和前瞻与回味 (0.52f)，过渡比例 (0.98f)，清晰无虚化 (0dp)；
+    // 3. 次级邻行 (distance = 2)：退居次席 (0.32f)，轻度缩小 (0.94f)，轻柔景深 (0.8dp)；
+    // 4. 远端歌词 (distance >= 3)：环境景深 (0.18f)，收缩 (0.94f)，景深虚化 (1.8dp)。
     val targetRowAlpha = when {
         isBrowsing -> {
             when (distance) {
                 0 -> 1.0f
                 1 -> if (isDark) 0.85f else 0.82f
-                2 -> if (isDark) 0.70f else 0.68f
-                else -> if (isDark) 0.55f else 0.50f
+                2 -> if (isDark) 0.65f else 0.62f
+                else -> if (isDark) 0.45f else 0.42f
             }
         }
         isVisuallyActive -> 1.0f
         else -> when (distance) {
-            0 -> if (isDark) 0.85f else 0.80f // 前奏预备行：高对比度预备，等待音节切入瞬间点亮
-            1 -> if (isDark) 0.65f else 0.60f
-            2 -> if (isDark) 0.45f else 0.42f
-            else -> if (isDark) 0.30f else 0.32f
+            0 -> if (isDark) 0.88f else 0.84f // 前奏预备行：高对比度预备，等待音节切入瞬间点亮
+            1 -> if (isDark) 0.52f else 0.48f // 紧邻行柔和前瞻与回味
+            2 -> if (isDark) 0.32f else 0.30f // 次级邻行
+            else -> if (isDark) 0.18f else 0.20f // 远端深景深歌词
         }
     }
 
-    // 缩放策略：Apple Music 官方视觉基准，微小视差保持基线绝对稳固 (活跃行 1.02f，非活跃行 0.98f)
+    // 缩放策略：Apple Music 官方呼吸绽放基准 (活跃行 1.065f 显著呼吸扩张，邻行 0.98f，远端 0.94f)
     val targetScale = when {
         isBrowsing -> when (distance) {
-            0 -> 1.02f
-            1 -> 1.00f
-            else -> 0.98f
+            0 -> 1.05f
+            1 -> 0.98f
+            else -> 0.94f
         }
-        isVisuallyActive -> 1.02f
+        isVisuallyActive -> 1.065f
         else -> when (distance) {
             0 -> 1.00f
-            1 -> 1.00f
-            else -> 0.98f
+            1 -> 0.98f
+            else -> 0.94f
         }
     }
 
@@ -1306,23 +1306,31 @@ private fun LyricLineRow(
         }
     }
 
-    // 采用与视口垂直滚动物理弹簧（dampingRatio = 0.86f, stiffness = 180f）完全相同曲线
-    val lyricMotionSpring = remember {
+    // 透明度与位移动力学弹簧：与视口滚动物理弹簧完全共振 (dampingRatio = 0.76f, stiffness = 110f)
+    val lyricAlphaSpring = remember {
         spring<Float>(
-            dampingRatio = 0.86f,
-            stiffness = 180f
+            dampingRatio = 0.76f,
+            stiffness = 110f
+        )
+    }
+
+    // 活跃行呼吸膨胀专用低刚度厚重弹簧 (AMLL 逆向核心: scaleSpringParams mass=2, damping=25, stiffness=100 -> Compose stiffness ~ 65f)
+    val lyricScaleSpring = remember {
+        spring<Float>(
+            dampingRatio = 0.82f,
+            stiffness = 65f
         )
     }
 
     val animatedRowAlpha by animateFloatAsState(
         targetValue = targetRowAlpha,
-        animationSpec = lyricMotionSpring,
+        animationSpec = lyricAlphaSpring,
         label = "rowAlpha"
     )
 
     val animatedScale by animateFloatAsState(
         targetValue = targetScale,
-        animationSpec = lyricMotionSpring,
+        animationSpec = lyricScaleSpring,
         label = "lineScale"
     )
 
