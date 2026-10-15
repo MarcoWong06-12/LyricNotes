@@ -931,9 +931,10 @@ private fun NowPlayingLyricsContent(
 
     val configuration = LocalConfiguration.current
     val screenHeightDp = configuration.screenHeightDp.dp
-    // Apple Music 真实视线带：紧随顶栏 (56dp) 下方优雅落座 (76dp)，彻底消除原先 190dp 造成的空洞大留白与偏下感
-    val topFocalPadding = 76.dp
-    val bottomFocalPadding = screenHeightDp * 0.65f
+    // Apple Music 黄金视线焦点：位于视口偏上部约 22%~25% 处（约 160-190dp）
+    // 既能让第一行开唱前优雅居于顶部下方，又能在逐行滚动时为上方保留 1~2 行已唱过的半透回味歌词
+    val topFocalPadding = (screenHeightDp * 0.22f).coerceAtLeast(120.dp)
+    val bottomFocalPadding = screenHeightDp * 0.70f
 
     // 采用统一流体物理弹簧规范 (450ms 优雅磁吸无机械顿挫)
     val lyricFluidSpring = remember {
@@ -943,11 +944,16 @@ private fun NowPlayingLyricsContent(
         )
     }
 
+    val density = LocalDensity.current
+    val topFocalPaddingPx = remember(density, topFocalPadding) {
+        with(density) { topFocalPadding.roundToPx() }
+    }
+
     // 监听用户真实手指触摸拖拽交互 (不被程序化滚动所污染)
     val isUserDragging by listState.interactionSource.collectIsDraggedAsState()
     var userScrolledAway by remember { mutableStateOf(false) }
 
-    // 当用户用手指触摸拖拽时，标记用户偏离当前播放位置
+    // 当用户用手指触摸拖拽时，标记用户偏离当前播放位置进入自由浏览
     LaunchedEffect(isUserDragging) {
         if (isUserDragging) {
             userScrolledAway = true
@@ -967,22 +973,22 @@ private fun NowPlayingLyricsContent(
         }
     }
 
-    // 动态计算当前视口活跃顶端最中央的歌词行索引，用于视口相对阅读聚焦
-    val visibleFocalIndex by remember {
+    // 动态计算当前落在黄金焦点区域最中央的歌词行索引，用于视口相对阅读聚焦
+    val visibleFocalIndex by remember(currentLineIndex, topFocalPaddingPx) {
         derivedStateOf {
             val layoutInfo = listState.layoutInfo
             val visibleItems = layoutInfo.visibleItemsInfo
-            if (visibleItems.isEmpty()) return@derivedStateOf currentLineIndex.coerceAtLeast(0)
+            if (visibleItems.isEmpty()) return@derivedStateOf (if (currentLineIndex in lyrics.indices) currentLineIndex else 0)
             val closest = visibleItems.minByOrNull { item ->
-                kotlin.math.abs(item.offset)
+                kotlin.math.abs(item.offset - topFocalPaddingPx)
             }
-            closest?.index ?: currentLineIndex.coerceAtLeast(0)
+            closest?.index ?: (if (currentLineIndex in lyrics.indices) currentLineIndex else 0)
         }
     }
 
     // 当用户手动滑动离开后，若滑动回到当前播放行，则自动恢复跟随
     LaunchedEffect(visibleFocalIndex, currentLineIndex, isUserDragging) {
-        if (!isUserDragging && userScrolledAway && visibleFocalIndex == currentLineIndex) {
+        if (!isUserDragging && userScrolledAway && currentLineIndex >= 0 && visibleFocalIndex == currentLineIndex) {
             userScrolledAway = false
         }
     }
@@ -994,45 +1000,27 @@ private fun NowPlayingLyricsContent(
     val focalIndex = if (isBrowsing) {
         visibleFocalIndex
     } else {
-        if (currentLineIndex >= 0) currentLineIndex else visibleFocalIndex
-    }
-
-    // 舞台 2：提前 260ms 提前量判定 (Stage 2: Anticipatory Lead-in Window)
-    // 在歌词间歇期提前滑向下一行，使其在唱出第一个音节前稳妥驻留在聚光灯位
-    val targetLineIndex by remember {
-        derivedStateOf {
-            if (!isPlaying || currentLineIndex !in lyrics.indices || currentLineIndex >= lyrics.lastIndex) {
-                return@derivedStateOf currentLineIndex
-            }
-            val nextLine = lyrics[currentLineIndex + 1]
-            val nextStart = nextLine.startTimeMs ?: return@derivedStateOf currentLineIndex
-            val curPos = currentPositionState.longValue
-            val curLine = lyrics[currentLineIndex]
-            val curEnd = curLine.words.lastOrNull()?.let {
-                it.startTimeMs + it.durationMs
-            } ?: (nextStart - 300L).coerceAtLeast(curLine.startTimeMs ?: 0L)
-
-            if (curPos >= curEnd && curPos >= (nextStart - 260L)) {
-                currentLineIndex + 1
-            } else {
-                currentLineIndex
-            }
-        }
+        if (currentLineIndex in lyrics.indices) currentLineIndex else 0
     }
 
     // 跟踪上一首歌曲标题，用于精准区分切歌跳转与同一首歌内部的平滑逐行推进
     var lastSongTitle by remember { mutableStateOf("") }
 
-    // 稳固的工业级虚拟化列表滚动：绝无坐标漂移，100% 绝对准确追踪
-    LaunchedEffect(targetLineIndex, lyrics, userScrolledAway, trackState.title) {
-        if (userScrolledAway || lyrics.isEmpty()) return@LaunchedEffect
-        val targetIndex = if (targetLineIndex in lyrics.indices) targetLineIndex else 0
+    // Apple Music 原生流体歌词跟随：每一行切换均以流体弹簧平滑滑入黄金焦点位
+    LaunchedEffect(currentLineIndex, userScrolledAway, lyrics, trackState.title) {
+        // 用户处于手指拖拽翻阅浏览状态时保持静止，保障自由沉浸阅读
+        if (userScrolledAway || lyrics.isEmpty()) {
+            return@LaunchedEffect
+        }
+        val targetIndex = if (currentLineIndex in lyrics.indices) currentLineIndex else 0
         val isSongChanged = trackState.title != lastSongTitle
 
         if (isSongChanged) {
             lastSongTitle = trackState.title
+            // 切歌或首次载入新曲目：瞬间定位至目标行，杜绝长距离无效回滚与撕裂
             listState.scrollToItem(targetIndex, scrollOffset = 0)
         } else {
+            // 播放过程中的逐行跟进或点击寻轨跳转
             val currentIndex = listState.firstVisibleItemIndex
             val distance = kotlin.math.abs(targetIndex - currentIndex)
             if (distance > 5) {
@@ -1053,8 +1041,8 @@ private fun NowPlayingLyricsContent(
     val fadeBrush = remember {
         Brush.verticalGradient(
             0.0f to Color.Transparent,
-            0.03f to Color.Black,
-            0.88f to Color.Black,
+            0.08f to Color.Black,
+            0.85f to Color.Black,
             0.98f to Color.Transparent,
             1.0f to Color.Transparent
         )
@@ -1219,10 +1207,11 @@ private fun LyricLineRow(
     }
     val isVisuallyActive = isActive || isGlowing
 
-    // 空间景深动力学与自由阅读增强 (符合 WCAG AAA 标准，高对比聚光灯聚焦)：
+    // 空间景深动力学与自由阅读增强 (符合 WCAG AAA 标准，Apple Music 渐进式层次)：
     // 1. 活跃行拥有绝对聚光灯聚焦：纯白高对比度 (1.0f)，从左原点锚定放大 (1.02f)，零虚化 (0dp)；
-    // 2. 常规跟随状态下，非活跃行统一柔化退居次席 (0.40f)，微缩 (0.98f)，柔和景深虚化；
-    // 3. 翻阅浏览模式下，视口中央行与周边行整体提升可读性。
+    // 2. 紧邻上下行 (distance = 1)：柔和前瞻与回味 (0.65f)，标准比例 (1.00f)，清晰无虚化 (0dp)；
+    // 3. 次级邻行 (distance = 2)：退居次席 (0.45f)，轻微缩小 (0.98f)，轻柔景深 (0.8dp)；
+    // 4. 远端歌词 (distance >= 3)：环境景深 (0.30f)，缩小 (0.97f)，景深虚化 (1.8dp)。
     val targetOriginalAlpha = when {
         isBrowsing -> {
             when (distance) {
@@ -1233,7 +1222,12 @@ private fun LyricLineRow(
             }
         }
         isVisuallyActive -> 1.0f
-        else -> if (isDark) 0.40f else 0.45f
+        else -> when (distance) {
+            0 -> if (isDark) 0.85f else 0.80f // 前奏预备行：高对比度预备，等待音节切入瞬间点亮
+            1 -> if (isDark) 0.65f else 0.60f
+            2 -> if (isDark) 0.45f else 0.42f
+            else -> if (isDark) 0.30f else 0.32f
+        }
     }
 
     val targetTransAlpha = when {
@@ -1246,14 +1240,26 @@ private fun LyricLineRow(
             }
         }
         isVisuallyActive -> 0.90f
-        else -> if (isDark) 0.28f else 0.32f
+        else -> when (distance) {
+            0 -> if (isDark) 0.75f else 0.70f
+            1 -> if (isDark) 0.55f else 0.50f
+            2 -> if (isDark) 0.36f else 0.34f
+            else -> if (isDark) 0.22f else 0.24f
+        }
     }
 
-    // 缩放策略：Apple Music 官方视觉基准，微小视差保持基线绝对稳固 (活跃行 1.02f，非活跃行 0.98f，杜绝夸张跳动)
+    // 缩放策略：Apple Music 官方视觉基准，微小视差保持基线绝对稳固 (活跃行 1.02f，非活跃行 0.98f)
     val targetScale = when {
-        isBrowsing -> if (distance == 0) 1.02f else 0.98f
+        isBrowsing -> when (distance) {
+            0 -> 1.02f
+            1 -> 1.00f
+            else -> 0.98f
+        }
         isVisuallyActive -> 1.02f
-        else -> 0.98f
+        else -> when (distance) {
+            1 -> 1.00f
+            else -> 0.98f
+        }
     }
 
     // 舞台 4：GPU 硬件级景深虚化 (Stage 4: GPU Depth of Field Blur on Android 12+ API 31+)
@@ -1261,13 +1267,14 @@ private fun LyricLineRow(
         isVisuallyActive -> 0f
         isBrowsing -> when (distance) {
             0 -> 0f
-            1 -> 0.8f
-            else -> 1.8f
+            1 -> 0f
+            2 -> 0.8f
+            else -> 1.5f
         }
         else -> when (distance) {
-            1 -> 1.0f
-            2 -> 2.0f
-            else -> 2.8f
+            1 -> 0f       // 紧邻行不虚化，保持优雅可读
+            2 -> 0.8f     // 次级邻行轻微柔焦
+            else -> 1.8f  // 远端深景深虚化
         }
     }
 
