@@ -931,22 +931,16 @@ private fun NowPlayingLyricsContent(
 
     val configuration = LocalConfiguration.current
     val screenHeightDp = configuration.screenHeightDp.dp
-    // Apple Music 黄金视线焦点：位于视口偏上部约 22%~25% 处（约 160-190dp）
-    // 既能让第一行开唱前优雅居于顶部下方，又能在逐行滚动时为上方保留 1~2 行已唱过的半透回味歌词
-    val topFocalPadding = (screenHeightDp * 0.22f).coerceAtLeast(120.dp)
-    val bottomFocalPadding = screenHeightDp * 0.70f
+    // Apple Music 官方视口边距：顶部为首行歌词与回味预留空间，底部预留 72% 屏幕高度确保最后一首能滚动至重心
+    val topFocalPadding = (screenHeightDp * 0.26f).coerceAtLeast(130.dp)
+    val bottomFocalPadding = screenHeightDp * 0.72f
 
-    // 采用统一流体物理弹簧规范 (450ms 优雅磁吸无机械顿挫)
+    // 采用与 Apple Music / AMLL 官方完全一致的次临界柔性弹簧 (柔和阻尼 + 顺滑刚度，~480ms 连续平滑位移)
     val lyricFluidSpring = remember {
         spring<Float>(
-            dampingRatio = 0.86f, // 次临界柔和阻尼：零机械顿挫，优雅磁吸微缓冲
-            stiffness = 180f      // 柔和流体刚度：~450ms 连续平滑位移，与人类语速天然共振
+            dampingRatio = 0.84f, // Apple Music 官方次临界柔和阻尼：零机械顿挫，优雅磁吸微缓冲
+            stiffness = 160f      // 柔和流体刚度：~480ms 连续平滑位移，与人类语速天然共振
         )
-    }
-
-    val density = LocalDensity.current
-    val topFocalPaddingPx = remember(density, topFocalPadding) {
-        with(density) { topFocalPadding.roundToPx() }
     }
 
     // 监听用户真实手指触摸拖拽交互 (不被程序化滚动所污染)
@@ -973,14 +967,17 @@ private fun NowPlayingLyricsContent(
         }
     }
 
-    // 动态计算当前落在黄金焦点区域最中央的歌词行索引，用于视口相对阅读聚焦
-    val visibleFocalIndex by remember(currentLineIndex, topFocalPaddingPx) {
+    // 动态计算当前落在 36% 黄金重心视觉带最中央的歌词行索引，用于视口相对阅读聚焦
+    val visibleFocalIndex by remember(currentLineIndex) {
         derivedStateOf {
             val layoutInfo = listState.layoutInfo
             val visibleItems = layoutInfo.visibleItemsInfo
             if (visibleItems.isEmpty()) return@derivedStateOf (if (currentLineIndex in lyrics.indices) currentLineIndex else 0)
+            val viewportHeight = layoutInfo.viewportSize.height.toFloat()
+            val targetFocalY = if (viewportHeight > 0f) viewportHeight * 0.36f else 300f
             val closest = visibleItems.minByOrNull { item ->
-                kotlin.math.abs(item.offset - topFocalPaddingPx)
+                val itemCenter = item.offset.toFloat() + (item.size.toFloat() / 2f)
+                kotlin.math.abs(itemCenter - targetFocalY)
             }
             closest?.index ?: (if (currentLineIndex in lyrics.indices) currentLineIndex else 0)
         }
@@ -1006,7 +1003,7 @@ private fun NowPlayingLyricsContent(
     // 跟踪上一首歌曲标题，用于精准区分切歌跳转与同一首歌内部的平滑逐行推进
     var lastSongTitle by remember { mutableStateOf("") }
 
-    // Apple Music 原生流体歌词跟随：每一行切换均以流体弹簧平滑滑入黄金焦点位
+    // Apple Music 官方视线重心动力学 (36% 视口黄金视觉锚点 + 流体几何中心吸附物理弹簧)
     LaunchedEffect(currentLineIndex, userScrolledAway, lyrics, trackState.title) {
         // 用户处于手指拖拽翻阅浏览状态时保持静止，保障自由沉浸阅读
         if (userScrolledAway || lyrics.isEmpty()) {
@@ -1019,8 +1016,25 @@ private fun NowPlayingLyricsContent(
             lastSongTitle = trackState.title
             // 切歌或首次载入新曲目：瞬间定位至目标行，杜绝长距离无效回滚与撕裂
             listState.scrollToItem(targetIndex, scrollOffset = 0)
+            return@LaunchedEffect
+        }
+
+        val viewportHeight = listState.layoutInfo.viewportSize.height.toFloat()
+        val targetFocalY = if (viewportHeight > 0f) viewportHeight * 0.36f else 300f
+
+        val visibleItem = listState.layoutInfo.visibleItemsInfo.find { it.index == targetIndex }
+        if (visibleItem != null && viewportHeight > 0f) {
+            // 核心：以当前活跃行的【几何垂直中心】与黄金重心 (36%) 严格对齐，彻底消除行高不同引起的上下颠簸跳跃
+            val itemCenterY = visibleItem.offset.toFloat() + (visibleItem.size.toFloat() / 2f)
+            val scrollDelta = itemCenterY - targetFocalY
+            if (kotlin.math.abs(scrollDelta) > 1.5f) {
+                listState.animateScrollBy(
+                    value = scrollDelta,
+                    animationSpec = lyricFluidSpring
+                )
+            }
         } else {
-            // 播放过程中的逐行跟进或点击寻轨跳转
+            // 目标行脱离视口（初次载入、快进拖动进度条、切歌跳转）：先快速锚定至目标行附近，再流体吸附
             val currentIndex = listState.firstVisibleItemIndex
             val distance = kotlin.math.abs(targetIndex - currentIndex)
             if (distance > 5) {
@@ -1028,6 +1042,17 @@ private fun NowPlayingLyricsContent(
                 listState.scrollToItem(preIndex.coerceIn(0, lyrics.lastIndex), scrollOffset = 0)
             }
             listState.animateScrollToItem(targetIndex, scrollOffset = 0)
+            val itemAfter = listState.layoutInfo.visibleItemsInfo.find { it.index == targetIndex }
+            if (itemAfter != null && viewportHeight > 0f) {
+                val itemCenterY = itemAfter.offset.toFloat() + (itemAfter.size.toFloat() / 2f)
+                val scrollDelta = itemCenterY - targetFocalY
+                if (kotlin.math.abs(scrollDelta) > 1.5f) {
+                    listState.animateScrollBy(
+                        value = scrollDelta,
+                        animationSpec = lyricFluidSpring
+                    )
+                }
+            }
         }
     }
 
@@ -1091,7 +1116,18 @@ private fun NowPlayingLyricsContent(
                     onClick = {
                         userScrolledAway = false
                         coroutineScope.launch {
-                            listState.animateScrollToItem(index, scrollOffset = 0)
+                            val viewportHeight = listState.layoutInfo.viewportSize.height.toFloat()
+                            val targetFocalY = if (viewportHeight > 0f) viewportHeight * 0.36f else 300f
+                            val visibleItem = listState.layoutInfo.visibleItemsInfo.find { it.index == index }
+                            if (visibleItem != null && viewportHeight > 0f) {
+                                val itemCenterY = visibleItem.offset.toFloat() + (visibleItem.size.toFloat() / 2f)
+                                val scrollDelta = itemCenterY - targetFocalY
+                                if (kotlin.math.abs(scrollDelta) > 1.5f) {
+                                    listState.animateScrollBy(scrollDelta, lyricFluidSpring)
+                                }
+                            } else {
+                                listState.animateScrollToItem(index, scrollOffset = 0)
+                            }
                         }
                         onLineClicked(line)
                     },
