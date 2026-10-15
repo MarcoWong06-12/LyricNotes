@@ -1077,7 +1077,7 @@ private fun NowPlayingLyricsContent(
         LazyColumn(
             state = listState,
             contentPadding = listPadding,
-            verticalArrangement = Arrangement.spacedBy(20.dp),
+            verticalArrangement = Arrangement.spacedBy(22.dp),
             modifier = Modifier
                 .fillMaxSize()
                 .graphicsLayer(compositingStrategy = CompositingStrategy.Offscreen)
@@ -1342,6 +1342,24 @@ private fun LyricLineRow(
         if (isTraditional) ChineseConverter.toTraditional(line.translation) else line.translation
     }
 
+    // 官方 KARAOKE_WORD_LIFT_TAG 逆向物理微浮动引擎：
+    // 当歌词行变为焦点活跃行时，施加轻柔向上微提 (-14px / ~5dp) 并伴随次临界阻尼磁吸回落定格，打破死板平面感
+    val liftY = remember { Animatable(0f) }
+    LaunchedEffect(isActive, isBrowsing) {
+        if (isActive && !isBrowsing) {
+            liftY.snapTo(-14f)
+            liftY.animateTo(
+                targetValue = 0f,
+                animationSpec = spring(
+                    dampingRatio = 0.74f, // 苹果官方次临界微过冲回弹
+                    stiffness = 115f
+                )
+            )
+        } else {
+            liftY.animateTo(0f, spring(0.85f, 160f))
+        }
+    }
+
     val lyricColor = if (isDark) Color.White else MaterialTheme.colorScheme.onBackground
     val isAlignLeft = lyricAlignment == AiPreferences.LYRIC_ALIGN_LEFT
     val haptic = LocalHapticFeedback.current
@@ -1353,6 +1371,7 @@ private fun LyricLineRow(
             .graphicsLayer {
                 scaleX = animatedScale
                 scaleY = animatedScale
+                translationY = liftY.value
                 alpha = animatedRowAlpha
                 transformOrigin = if (isAlignLeft) TransformOrigin(0f, 0.5f) else TransformOrigin(0.5f, 0.5f)
                 if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
@@ -1380,7 +1399,7 @@ private fun LyricLineRow(
                     onClick()
                 }
             )
-            .padding(horizontal = 8.dp, vertical = 4.dp),
+            .padding(horizontal = 8.dp, vertical = 6.dp),
         horizontalAlignment = if (isAlignLeft) Alignment.Start else Alignment.CenterHorizontally
     ) {
         // 1. 原文歌词 (Apple Music 纯净高对比连续流光排版：支持日文假名注音，仅活跃行执行逐字流光，非活跃行高性能纯净渲染)
