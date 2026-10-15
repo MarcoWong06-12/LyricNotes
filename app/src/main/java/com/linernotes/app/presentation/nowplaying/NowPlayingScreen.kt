@@ -1067,7 +1067,7 @@ private fun NowPlayingLyricsContent(
         ) {
             itemsIndexed(
                 items = lyrics,
-                key = { index, line -> "${line.startTimeMs ?: index}_${line.original.hashCode()}" }
+                key = { index, line -> "${index}_${line.startTimeMs ?: 0L}_${line.original.hashCode()}" }
             ) { index, line ->
                 val isActive = (index == currentLineIndex)
                 val isFocal = (index == focalIndex)
@@ -1140,13 +1140,8 @@ private fun NowPlayingLyricsContent(
                 ),
                 shadowElevation = 8.dp,
                 modifier = Modifier.bouncyClickable(pressedScale = 0.93f) {
-                    // 核心：立即重置用户偏离标记，触发跟随模式流畅回滚
+                    // 核心：立即重置用户偏离标记，自动触发跟随模式流畅平滑回滚至正在播放行
                     userScrolledAway = false
-                    if (currentLineIndex in lyrics.indices) {
-                        coroutineScope.launch {
-                            listState.animateScrollToItem(currentLineIndex, scrollOffset = 0)
-                        }
-                    }
                 }
             ) {
                 Row(
@@ -1212,7 +1207,7 @@ private fun LyricLineRow(
     // 2. 紧邻上下行 (distance = 1)：柔和前瞻与回味 (0.65f)，标准比例 (1.00f)，清晰无虚化 (0dp)；
     // 3. 次级邻行 (distance = 2)：退居次席 (0.45f)，轻微缩小 (0.98f)，轻柔景深 (0.8dp)；
     // 4. 远端歌词 (distance >= 3)：环境景深 (0.30f)，缩小 (0.97f)，景深虚化 (1.8dp)。
-    val targetOriginalAlpha = when {
+    val targetRowAlpha = when {
         isBrowsing -> {
             when (distance) {
                 0 -> 1.0f
@@ -1230,24 +1225,6 @@ private fun LyricLineRow(
         }
     }
 
-    val targetTransAlpha = when {
-        isBrowsing -> {
-            when (distance) {
-                0 -> 0.95f
-                1 -> if (isDark) 0.78f else 0.75f
-                2 -> if (isDark) 0.60f else 0.58f
-                else -> if (isDark) 0.45f else 0.42f
-            }
-        }
-        isVisuallyActive -> 0.90f
-        else -> when (distance) {
-            0 -> if (isDark) 0.75f else 0.70f
-            1 -> if (isDark) 0.55f else 0.50f
-            2 -> if (isDark) 0.36f else 0.34f
-            else -> if (isDark) 0.22f else 0.24f
-        }
-    }
-
     // 缩放策略：Apple Music 官方视觉基准，微小视差保持基线绝对稳固 (活跃行 1.02f，非活跃行 0.98f)
     val targetScale = when {
         isBrowsing -> when (distance) {
@@ -1257,6 +1234,7 @@ private fun LyricLineRow(
         }
         isVisuallyActive -> 1.02f
         else -> when (distance) {
+            0 -> 1.00f
             1 -> 1.00f
             else -> 0.98f
         }
@@ -1272,6 +1250,7 @@ private fun LyricLineRow(
             else -> 1.5f
         }
         else -> when (distance) {
+            0 -> 0f
             1 -> 0f       // 紧邻行不虚化，保持优雅可读
             2 -> 0.8f     // 次级邻行轻微柔焦
             else -> 1.8f  // 远端深景深虚化
@@ -1299,16 +1278,10 @@ private fun LyricLineRow(
         )
     }
 
-    val animatedOriginalAlpha by animateFloatAsState(
-        targetValue = targetOriginalAlpha,
+    val animatedRowAlpha by animateFloatAsState(
+        targetValue = targetRowAlpha,
         animationSpec = lyricMotionSpring,
-        label = "origAlpha"
-    )
-
-    val animatedTransAlpha by animateFloatAsState(
-        targetValue = targetTransAlpha,
-        animationSpec = lyricMotionSpring,
-        label = "transAlpha"
+        label = "rowAlpha"
     )
 
     val animatedScale by animateFloatAsState(
@@ -1336,7 +1309,7 @@ private fun LyricLineRow(
             .graphicsLayer {
                 scaleX = animatedScale
                 scaleY = animatedScale
-                alpha = animatedOriginalAlpha
+                alpha = animatedRowAlpha
                 transformOrigin = if (isAlignLeft) TransformOrigin(0f, 0.5f) else TransformOrigin(0.5f, 0.5f)
                 if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
                     renderEffect = blurRenderEffect
@@ -1426,15 +1399,13 @@ private fun LyricLineRow(
             Spacer(modifier = Modifier.height(4.dp))
             Text(
                 text = displayTranslation,
-                color = lyricColor,
+                color = lyricColor.copy(alpha = if (isVisuallyActive) 0.88f else 0.72f),
                 fontSize = 16.sp,
                 fontWeight = FontWeight.Medium,
                 fontFamily = FontFamily.SansSerif,
                 lineHeight = 22.sp,
                 textAlign = if (isAlignLeft) TextAlign.Start else TextAlign.Center,
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .graphicsLayer { alpha = animatedTransAlpha }
+                modifier = Modifier.fillMaxWidth()
             )
         }
 
