@@ -110,6 +110,7 @@ fun NowPlayingScreen(
 
     val hasTrack = trackState.hasValidTrack
     var isImmersiveMode by rememberSaveable { mutableStateOf(false) }
+    var showEnlargedCover by remember { mutableStateOf(false) }
     val isGranted = remember { mutableStateOf(MediaPlaybackSyncService.isNotificationAccessGranted(context)) }
 
     LaunchedEffect(hasTrack) {
@@ -249,6 +250,7 @@ fun NowPlayingScreen(
                     hasSongStory = nowData.songStory != null,
                     isTraditional = state.isTraditionalChinese,
                     isDark = isDarkUi,
+                    onCoverClick = { showEnlargedCover = true },
                     onOpenSongStory = onOpenSongStory,
                     onOpenQueue = onOpenQueue,
                     onOpenSettings = onOpenSettings,
@@ -413,6 +415,47 @@ fun NowPlayingScreen(
                     onOpenSettings = onOpenSettings
                 )
             }
+
+            // 6. 高清专辑封面轻触放大浮层 (iOS / Apple Music 触感流体微弹簧缩放)
+            AnimatedVisibility(
+                visible = showEnlargedCover && !trackState.coverUrl.isNullOrBlank(),
+                enter = fadeIn(tween(180)) + scaleIn(spring(dampingRatio = 0.82f, stiffness = 420f), initialScale = 0.85f),
+                exit = fadeOut(tween(140)) + scaleOut(tween(140), targetScale = 0.85f),
+                modifier = Modifier.fillMaxSize()
+            ) {
+                Box(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .background(Color.Black.copy(alpha = 0.82f))
+                        .clickable(
+                            interactionSource = remember { MutableInteractionSource() },
+                            indication = null,
+                            onClick = { showEnlargedCover = false }
+                        ),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Surface(
+                        shape = RoundedCornerShape(24.dp),
+                        shadowElevation = 28.dp,
+                        border = BorderStroke(0.5.dp, Color.White.copy(alpha = 0.28f)),
+                        modifier = Modifier
+                            .padding(32.dp)
+                            .fillMaxWidth(0.86f)
+                            .aspectRatio(1f)
+                            .clip(RoundedCornerShape(24.dp))
+                    ) {
+                        AsyncImage(
+                            model = ImageRequest.Builder(context)
+                                .data(trackState.coverUrl)
+                                .crossfade(true)
+                                .build(),
+                            contentDescription = "Cover Artwork",
+                            contentScale = ContentScale.Crop,
+                            modifier = Modifier.fillMaxSize()
+                        )
+                    }
+                }
+            }
         }
 
         // 待播队列 (Queue) 底部抽屉 (仿 Spotify 队列界面)
@@ -542,6 +585,7 @@ private fun NowPlayingTopBar(
     hasSongStory: Boolean,
     isTraditional: Boolean,
     isDark: Boolean,
+    onCoverClick: () -> Unit = {},
     onOpenSongStory: () -> Unit,
     onOpenQueue: () -> Unit,
     onOpenSettings: () -> Unit,
@@ -592,6 +636,61 @@ private fun NowPlayingTopBar(
             }
 
             if (trackState.hasValidTrack) {
+                // 1. 歌曲封面微缩图 (36dp 苹果级圆角微卡片，轻触放大查看大图)
+                val coverScale by animateFloatAsState(
+                    targetValue = if (trackState.hasValidTrack) 1.0f else 0.94f,
+                    animationSpec = spring(dampingRatio = 0.82f, stiffness = 450f),
+                    label = "topCoverScale"
+                )
+                Box(
+                    modifier = Modifier
+                        .size(36.dp)
+                        .graphicsLayer {
+                            scaleX = coverScale
+                            scaleY = coverScale
+                        }
+                        .clip(RoundedCornerShape(8.dp))
+                        .border(
+                            BorderStroke(0.5.dp, if (isDark) Color.White.copy(alpha = 0.22f) else Color.Black.copy(alpha = 0.12f)),
+                            RoundedCornerShape(8.dp)
+                        )
+                        .bouncyClickable(
+                            pressedScale = 0.92f,
+                            onClick = onCoverClick
+                        )
+                ) {
+                    if (!trackState.coverUrl.isNullOrBlank()) {
+                        val coverRequest = remember(trackState.coverUrl) {
+                            ImageRequest.Builder(context)
+                                .data(trackState.coverUrl)
+                                .crossfade(true)
+                                .build()
+                        }
+                        AsyncImage(
+                            model = coverRequest,
+                            contentDescription = "Cover",
+                            contentScale = ContentScale.Crop,
+                            modifier = Modifier.fillMaxSize()
+                        )
+                    } else {
+                        Surface(
+                            color = if (isDark) Color.White.copy(alpha = 0.14f) else Color.Black.copy(alpha = 0.08f),
+                            shape = RoundedCornerShape(8.dp),
+                            modifier = Modifier.fillMaxSize()
+                        ) {
+                            Box(contentAlignment = Alignment.Center) {
+                                Icon(
+                                    imageVector = Icons.Default.MusicNote,
+                                    contentDescription = null,
+                                    tint = if (isDark) Color.White.copy(alpha = 0.70f) else Color.Black.copy(alpha = 0.50f),
+                                    modifier = Modifier.size(18.dp)
+                                )
+                            }
+                        }
+                    }
+                }
+
+                // 2. 歌名与歌手
                 Column(
                     modifier = Modifier
                         .weight(1f)
@@ -644,47 +743,34 @@ private fun NowPlayingTopBar(
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(8.dp)
         ) {
-            // 歌曲背景故事外层入口
+            // 歌曲背景故事外层入口 (纯净 36dp 晶体星芒圆钮，仅保留图标)
             AnimatedVisibility(
                 visible = hasSongStory,
-                enter = fadeIn(tween(220)) + expandHorizontally(spring(dampingRatio = 0.85f, stiffness = 420f)),
-                exit = fadeOut(tween(160)) + shrinkHorizontally(tween(200))
+                enter = fadeIn(tween(220)) + scaleIn(spring(dampingRatio = 0.85f, stiffness = 420f), initialScale = 0.80f),
+                exit = fadeOut(tween(160)) + scaleOut(tween(160), targetScale = 0.80f)
             ) {
                 val storyBg = if (isDark) Color.White.copy(alpha = 0.14f) else Color.Black.copy(alpha = 0.06f)
                 val storyBorder = if (isDark) Color.White.copy(alpha = 0.20f) else Color.Black.copy(alpha = 0.10f)
-                val storyTextColor = if (isDark) Color.White.copy(alpha = 0.92f) else MaterialTheme.colorScheme.onSurface
                 val storyStarColor = if (isDark) Color(0xFFFFD54F) else Color(0xFFE65100)
                 Surface(
                     color = storyBg,
-                    shape = RoundedCornerShape(18.dp),
+                    shape = CircleShape,
                     border = BorderStroke(
                         0.5.dp,
                         storyBorder
                     ),
                     modifier = Modifier
-                        .height(36.dp)
-                        .bouncyClickable(
-                            pressedScale = 0.93f,
+                        .size(36.dp)
+                        .bouncyIconClickable(
                             onClick = onOpenSongStory
                         )
                 ) {
-                    Row(
-                        modifier = Modifier.padding(horizontal = 11.dp, vertical = 7.dp),
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(5.dp)
-                    ) {
+                    Box(contentAlignment = Alignment.Center) {
                         Icon(
                             imageVector = Icons.Default.AutoAwesome,
                             contentDescription = strings.storyBadge,
                             tint = storyStarColor,
-                            modifier = Modifier.size(13.dp)
-                        )
-                        Text(
-                            text = strings.storyBadge,
-                            color = storyTextColor,
-                            fontSize = 11.5.sp,
-                            fontWeight = FontWeight.SemiBold,
-                            fontFamily = FontFamily.SansSerif
+                            modifier = Modifier.size(17.dp)
                         )
                     }
                 }
