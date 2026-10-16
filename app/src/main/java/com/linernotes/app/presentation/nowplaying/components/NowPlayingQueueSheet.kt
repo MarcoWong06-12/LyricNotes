@@ -51,6 +51,9 @@ import kotlinx.coroutines.launch
 fun NowPlayingQueueSheet(
     trackState: TrackPlaybackState,
     isAmoledMode: Boolean = false,
+    sleepTimerMinutesLeft: Int = 0,
+    onSetSleepTimer: (Int) -> Unit = {},
+    onCancelSleepTimer: () -> Unit = {},
     onToggleShuffle: () -> Unit,
     onCycleRepeat: () -> Unit,
     onPlayPause: () -> Unit,
@@ -58,14 +61,12 @@ fun NowPlayingQueueSheet(
     onDismiss: () -> Unit
 ) {
     val context = LocalContext.current
-    val coroutineScope = rememberCoroutineScope()
     val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
     val strings = LocalStrings.current
 
     // 定时睡眠关闭状态管理
     var showTimerDialog by remember { mutableStateOf(false) }
-    var timerRemainingMinutes by remember { mutableStateOf(0) }
-    var isTimerActive by remember { mutableStateOf(false) }
+    val isTimerActive = sleepTimerMinutesLeft > 0
 
     // 经典暗色系规范 (支持 0-nits 纯黑 AMOLED 模式)
     val sheetBg = if (isAmoledMode) Color(0xFF0C0C0E) else Color(0xFF121212)
@@ -324,7 +325,7 @@ fun NowPlayingQueueSheet(
                 )
 
                 // 4. Timer (定时关闭)
-                val timerLabel = if (isTimerActive) "${timerRemainingMinutes}m" else "Timer"
+                val timerLabel = if (isTimerActive) "${sleepTimerMinutesLeft}m" else "Timer"
                 SpotifyDockButton(
                     icon = Icons.Default.Timer,
                     label = timerLabel,
@@ -357,33 +358,21 @@ fun NowPlayingQueueSheet(
                 Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                     val minutesOptions = listOf(15, 30, 45, 60)
                     minutesOptions.forEach { min ->
+                        val isSelected = isTimerActive && sleepTimerMinutesLeft == min
                         Surface(
-                            color = if (isTimerActive && timerRemainingMinutes == min) spotifyGreen.copy(alpha = 0.2f) else Color.White.copy(alpha = 0.06f),
+                            color = if (isSelected) spotifyGreen.copy(alpha = 0.2f) else Color.White.copy(alpha = 0.06f),
                             shape = CircleShape,
-                            border = BorderStroke(0.5.dp, if (isTimerActive && timerRemainingMinutes == min) spotifyGreen.copy(alpha = 0.40f) else Color.White.copy(alpha = 0.10f)),
+                            border = BorderStroke(0.5.dp, if (isSelected) spotifyGreen.copy(alpha = 0.40f) else Color.White.copy(alpha = 0.10f)),
                             modifier = Modifier
                                 .fillMaxWidth()
                                 .bouncyClickable(pressedScale = 0.96f) {
-                                    isTimerActive = true
-                                    timerRemainingMinutes = min
+                                    onSetSleepTimer(min)
                                     showTimerDialog = false
-                                    coroutineScope.launch {
-                                        var left = min
-                                        while (left > 0 && isTimerActive) {
-                                            delay(60_000L)
-                                            left--
-                                            timerRemainingMinutes = left
-                                        }
-                                        if (isTimerActive) {
-                                            isTimerActive = false
-                                            if (trackState.isPlaying) onPlayPause()
-                                        }
-                                    }
                                 }
                         ) {
                             Text(
                                 text = String.format(strings.minutesLater, min),
-                                color = if (isTimerActive && timerRemainingMinutes == min) spotifyGreen else Color.White,
+                                color = if (isSelected) spotifyGreen else Color.White,
                                 fontSize = 14.sp,
                                 fontWeight = FontWeight.Medium,
                                 modifier = Modifier.padding(horizontal = 16.dp, vertical = 11.dp)
@@ -400,8 +389,7 @@ fun NowPlayingQueueSheet(
                             modifier = Modifier
                                 .fillMaxWidth()
                                 .bouncyClickable(pressedScale = 0.96f) {
-                                    isTimerActive = false
-                                    timerRemainingMinutes = 0
+                                    onCancelSleepTimer()
                                     showTimerDialog = false
                                 }
                         ) {

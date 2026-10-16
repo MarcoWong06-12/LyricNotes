@@ -5,6 +5,7 @@ import android.net.Uri
 import android.provider.Settings
 import com.linernotes.app.core.floating.FloatingLyricsService
 import com.linernotes.app.core.util.SpotifyLauncher
+import androidx.activity.compose.BackHandler
 import androidx.compose.animation.*
 import androidx.compose.animation.core.*
 import androidx.compose.foundation.BorderStroke
@@ -112,6 +113,13 @@ fun NowPlayingScreen(
     var isImmersiveMode by rememberSaveable { mutableStateOf(false) }
     var showEnlargedCover by remember { mutableStateOf(false) }
     val isGranted = remember { mutableStateOf(MediaPlaybackSyncService.isNotificationAccessGranted(context)) }
+
+    BackHandler(enabled = showEnlargedCover) {
+        showEnlargedCover = false
+    }
+    BackHandler(enabled = isImmersiveMode && !showEnlargedCover) {
+        isImmersiveMode = false
+    }
 
     LaunchedEffect(hasTrack) {
         if (!hasTrack) isImmersiveMode = false
@@ -463,6 +471,9 @@ fun NowPlayingScreen(
             NowPlayingQueueSheet(
                 trackState = trackState,
                 isAmoledMode = state.isAmoledMode,
+                sleepTimerMinutesLeft = state.sleepTimerMinutesLeft,
+                onSetSleepTimer = viewModel::setSleepTimer,
+                onCancelSleepTimer = viewModel::cancelSleepTimer,
                 onToggleShuffle = onToggleShuffle,
                 onCycleRepeat = onCycleRepeat,
                 onPlayPause = onPlayPause,
@@ -1866,15 +1877,29 @@ private fun PlayerProgressSection(
         }
     }
 
-    val duration = trackState.durationMs.coerceAtLeast(1L)
-    val progress = (estimatedPosition.toFloat() / duration.toFloat()).coerceIn(0f, 1f)
-    val remainingMs = (duration - estimatedPosition).coerceAtLeast(0L)
+    val hasValidDuration = trackState.durationMs > 0L
+    val duration = if (hasValidDuration) trackState.durationMs else 1L
+    val progress = if (hasValidDuration) {
+        (estimatedPosition.toFloat() / duration.toFloat()).coerceIn(0f, 1f)
+    } else {
+        0f
+    }
+    val remainingMs = if (hasValidDuration) {
+        (duration - estimatedPosition).coerceAtLeast(0L)
+    } else {
+        0L
+    }
 
     fun formatMs(ms: Long): String {
         val totalSec = (ms / 1000).coerceAtLeast(0)
-        val m = totalSec / 60
-        val s = totalSec % 60
-        return "%02d:%02d".format(m, s)
+        val hours = totalSec / 3600
+        val minutes = (totalSec % 3600) / 60
+        val seconds = totalSec % 60
+        return if (hours > 0) {
+            "%d:%02d:%02d".format(hours, minutes, seconds)
+        } else {
+            "%02d:%02d".format(minutes, seconds)
+        }
     }
 
     Row(
@@ -1888,7 +1913,7 @@ private fun PlayerProgressSection(
             fontSize = 11.sp,
             fontWeight = FontWeight.Medium,
             fontFamily = FontFamily.Monospace,
-            modifier = Modifier.width(36.dp),
+            modifier = Modifier.widthIn(min = 38.dp),
             textAlign = TextAlign.Start
         )
 
@@ -1896,8 +1921,10 @@ private fun PlayerProgressSection(
             progress = progress,
             isDark = isDark,
             onSeekToFraction = { frac ->
-                val targetMs = (frac * duration).toLong()
-                onSeekTo(targetMs)
+                if (hasValidDuration) {
+                    val targetMs = (frac * duration).toLong()
+                    onSeekTo(targetMs)
+                }
             },
             modifier = Modifier
                 .weight(1f)
@@ -1905,12 +1932,12 @@ private fun PlayerProgressSection(
         )
 
         Text(
-            text = "-${formatMs(remainingMs)}",
+            text = if (hasValidDuration) "-${formatMs(remainingMs)}" else "--:--",
             color = onPlayerTextSec.copy(alpha = 0.75f),
             fontSize = 11.sp,
             fontWeight = FontWeight.Medium,
             fontFamily = FontFamily.Monospace,
-            modifier = Modifier.width(42.dp),
+            modifier = Modifier.widthIn(min = 44.dp),
             textAlign = TextAlign.End
         )
     }
@@ -1955,7 +1982,7 @@ private fun NowPlayingFloatingGlassPlayer(
         modifier = modifier
             .fillMaxWidth()
             .navigationBarsPadding()
-            .padding(horizontal = 20.dp, vertical = 8.dp)
+            .padding(horizontal = 16.dp, vertical = 8.dp)
     ) {
         Surface(
             color = playerBg,
@@ -1967,7 +1994,7 @@ private fun NowPlayingFloatingGlassPlayer(
             Column(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .padding(horizontal = 20.dp, vertical = 11.dp)
+                    .padding(horizontal = 14.dp, vertical = 11.dp)
             ) {
                 // 1. 顶部声学进度轨 (全宽极简流线与时间指示，左已播放时间 / 右倒计时剩余时间)
                 PlayerProgressSection(
@@ -1987,13 +2014,13 @@ private fun NowPlayingFloatingGlassPlayer(
                     // 左翼辅助群：待播队列 (Queue) + 随机播放 (Shuffle)
                     Row(
                         verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(6.dp)
+                        horizontalArrangement = Arrangement.spacedBy(4.dp)
                     ) {
                         // 待播队列
                         Box(
                             contentAlignment = Alignment.Center,
                             modifier = Modifier
-                                .size(36.dp)
+                                .size(34.dp)
                                 .clip(CircleShape)
                                 .bouncyIconClickable(onClick = onOpenQueue)
                         ) {
@@ -2001,7 +2028,7 @@ private fun NowPlayingFloatingGlassPlayer(
                                 imageVector = Icons.Default.QueueMusic,
                                 contentDescription = "待播队列",
                                 tint = iconTint.copy(alpha = 0.75f),
-                                modifier = Modifier.size(20.dp)
+                                modifier = Modifier.size(19.dp)
                             )
                         }
 
@@ -2021,7 +2048,7 @@ private fun NowPlayingFloatingGlassPlayer(
                             color = shuffleBg,
                             shape = CircleShape,
                             modifier = Modifier
-                                .size(34.dp)
+                                .size(32.dp)
                                 .bouncyIconClickable(onClick = onToggleShuffle)
                         ) {
                             Box(contentAlignment = Alignment.Center) {
@@ -2029,22 +2056,22 @@ private fun NowPlayingFloatingGlassPlayer(
                                     imageVector = Icons.Default.Shuffle,
                                     contentDescription = if (isShuffle) "随机播放 (已开启)" else "顺序播放",
                                     tint = shuffleTint,
-                                    modifier = Modifier.size(17.dp)
+                                    modifier = Modifier.size(16.dp)
                                 )
                             }
                         }
                     }
 
-                    // 核心中央组：上一首 + 48dp Hero 白瓷播放大圆钮 + 下一首
+                    // 核心中央组：上一首 + 46dp Hero 白瓷播放大圆钮 + 下一首
                     Row(
                         verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(16.dp)
+                        horizontalArrangement = Arrangement.spacedBy(10.dp)
                     ) {
                         // 上一首
                         Box(
                             contentAlignment = Alignment.Center,
                             modifier = Modifier
-                                .size(38.dp)
+                                .size(36.dp)
                                 .clip(CircleShape)
                                 .bouncyIconClickable(onClick = onPrevious)
                         ) {
@@ -2052,7 +2079,7 @@ private fun NowPlayingFloatingGlassPlayer(
                                 imageVector = Icons.Default.SkipPrevious,
                                 contentDescription = "上一首",
                                 tint = iconTint,
-                                modifier = Modifier.size(24.dp)
+                                modifier = Modifier.size(22.dp)
                             )
                         }
 
@@ -2072,7 +2099,7 @@ private fun NowPlayingFloatingGlassPlayer(
                             shape = CircleShape,
                             shadowElevation = heroElevation,
                             modifier = Modifier
-                                .size(48.dp)
+                                .size(46.dp)
                                 .graphicsLayer {
                                     scaleX = heroScale
                                     scaleY = heroScale
@@ -2095,7 +2122,7 @@ private fun NowPlayingFloatingGlassPlayer(
                                         imageVector = if (isPlaying) Icons.Default.Pause else Icons.Default.PlayArrow,
                                         contentDescription = if (isPlaying) "暂停" else "播放",
                                         tint = if (isDark) Color(0xFF0F1118) else Color.White,
-                                        modifier = Modifier.size(26.dp)
+                                        modifier = Modifier.size(24.dp)
                                     )
                                 }
                             }
@@ -2105,7 +2132,7 @@ private fun NowPlayingFloatingGlassPlayer(
                         Box(
                             contentAlignment = Alignment.Center,
                             modifier = Modifier
-                                .size(38.dp)
+                                .size(36.dp)
                                 .clip(CircleShape)
                                 .bouncyIconClickable(onClick = onNext)
                         ) {
@@ -2113,7 +2140,7 @@ private fun NowPlayingFloatingGlassPlayer(
                                 imageVector = Icons.Default.SkipNext,
                                 contentDescription = "下一首",
                                 tint = iconTint,
-                                modifier = Modifier.size(24.dp)
+                                modifier = Modifier.size(22.dp)
                             )
                         }
                     }
@@ -2121,7 +2148,7 @@ private fun NowPlayingFloatingGlassPlayer(
                     // 右翼辅助群：循环模式 (Repeat) + 设置与更多 (Tune)
                     Row(
                         verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(6.dp)
+                        horizontalArrangement = Arrangement.spacedBy(4.dp)
                     ) {
                         // 循环模式
                         val isRepeatActive = trackState.repeatMode != 0
@@ -2139,7 +2166,7 @@ private fun NowPlayingFloatingGlassPlayer(
                             color = repeatBg,
                             shape = CircleShape,
                             modifier = Modifier
-                                .size(34.dp)
+                                .size(32.dp)
                                 .bouncyIconClickable(onClick = onCycleRepeat)
                         ) {
                             Box(contentAlignment = Alignment.Center) {
@@ -2151,7 +2178,7 @@ private fun NowPlayingFloatingGlassPlayer(
                                         else -> "顺序播放"
                                     },
                                     tint = repeatTint,
-                                    modifier = Modifier.size(17.dp)
+                                    modifier = Modifier.size(16.dp)
                                 )
                             }
                         }
@@ -2160,7 +2187,7 @@ private fun NowPlayingFloatingGlassPlayer(
                         Box(
                             contentAlignment = Alignment.Center,
                             modifier = Modifier
-                                .size(36.dp)
+                                .size(34.dp)
                                 .clip(CircleShape)
                                 .bouncyIconClickable(onClick = onOpenSettings)
                         ) {
@@ -2168,7 +2195,7 @@ private fun NowPlayingFloatingGlassPlayer(
                                 imageVector = Icons.Default.Tune,
                                 contentDescription = "播放与歌词设置",
                                 tint = iconTint.copy(alpha = 0.75f),
-                                modifier = Modifier.size(19.dp)
+                                modifier = Modifier.size(18.dp)
                             )
                         }
                     }

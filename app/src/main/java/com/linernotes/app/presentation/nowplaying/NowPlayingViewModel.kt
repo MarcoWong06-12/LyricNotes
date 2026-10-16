@@ -43,6 +43,7 @@ data class NowPlayingUiState(
     val showPlaybackControls: Boolean = true,
     val lyricOffsetMs: Long = -200L,
     val isQueueSheetOpen: Boolean = false,
+    val sleepTimerMinutesLeft: Int = 0,
     val isManualSearchSheetOpen: Boolean = false,
     val manualSearchQuery: String = "",
     val manualCandidates: List<com.linernotes.app.domain.model.LyricCandidateItem> = emptyList(),
@@ -490,6 +491,35 @@ class NowPlayingViewModel @Inject constructor(
                 )
             }
         }
+    }
+
+    private var sleepTimerJob: kotlinx.coroutines.Job? = null
+
+    fun setSleepTimer(minutes: Int) {
+        sleepTimerJob?.cancel()
+        if (minutes <= 0) {
+            _uiState.update { it.copy(sleepTimerMinutesLeft = 0) }
+            return
+        }
+        _uiState.update { it.copy(sleepTimerMinutesLeft = minutes) }
+        sleepTimerJob = viewModelScope.launch {
+            var remaining = minutes
+            while (remaining > 0) {
+                kotlinx.coroutines.delay(60_000L)
+                remaining--
+                _uiState.update { it.copy(sleepTimerMinutesLeft = remaining) }
+            }
+            if (_uiState.value.nowPlayingData.playbackState.isPlaying) {
+                nowPlayingRepository.pause()
+            }
+            _uiState.update { it.copy(sleepTimerMinutesLeft = 0) }
+        }
+    }
+
+    fun cancelSleepTimer() {
+        sleepTimerJob?.cancel()
+        sleepTimerJob = null
+        _uiState.update { it.copy(sleepTimerMinutesLeft = 0) }
     }
 }
 
