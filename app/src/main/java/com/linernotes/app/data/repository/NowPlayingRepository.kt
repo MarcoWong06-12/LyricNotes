@@ -19,6 +19,7 @@ import com.linernotes.app.data.local.entity.SongStoryEntity
 import com.linernotes.app.data.remote.GeniusService
 import com.linernotes.app.data.remote.KugouLyricsService
 import com.linernotes.app.data.remote.LrclibLyricsService
+import com.linernotes.app.data.remote.MetadataService
 import com.linernotes.app.data.remote.NetEaseLyricsService
 import com.linernotes.app.data.remote.QQMusicLyricsService
 import com.linernotes.app.data.remote.OnlineLyricsResult
@@ -458,6 +459,24 @@ class NowPlayingRepository @Inject constructor(
                 }
             }
 
+            // 3. 并发回填超高清官方原版专辑封面（优先 iTunes/Apple Music 600x600/1000x1000 原图，兜底网易云音乐）
+            val artworkJob = async {
+                try {
+                    val cur = playbackStateManager.playbackState.value
+                    if (cur.coverUrl.isNullOrBlank() || cur.coverUrl.startsWith("/")) {
+                        val onlineCover = MetadataService.fetchTrackCover(title, artist)
+                        if (!onlineCover.isNullOrBlank()) {
+                            val latest = playbackStateManager.playbackState.value
+                            if (latest.title == title && latest.artist == artist) {
+                                playbackStateManager.updateState(latest.copy(coverUrl = onlineCover))
+                            }
+                        }
+                    }
+                } catch (e: Exception) {
+                    // ignore
+                }
+            }
+
             // 等待并发抓取完成
             lyricsJob.await()
             val curPos = (_nowPlayingData.value.playbackState.getEstimatedPositionMs() + lyricOffsetMs).coerceAtLeast(0L)
@@ -471,6 +490,7 @@ class NowPlayingRepository @Inject constructor(
             }
 
             geniusJob.await()
+            artworkJob.await()
 
             // 阶段一：即刻渲染原生典故徽标与背景故事按钮（1秒级展示，绝不让用户等待逐条翻译完成）
             val initialMatched = if (fetchedLyrics.isNotEmpty() && fetchedAnnotations.isNotEmpty()) {

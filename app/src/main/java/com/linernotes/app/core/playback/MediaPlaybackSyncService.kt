@@ -111,20 +111,44 @@ class MediaPlaybackSyncService : NotificationListenerService(), MediaControlActi
     override fun onNotificationPosted(sbn: StatusBarNotification?) {
         super.onNotificationPosted(sbn)
         val pkg = sbn?.packageName ?: return
-        // 当收到来自 Spotify 的通知时，尝试确保已绑定
-        if (pkg == "com.spotify.music" && (activeController == null || activeController?.packageName != pkg)) {
+        val current = playbackStateManager.playbackState.value
+
+        // 当收到来自主流音乐播放器的通知时，尝试确保已绑定
+        val isMusicApp = pkg == "com.spotify.music" || pkg == "com.apple.android.music" ||
+            pkg == "com.netease.cloudmusic" || pkg == "com.tencent.qqmusic" ||
+            pkg == current.packageName || pkg.contains("music") || pkg.contains("audio") || pkg.contains("player")
+
+        if (isMusicApp && (activeController == null || activeController?.packageName != pkg)) {
             findAndAttachActiveController()
         }
 
-        // 尝试从 Spotify 通知栏中抓取大图作为兜底封面
-        if (pkg == "com.spotify.music") {
+        // 尝试从通知栏中抓取大图作为兜底封面
+        if (isMusicApp) {
             try {
                 val extras = sbn.notification?.extras
                 @Suppress("DEPRECATION")
                 val notifBitmap = (extras?.getParcelable(Notification.EXTRA_PICTURE) as? Bitmap)
                     ?: (extras?.getParcelable(Notification.EXTRA_LARGE_ICON) as? Bitmap)
+                    ?: run {
+                        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+                            try {
+                                sbn.notification?.getLargeIcon()?.loadDrawable(this)?.let { drawable ->
+                                    val bmp = Bitmap.createBitmap(
+                                        drawable.intrinsicWidth.coerceAtLeast(1),
+                                        drawable.intrinsicHeight.coerceAtLeast(1),
+                                        Bitmap.Config.ARGB_8888
+                                    )
+                                    val canvas = android.graphics.Canvas(bmp)
+                                    drawable.setBounds(0, 0, canvas.width, canvas.height)
+                                    drawable.draw(canvas)
+                                    bmp
+                                }
+                            } catch (e: Exception) {
+                                null
+                            }
+                        } else null
+                    }
                 if (notifBitmap != null) {
-                    val current = playbackStateManager.playbackState.value
                     // 仅当当前未获取到有效封面时，才写入兜底封面；绝不频繁覆盖已有封面，杜绝暂停/播放时由于 URL 变动引起重组闪烁
                     val hasValidCover = !current.coverUrl.isNullOrBlank() &&
                         (!current.coverUrl.startsWith("/") || File(current.coverUrl).exists())
@@ -265,14 +289,26 @@ class MediaPlaybackSyncService : NotificationListenerService(), MediaControlActi
 
             var uri = rawBitmap?.let { saveBitmapToLocalFile(it, trackKey) }
 
-            // 2. 若没有 Bitmap，过滤掉无法跨进程读取的 content:// 协议，仅保留可直接下载的 HTTP/HTTPS 或本地文件
+            // 2. 若没有 Bitmap，解析候选 URI (包含跨进程 content:// 协议或 HTTP/HTTPS 远程链接)
             if (uri == null) {
                 val candidateUri = metadata.getString(MediaMetadata.METADATA_KEY_ALBUM_ART_URI)
                     ?: metadata.getString(MediaMetadata.METADATA_KEY_ART_URI)
                     ?: metadata.getString(MediaMetadata.METADATA_KEY_DISPLAY_ICON_URI)
                     ?: metadata.description?.iconUri?.toString()
-                if (!candidateUri.isNullOrBlank() && (candidateUri.startsWith("http://") || candidateUri.startsWith("https://") || candidateUri.startsWith("file://"))) {
-                    uri = candidateUri
+                if (!candidateUri.isNullOrBlank()) {
+                    if (candidateUri.startsWith("content://")) {
+                        try {
+                            val stream = contentResolver.openInputStream(Uri.parse(candidateUri))
+                            val contentBitmap = stream?.use { android.graphics.BitmapFactory.decodeStream(it) }
+                            if (contentBitmap != null) {
+                                uri = saveBitmapToLocalFile(contentBitmap, trackKey)
+                            }
+                        } catch (e: Exception) {
+                            uri = candidateUri
+                        }
+                    } else if (candidateUri.startsWith("http://") || candidateUri.startsWith("https://") || candidateUri.startsWith("file://")) {
+                        uri = candidateUri
+                    }
                 }
             }
             uri

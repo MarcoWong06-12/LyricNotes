@@ -553,6 +553,10 @@ private fun NowPlayingTopBar(
     val pillIconTint = if (isDark) Color.White else MaterialTheme.colorScheme.onSurface
     val strings = LocalStrings.current
 
+    val context = LocalContext.current
+    val isFloatingActive by FloatingLyricsService.isRunningFlow.collectAsState()
+    var showMoreMenu by remember { mutableStateOf(false) }
+
     Row(
         modifier = modifier
             .fillMaxWidth()
@@ -564,11 +568,11 @@ private fun NowPlayingTopBar(
                 )
             )
             .statusBarsPadding()
-            .padding(horizontal = 20.dp, vertical = 12.dp),
+            .padding(horizontal = 16.dp, vertical = 10.dp),
         horizontalArrangement = Arrangement.SpaceBetween,
         verticalAlignment = Alignment.CenterVertically
     ) {
-        // 左侧：优雅收起/设置图标按钮 + 正在播放歌曲缩略信息 (靠左排布)
+        // 左侧与中心：折叠箭头 + 宽阔歌曲标题与歌手信息 (Apple Music 纯净高视线占比，杜绝截断省略)
         Row(
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(10.dp),
@@ -581,7 +585,7 @@ private fun NowPlayingTopBar(
                 shape = CircleShape,
                 border = BorderStroke(0.5.dp, pillBorder),
                 modifier = Modifier
-                    .size(38.dp)
+                    .size(36.dp)
                     .bouncyIconClickable(onClick = onOpenSettings)
             ) {
                 Box(contentAlignment = Alignment.Center) {
@@ -595,19 +599,13 @@ private fun NowPlayingTopBar(
             }
 
             if (trackState.hasValidTrack) {
-                if (!trackState.coverUrl.isNullOrBlank()) {
-                    AsyncImage(
-                        model = trackState.coverUrl,
-                        contentDescription = null,
-                        contentScale = ContentScale.Crop,
-                        modifier = Modifier
-                            .size(38.dp)
-                            .clip(RoundedCornerShape(6.dp))
-                    )
-                }
-
                 Column(
-                    modifier = Modifier.weight(1f, fill = false),
+                    modifier = Modifier
+                        .weight(1f)
+                        .bouncyClickable(
+                            pressedScale = 0.97f,
+                            onClick = onOpenSettings
+                        ),
                     verticalArrangement = Arrangement.spacedBy(1.dp)
                 ) {
                     val displayTitle = if (isTraditional) ChineseConverter.toTraditional(trackState.title) else trackState.title
@@ -616,15 +614,21 @@ private fun NowPlayingTopBar(
                     Text(
                         text = displayTitle,
                         color = if (isDark) Color.White else MaterialTheme.colorScheme.onBackground,
-                        fontSize = 13.5.sp,
+                        fontSize = 14.5.sp,
                         fontWeight = FontWeight.Bold,
                         fontFamily = FontFamily.SansSerif,
                         maxLines = 1,
-                        overflow = TextOverflow.Ellipsis
+                        overflow = TextOverflow.Ellipsis,
+                        modifier = Modifier.basicMarquee(
+                            iterations = Int.MAX_VALUE,
+                            initialDelayMillis = 2000,
+                            repeatDelayMillis = 1500,
+                            velocity = 30.dp
+                        )
                     )
                     Text(
                         text = displayArtist,
-                        color = if (isDark) Color.White.copy(alpha = 0.60f) else MaterialTheme.colorScheme.onBackground.copy(alpha = 0.60f),
+                        color = if (isDark) Color.White.copy(alpha = 0.65f) else MaterialTheme.colorScheme.onBackground.copy(alpha = 0.65f),
                         fontSize = 11.5.sp,
                         fontFamily = FontFamily.SansSerif,
                         maxLines = 1,
@@ -642,7 +646,7 @@ private fun NowPlayingTopBar(
             }
         }
 
-        // 右侧操作群：歌曲背景故事直达入口 (✦ 故事) + 待播队列 (Queue) + 桌面悬浮歌词 (PiP)
+        // 右侧操作群：故事徽标 (✦ 故事) + 待播队列 (Queue) + 更多功能菜单 (...)
         val storyInfiniteTransition = rememberInfiniteTransition(label = "storyGlow")
         val storyGlowAlpha by storyInfiniteTransition.animateFloat(
             initialValue = 0.40f,
@@ -658,7 +662,7 @@ private fun NowPlayingTopBar(
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(8.dp)
         ) {
-            // 歌曲背景故事外层高频入口（当有故事时呈现柔和微光，1 步直达；带平滑淡入展开与折叠动效）
+            // 歌曲背景故事外层入口
             AnimatedVisibility(
                 visible = hasSongStory,
                 enter = fadeIn(tween(220)) + expandHorizontally(spring(dampingRatio = 0.85f, stiffness = 420f)),
@@ -702,12 +706,13 @@ private fun NowPlayingTopBar(
                 }
             }
 
+            // 待播队列
             Surface(
                 color = pillBg,
                 shape = CircleShape,
                 border = BorderStroke(0.5.dp, pillBorder),
                 modifier = Modifier
-                    .size(38.dp)
+                    .size(36.dp)
                     .bouncyIconClickable(
                         onClick = onOpenQueue
                     )
@@ -722,18 +727,59 @@ private fun NowPlayingTopBar(
                 }
             }
 
-            // 桌面悬浮歌词胶囊快捷切换按键 (灵动微胶囊)
-            val context = LocalContext.current
-            val isFloatingActive by FloatingLyricsService.isRunningFlow.collectAsState()
+            // 更多选项菜单 (包含桌面悬浮歌词、全屏沉浸与播放设置，遵循 Apple Music 纯净顶部栏规范)
+            Box {
+                Surface(
+                    color = pillBg,
+                    shape = CircleShape,
+                    border = BorderStroke(0.5.dp, pillBorder),
+                    modifier = Modifier
+                        .size(36.dp)
+                        .bouncyIconClickable(
+                            onClick = { showMoreMenu = true }
+                        )
+                ) {
+                    Box(contentAlignment = Alignment.Center) {
+                        Icon(
+                            imageVector = Icons.Default.MoreHoriz,
+                            contentDescription = "更多选项",
+                            tint = pillIconTint,
+                            modifier = Modifier.size(20.dp)
+                        )
+                    }
+                }
 
-            Surface(
-                color = if (isFloatingActive) Color(0xFF0288D1).copy(alpha = 0.85f) else pillBg,
-                shape = CircleShape,
-                border = BorderStroke(0.5.dp, if (isFloatingActive) Color(0xFF81D4FA) else pillBorder),
-                modifier = Modifier
-                    .size(38.dp)
-                    .bouncyIconClickable(
+                DropdownMenu(
+                    expanded = showMoreMenu,
+                    onDismissRequest = { showMoreMenu = false },
+                    modifier = Modifier
+                        .background(
+                            if (isDark) Color(0xFF1E2230) else MaterialTheme.colorScheme.surface
+                        )
+                        .border(
+                            0.5.dp,
+                            if (isDark) Color.White.copy(alpha = 0.15f) else Color.Black.copy(alpha = 0.10f),
+                            RoundedCornerShape(12.dp)
+                        )
+                ) {
+                    DropdownMenuItem(
+                        text = {
+                            Text(
+                                text = if (isFloatingActive) "关闭悬浮歌词" else "桌面悬浮歌词",
+                                fontSize = 14.sp,
+                                color = if (isDark) Color.White else MaterialTheme.colorScheme.onSurface
+                            )
+                        },
+                        leadingIcon = {
+                            Icon(
+                                imageVector = Icons.Default.PictureInPictureAlt,
+                                contentDescription = null,
+                                tint = if (isFloatingActive) Color(0xFF0288D1) else pillIconTint,
+                                modifier = Modifier.size(18.dp)
+                            )
+                        },
                         onClick = {
+                            showMoreMenu = false
                             if (isFloatingActive) {
                                 FloatingLyricsService.stop(context)
                             } else {
@@ -745,34 +791,47 @@ private fun NowPlayingTopBar(
                             }
                         }
                     )
-            ) {
-                Box(contentAlignment = Alignment.Center) {
-                    Icon(
-                        imageVector = Icons.Default.PictureInPictureAlt,
-                        contentDescription = "桌面悬浮歌词",
-                        tint = if (isFloatingActive) Color.White else pillIconTint,
-                        modifier = Modifier.size(18.dp)
+                    DropdownMenuItem(
+                        text = {
+                            Text(
+                                text = "全屏沉浸模式",
+                                fontSize = 14.sp,
+                                color = if (isDark) Color.White else MaterialTheme.colorScheme.onSurface
+                            )
+                        },
+                        leadingIcon = {
+                            Icon(
+                                imageVector = Icons.Default.Fullscreen,
+                                contentDescription = null,
+                                tint = pillIconTint,
+                                modifier = Modifier.size(20.dp)
+                            )
+                        },
+                        onClick = {
+                            showMoreMenu = false
+                            onToggleImmersive()
+                        }
                     )
-                }
-            }
-
-            // 全屏沉浸模式快捷切换按键 (Apple Music / Spotify 旗舰纯净视口)
-            Surface(
-                color = pillBg,
-                shape = CircleShape,
-                border = BorderStroke(0.5.dp, pillBorder),
-                modifier = Modifier
-                    .size(38.dp)
-                    .bouncyIconClickable(
-                        onClick = onToggleImmersive
-                    )
-            ) {
-                Box(contentAlignment = Alignment.Center) {
-                    Icon(
-                        imageVector = Icons.Default.Fullscreen,
-                        contentDescription = "全屏沉浸",
-                        tint = pillIconTint,
-                        modifier = Modifier.size(20.dp)
+                    DropdownMenuItem(
+                        text = {
+                            Text(
+                                text = "播放设置",
+                                fontSize = 14.sp,
+                                color = if (isDark) Color.White else MaterialTheme.colorScheme.onSurface
+                            )
+                        },
+                        leadingIcon = {
+                            Icon(
+                                imageVector = Icons.Default.Settings,
+                                contentDescription = null,
+                                tint = pillIconTint,
+                                modifier = Modifier.size(18.dp)
+                            )
+                        },
+                        onClick = {
+                            showMoreMenu = false
+                            onOpenSettings()
+                        }
                     )
                 }
             }
@@ -1225,18 +1284,8 @@ private fun LyricLineRow(
     onClick: () -> Unit,
     onAnnotationClick: () -> Unit
 ) {
-    // 舞台 3：150ms 优雅熄灭宽限期 (Stage 3: Grace Period Dissolve)
-    // 活跃行结束演唱后保留 150ms 微光宽限期，与下一行产生奢华的交叉渐隐叠化，消除生硬跳切
-    var isGlowing by remember { mutableStateOf(isActive) }
-    LaunchedEffect(isActive) {
-        if (isActive) {
-            isGlowing = true
-        } else {
-            delay(150L)
-            isGlowing = false
-        }
-    }
-    val isVisuallyActive = isActive || isGlowing
+    // 活跃行状态由高刚度与阻尼弹簧无阶跃直接驱动，杜绝延时状态突变产生的视觉抽搐
+    val isVisuallyActive = isActive
 
     // 空间景深动力学与自由阅读增强 (符合 WCAG AAA 标准，Apple Music 渐进式层次)：
     // 1. 活跃行拥有绝对聚光灯聚焦：纯白高对比度 (1.0f)，从左原点锚定显著呼吸放大 (1.065f)，零虚化 (0dp)；
@@ -1342,24 +1391,6 @@ private fun LyricLineRow(
         if (isTraditional) ChineseConverter.toTraditional(line.translation) else line.translation
     }
 
-    // 官方 KARAOKE_WORD_LIFT_TAG 逆向物理微浮动引擎：
-    // 当歌词行变为焦点活跃行时，施加轻柔向上微提 (-14px / ~5dp) 并伴随次临界阻尼磁吸回落定格，打破死板平面感
-    val liftY = remember { Animatable(0f) }
-    LaunchedEffect(isActive, isBrowsing) {
-        if (isActive && !isBrowsing) {
-            liftY.snapTo(-14f)
-            liftY.animateTo(
-                targetValue = 0f,
-                animationSpec = spring(
-                    dampingRatio = 0.74f, // 苹果官方次临界微过冲回弹
-                    stiffness = 115f
-                )
-            )
-        } else {
-            liftY.animateTo(0f, spring(0.85f, 160f))
-        }
-    }
-
     val lyricColor = if (isDark) Color.White else MaterialTheme.colorScheme.onBackground
     val isAlignLeft = lyricAlignment == AiPreferences.LYRIC_ALIGN_LEFT
     val haptic = LocalHapticFeedback.current
@@ -1371,7 +1402,6 @@ private fun LyricLineRow(
             .graphicsLayer {
                 scaleX = animatedScale
                 scaleY = animatedScale
-                translationY = liftY.value
                 alpha = animatedRowAlpha
                 transformOrigin = if (isAlignLeft) TransformOrigin(0f, 0.5f) else TransformOrigin(0.5f, 0.5f)
                 if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {

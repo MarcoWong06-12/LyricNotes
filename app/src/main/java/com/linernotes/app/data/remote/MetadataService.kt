@@ -61,6 +61,52 @@ object MetadataService {
         return searchAlbums(query).firstOrNull()
     }
 
+    /**
+     * 针对正在播放的单曲检索官方原版超高清专辑封面（优先 iTunes / Apple Music 1000x1000/600x600 原图，兜底网易云音乐）
+     */
+    suspend fun fetchTrackCover(title: String, artist: String): String? = withContext(Dispatchers.IO) {
+        if (title.isBlank()) return@withContext null
+        val queries = LyricSearchCleaner.buildSearchQueries(title, artist)
+
+        for (q in queries) {
+            try {
+                val encoded = URLEncoder.encode(q, "UTF-8")
+                val itunesUrl = "https://itunes.apple.com/search?term=$encoded&entity=song&limit=5"
+                val jsonStr = LinerNotesHttpClient.get(itunesUrl, HEADERS)
+                if (!jsonStr.isNullOrBlank()) {
+                    val root = JSONObject(jsonStr)
+                    val results = root.optJSONArray("results")
+                    if (results != null && results.length() > 0) {
+                        for (i in 0 until results.length()) {
+                            val item = results.optJSONObject(i) ?: continue
+                            val rawCover = item.optString("artworkUrl100", "")
+                            if (rawCover.isNotBlank()) {
+                                return@withContext rawCover.replace("100x100bb.jpg", "600x600bb.jpg")
+                                    .replace("100x100", "600x600")
+                            }
+                        }
+                    }
+                }
+            } catch (e: Exception) {
+                // 继续尝试下一个候选词
+            }
+        }
+
+        // 兜底：网易云专辑检索
+        for (q in queries) {
+            try {
+                val album = searchAlbum(q)
+                if (album != null && album.coverUrl.isNotBlank()) {
+                    return@withContext album.coverUrl
+                }
+            } catch (e: Exception) {
+                // ignore
+            }
+        }
+
+        null
+    }
+
     private fun searchNetEaseAlbums(query: String): List<OnlineAlbumInfo> {
         return try {
             val postParams = mapOf(
