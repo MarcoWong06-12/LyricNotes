@@ -207,7 +207,7 @@ fun ManualLyricSearchSheet(
 
                     Surface(
                         color = if (isDark) Color(0xFF272938) else Color(0xFFE2E4EB),
-                        shape = RoundedCornerShape(10.dp),
+                        shape = CircleShape,
                         modifier = Modifier
                             .bouncyClickable(
                                 pressedScale = 0.94f,
@@ -222,7 +222,7 @@ fun ManualLyricSearchSheet(
                             fontSize = 13.sp,
                             fontWeight = FontWeight.SemiBold,
                             color = sheetContent,
-                            modifier = Modifier.padding(horizontal = 14.dp, vertical = 7.dp)
+                            modifier = Modifier.padding(horizontal = 16.dp, vertical = 7.dp)
                         )
                     }
                 }
@@ -374,7 +374,7 @@ private fun FilterPill(
 
     Surface(
         color = bg,
-        shape = RoundedCornerShape(12.dp),
+        shape = CircleShape,
         modifier = Modifier.bouncyClickable(pressedScale = 0.94f, onClick = onClick)
     ) {
         Text(
@@ -382,7 +382,7 @@ private fun FilterPill(
             color = contentColor,
             fontSize = 12.sp,
             fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium,
-            modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp)
+            modifier = Modifier.padding(horizontal = 14.dp, vertical = 6.dp)
         )
     }
 }
@@ -476,14 +476,14 @@ private fun CandidateItemCard(
                     }
                     Surface(
                         color = sourceBadgeBg,
-                        shape = RoundedCornerShape(6.dp)
+                        shape = RoundedCornerShape(8.dp)
                     ) {
                         Text(
                             text = item.source.displayName,
                             fontSize = 10.sp,
                             fontWeight = FontWeight.SemiBold,
                             color = sourceBadgeColor,
-                            modifier = Modifier.padding(horizontal = 5.dp, vertical = 2.dp)
+                            modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
                         )
                     }
                 }
@@ -517,14 +517,14 @@ private fun CandidateItemCard(
 
                         Surface(
                             color = if (isMatched) Color(0xFF1ED760).copy(alpha = 0.15f) else if (isDark) Color.White.copy(alpha = 0.08f) else Color.Black.copy(alpha = 0.05f),
-                            shape = RoundedCornerShape(4.dp)
+                            shape = RoundedCornerShape(8.dp)
                         ) {
                             Text(
                                 text = if (isMatched) strings.durationMatchBadge + durStr else durStr,
                                 fontSize = 10.5.sp,
                                 color = if (isMatched) Color(0xFF1ED760) else textSecondary,
                                 fontWeight = if (isMatched) FontWeight.Bold else FontWeight.Normal,
-                                modifier = Modifier.padding(horizontal = 4.dp, vertical = 1.dp)
+                                modifier = Modifier.padding(horizontal = 5.dp, vertical = 2.dp)
                             )
                         }
                     }
@@ -533,26 +533,26 @@ private fun CandidateItemCard(
                     if (item.hasTranslation) {
                         Surface(
                             color = Color(0xFF29B6F6).copy(alpha = 0.15f),
-                            shape = RoundedCornerShape(4.dp)
+                            shape = RoundedCornerShape(8.dp)
                         ) {
                             Text(
                                 text = strings.bilingualTranslationBadge,
                                 fontSize = 10.5.sp,
                                 color = if (isDark) Color(0xFF81D4FA) else Color(0xFF0288D1),
                                 fontWeight = FontWeight.SemiBold,
-                                modifier = Modifier.padding(horizontal = 4.dp, vertical = 1.dp)
+                                modifier = Modifier.padding(horizontal = 5.dp, vertical = 2.dp)
                             )
                         }
                     } else {
                         Surface(
                             color = if (isDark) Color.White.copy(alpha = 0.06f) else Color.Black.copy(alpha = 0.04f),
-                            shape = RoundedCornerShape(4.dp)
+                            shape = RoundedCornerShape(8.dp)
                         ) {
                             Text(
                                 text = strings.originalLyricsBadge,
                                 fontSize = 10.5.sp,
                                 color = textSecondary.copy(alpha = 0.7f),
-                                modifier = Modifier.padding(horizontal = 4.dp, vertical = 1.dp)
+                                modifier = Modifier.padding(horizontal = 5.dp, vertical = 2.dp)
                             )
                         }
                     }

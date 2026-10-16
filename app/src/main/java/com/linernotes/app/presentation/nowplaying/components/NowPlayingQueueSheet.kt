@@ -81,7 +81,7 @@ fun NowPlayingQueueSheet(
         contentColor = textPrimary,
         scrimColor = Color.Black.copy(alpha = 0.55f),
         tonalElevation = 0.dp,
-        shape = RoundedCornerShape(topStart = 24.dp, topEnd = 24.dp),
+        shape = RoundedCornerShape(topStart = 28.dp, topEnd = 28.dp),
         dragHandle = {
             Surface(
                 modifier = Modifier.padding(top = 10.dp, bottom = 6.dp),
@@ -129,8 +129,9 @@ fun NowPlayingQueueSheet(
                 }
 
                 Surface(
-                    color = buttonBg,
-                    shape = RoundedCornerShape(18.dp),
+                    color = Color.White.copy(alpha = 0.12f),
+                    shape = CircleShape,
+                    border = BorderStroke(0.5.dp, Color.White.copy(alpha = 0.18f)),
                     modifier = Modifier.bouncyClickable(
                         pressedScale = 0.92f,
                         onClick = onDismiss
@@ -142,7 +143,7 @@ fun NowPlayingQueueSheet(
                         fontSize = 12.5.sp,
                         fontWeight = FontWeight.SemiBold,
                         fontFamily = FontFamily.SansSerif,
-                        modifier = Modifier.padding(horizontal = 14.dp, vertical = 6.dp)
+                        modifier = Modifier.padding(horizontal = 16.dp, vertical = 6.5.dp)
                     )
                 }
             }
@@ -212,12 +213,12 @@ fun NowPlayingQueueSheet(
                     ) {
                         Surface(
                             color = cardBg,
-                            shape = RoundedCornerShape(16.dp),
-                            border = BorderStroke(1.dp, Color.White.copy(alpha = 0.08f)),
+                            shape = RoundedCornerShape(22.dp),
+                            border = BorderStroke(0.5.dp, Color.White.copy(alpha = 0.12f)),
                             modifier = Modifier.fillMaxWidth()
                         ) {
                             Column(
-                                modifier = Modifier.padding(16.dp),
+                                modifier = Modifier.padding(18.dp),
                                 verticalArrangement = Arrangement.spacedBy(10.dp)
                             ) {
                                 Row(
@@ -247,10 +248,10 @@ fun NowPlayingQueueSheet(
 
                                 Surface(
                                     color = spotifyGreen,
-                                    shape = RoundedCornerShape(12.dp),
+                                    shape = CircleShape,
                                     modifier = Modifier
                                         .fillMaxWidth()
-                                        .height(38.dp)
+                                        .height(40.dp)
                                         .bouncyClickable(
                                             pressedScale = 0.96f,
                                             onClick = { SpotifyLauncher.launchSpotify(context) }
@@ -341,6 +342,7 @@ fun NowPlayingQueueSheet(
         AlertDialog(
             onDismissRequest = { showTimerDialog = false },
             containerColor = Color(0xFF1E1E1E),
+            shape = RoundedCornerShape(24.dp),
             titleContentColor = Color.White,
             textContentColor = Color.White.copy(alpha = 0.8f),
             title = {
@@ -351,12 +353,13 @@ fun NowPlayingQueueSheet(
                 )
             },
             text = {
-                Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                     val minutesOptions = listOf(15, 30, 45, 60)
                     minutesOptions.forEach { min ->
                         Surface(
                             color = if (isTimerActive && timerRemainingMinutes == min) spotifyGreen.copy(alpha = 0.2f) else Color.White.copy(alpha = 0.06f),
-                            shape = RoundedCornerShape(10.dp),
+                            shape = CircleShape,
+                            border = BorderStroke(0.5.dp, if (isTimerActive && timerRemainingMinutes == min) spotifyGreen.copy(alpha = 0.40f) else Color.White.copy(alpha = 0.10f)),
                             modifier = Modifier
                                 .fillMaxWidth()
                                 .bouncyClickable(pressedScale = 0.96f) {
@@ -382,7 +385,7 @@ fun NowPlayingQueueSheet(
                                 color = if (isTimerActive && timerRemainingMinutes == min) spotifyGreen else Color.White,
                                 fontSize = 14.sp,
                                 fontWeight = FontWeight.Medium,
-                                modifier = Modifier.padding(horizontal = 14.dp, vertical = 10.dp)
+                                modifier = Modifier.padding(horizontal = 16.dp, vertical = 11.dp)
                             )
                         }
                     }
@@ -391,7 +394,8 @@ fun NowPlayingQueueSheet(
                         Spacer(modifier = Modifier.height(4.dp))
                         Surface(
                             color = Color(0xFFFF5252).copy(alpha = 0.15f),
-                            shape = RoundedCornerShape(10.dp),
+                            shape = CircleShape,
+                            border = BorderStroke(0.5.dp, Color(0xFFFF5252).copy(alpha = 0.35f)),
                             modifier = Modifier
                                 .fillMaxWidth()
                                 .bouncyClickable(pressedScale = 0.96f) {
@@ -405,7 +409,7 @@ fun NowPlayingQueueSheet(
                                 color = Color(0xFFFF5252),
                                 fontSize = 14.sp,
                                 fontWeight = FontWeight.SemiBold,
-                                modifier = Modifier.padding(horizontal = 14.dp, vertical = 10.dp)
+                                modifier = Modifier.padding(horizontal = 16.dp, vertical = 11.dp)
                             )
                         }
                     }
@@ -439,7 +443,7 @@ private fun NowPlayingTrackRow(
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(12.dp)
     ) {
-        // 封面 (46x46dp, 圆角 4dp)
+        // 封面 (46x46dp, 圆角 8dp squircle)
         if (!trackState.coverUrl.isNullOrBlank()) {
             AsyncImage(
                 model = trackState.coverUrl,
@@ -447,12 +451,14 @@ private fun NowPlayingTrackRow(
                 contentScale = ContentScale.Crop,
                 modifier = Modifier
                     .size(46.dp)
-                    .clip(RoundedCornerShape(4.dp))
+                    .clip(RoundedCornerShape(8.dp))
+                    .border(0.5.dp, Color.White.copy(alpha = 0.15f), RoundedCornerShape(8.dp))
             )
         } else {
             Surface(
                 color = Color.White.copy(alpha = 0.1f),
-                shape = RoundedCornerShape(4.dp),
+                shape = RoundedCornerShape(8.dp),
+                border = BorderStroke(0.5.dp, Color.White.copy(alpha = 0.12f)),
                 modifier = Modifier.size(46.dp)
             ) {
                 Box(contentAlignment = Alignment.Center) {
@@ -550,7 +556,7 @@ private fun SpotifyQueueItemRow(
     Row(
         modifier = Modifier
             .fillMaxWidth()
-            .clip(RoundedCornerShape(8.dp))
+            .clip(RoundedCornerShape(14.dp))
             .bouncyItemClickable(
                 pressedScale = 0.98f,
                 onClick = onClick
@@ -559,7 +565,7 @@ private fun SpotifyQueueItemRow(
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(12.dp)
     ) {
-        // 封面 (46x46dp, 圆角 4dp)
+        // 封面 (46x46dp, 圆角 8dp squircle)
         if (!item.coverUri.isNullOrBlank()) {
             AsyncImage(
                 model = item.coverUri,
@@ -567,12 +573,14 @@ private fun SpotifyQueueItemRow(
                 contentScale = ContentScale.Crop,
                 modifier = Modifier
                     .size(46.dp)
-                    .clip(RoundedCornerShape(4.dp))
+                    .clip(RoundedCornerShape(8.dp))
+                    .border(0.5.dp, Color.White.copy(alpha = 0.15f), RoundedCornerShape(8.dp))
             )
         } else {
             Surface(
                 color = Color.White.copy(alpha = 0.08f),
-                shape = RoundedCornerShape(4.dp),
+                shape = RoundedCornerShape(8.dp),
+                border = BorderStroke(0.5.dp, Color.White.copy(alpha = 0.12f)),
                 modifier = Modifier.size(46.dp)
             ) {
                 Box(contentAlignment = Alignment.Center) {
@@ -699,7 +707,7 @@ private fun PlayingEqualizerWave(
 }
 
 /**
- * Spotify 底部专属独立圆角方形按钮 (Screenshot 2: Mix, Shuffle, Repeat, Timer)
+ * Spotify 底部专属现代流体药丸胶囊按钮 (Mix, Shuffle, Repeat, Timer)
  */
 @Composable
 private fun SpotifyDockButton(
@@ -711,15 +719,28 @@ private fun SpotifyDockButton(
     modifier: Modifier = Modifier,
     onClick: () -> Unit
 ) {
-    val contentColor = if (isActive) spotifyGreen else Color.White.copy(alpha = 0.70f)
-    val containerBg = if (isActive) buttonBg else buttonBg
+    val contentColor by animateColorAsState(
+        targetValue = if (isActive) spotifyGreen else Color.White.copy(alpha = 0.70f),
+        animationSpec = spring(stiffness = 500f),
+        label = "dockBtnContent"
+    )
+    val containerBg by animateColorAsState(
+        targetValue = if (isActive) spotifyGreen.copy(alpha = 0.18f) else Color.White.copy(alpha = 0.08f),
+        animationSpec = spring(stiffness = 500f),
+        label = "dockBtnBg"
+    )
+    val borderColor by animateColorAsState(
+        targetValue = if (isActive) spotifyGreen.copy(alpha = 0.50f) else Color.White.copy(alpha = 0.12f),
+        animationSpec = spring(stiffness = 500f),
+        label = "dockBtnBorder"
+    )
 
     Surface(
         color = containerBg,
-        shape = RoundedCornerShape(12.dp),
-        border = if (isActive) BorderStroke(1.dp, spotifyGreen.copy(alpha = 0.35f)) else null,
+        shape = CircleShape,
+        border = BorderStroke(0.5.dp, borderColor),
         modifier = modifier
-            .height(52.dp)
+            .height(48.dp)
             .bouncyClickable(pressedScale = 0.92f, onClick = onClick)
     ) {
         Column(
@@ -731,13 +752,13 @@ private fun SpotifyDockButton(
                 imageVector = icon,
                 contentDescription = label,
                 tint = contentColor,
-                modifier = Modifier.size(20.dp)
+                modifier = Modifier.size(18.dp)
             )
             Spacer(modifier = Modifier.height(2.dp))
             Text(
                 text = label,
                 color = contentColor,
-                fontSize = 11.sp,
+                fontSize = 10.5.sp,
                 fontWeight = if (isActive) FontWeight.Bold else FontWeight.Medium,
                 fontFamily = FontFamily.SansSerif,
                 maxLines = 1
