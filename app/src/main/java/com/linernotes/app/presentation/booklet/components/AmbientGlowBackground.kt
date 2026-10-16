@@ -241,17 +241,17 @@ fun AmbientGlowBackground(
     val overlayColors = remember(effectiveDark, animatedBg) {
         if (effectiveDark) {
             listOf(
-                Color.Black.copy(alpha = 0.28f),
-                Color.Black.copy(alpha = 0.12f),
-                Color.Black.copy(alpha = 0.16f),
-                Color.Black.copy(alpha = 0.38f)
+                Color.Black.copy(alpha = 0.18f), // 顶部微暗角，保护状态栏与系统图标对比度
+                Color.Transparent,               // 中部 100% 纯净通透，让极光色彩畅快流淌呼吸
+                Color.Black.copy(alpha = 0.08f),
+                Color.Black.copy(alpha = 0.22f)  // 底部柔和衬托，烘托悬浮播控胶囊
             )
         } else {
             listOf(
-                animatedBg.copy(alpha = 0.42f),
-                animatedBg.copy(alpha = 0.22f),
-                animatedBg.copy(alpha = 0.35f),
-                animatedBg.copy(alpha = 0.50f)
+                animatedBg.copy(alpha = 0.30f),
+                animatedBg.copy(alpha = 0.10f),
+                animatedBg.copy(alpha = 0.20f),
+                animatedBg.copy(alpha = 0.32f)
             )
         }
     }
@@ -273,7 +273,7 @@ fun AmbientGlowBackground(
                 modifier = Modifier
                     .fillMaxSize()
                     .graphicsLayer {
-                        alpha = if (effectiveDark) (if (isDynamicAurora) 0.72f else 0.70f) else (if (isDynamicAurora) 0.48f else 0.52f)
+                        alpha = if (effectiveDark) (if (isDynamicAurora) 0.88f else 0.78f) else (if (isDynamicAurora) 0.60f else 0.55f)
                         scaleX = 1.45f
                         scaleY = 1.45f
                     }

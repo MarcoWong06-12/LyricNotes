@@ -73,10 +73,10 @@ object AlbumColorExtractor {
 
             val colors = extractVibrantColorsFromBitmap(bitmap)
             val palette = if (colors.isNotEmpty()) {
-                val p0 = colors[0]
-                val p1 = if (colors.size > 1) colors[1] else shiftHue(p0, 35f)
-                val p2 = if (colors.size > 2) colors[2] else shiftHue(p0, -35f)
-                val p3 = if (colors.size > 3) colors[3] else shiftHue(p1, 45f)
+                val p0 = boostColorForAurora(colors[0])
+                val p1 = boostColorForAurora(if (colors.size > 1) colors[1] else shiftHue(p0, 35f))
+                val p2 = boostColorForAurora(if (colors.size > 2) colors[2] else shiftHue(p0, -35f))
+                val p3 = boostColorForAurora(if (colors.size > 3) colors[3] else shiftHue(p1, 45f))
                 AuroraPalette(
                     primary = p0,
                     secondary = p1,
@@ -182,6 +182,21 @@ object AlbumColorExtractor {
             hsv
         )
         hsv[0] = (hsv[0] + deltaHue + 360f) % 360f
+        val argb = android.graphics.Color.HSVToColor(hsv)
+        return Color(argb)
+    }
+
+    private fun boostColorForAurora(color: Color): Color {
+        val hsv = FloatArray(3)
+        android.graphics.Color.RGBToHSV(
+            (color.red * 255).toInt(),
+            (color.green * 255).toInt(),
+            (color.blue * 255).toInt(),
+            hsv
+        )
+        // 确保极光提取色拥有充沛的活态饱和度 (>= 0.36) 与温润明度 (0.42~0.82)，告别死黑暗泥
+        hsv[1] = hsv[1].coerceAtLeast(0.36f)
+        hsv[2] = hsv[2].coerceIn(0.42f, 0.82f)
         val argb = android.graphics.Color.HSVToColor(hsv)
         return Color(argb)
     }
