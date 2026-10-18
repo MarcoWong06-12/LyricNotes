@@ -1,4 +1,4 @@
-package com.linernotes.app.presentation.booklet.components
+package com.linernotes.app.presentation.common
 
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.animateContentSize

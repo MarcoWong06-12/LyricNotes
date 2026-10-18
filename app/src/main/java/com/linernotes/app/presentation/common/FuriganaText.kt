@@ -1,4 +1,4 @@
-package com.linernotes.app.presentation.booklet.components
+package com.linernotes.app.presentation.common
 
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column

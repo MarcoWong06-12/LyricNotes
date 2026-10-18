@@ -28,7 +28,6 @@ import coil.compose.AsyncImage
 import com.linernotes.app.core.i18n.LocalStrings
 import com.linernotes.app.core.util.ChineseConverter
 import com.linernotes.app.data.local.entity.LyricAnnotationEntity
-import com.linernotes.app.presentation.booklet.components.BilingualContentView
 import com.linernotes.app.presentation.common.*
 
 @OptIn(ExperimentalMaterial3Api::class)

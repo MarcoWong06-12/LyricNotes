@@ -74,7 +74,6 @@ import com.linernotes.app.core.preference.AiPreferences
 import com.linernotes.app.core.util.ChineseConverter
 import com.linernotes.app.data.local.entity.LyricAnnotationEntity
 import com.linernotes.app.domain.model.BilingualLyricLine
-import com.linernotes.app.presentation.booklet.components.AmbientGlowBackground
 import com.linernotes.app.presentation.common.*
 import com.linernotes.app.presentation.nowplaying.components.LyricNotesSettingsSheet
 import com.linernotes.app.presentation.nowplaying.components.NowPlayingGeniusSheet
@@ -91,8 +90,6 @@ import androidx.compose.ui.layout.positionInParent
 import androidx.compose.ui.unit.IntOffset
 import android.os.Build
 import com.linernotes.app.core.lyric.FuriganaEngine
-import com.linernotes.app.presentation.booklet.components.FuriganaMode
-import com.linernotes.app.presentation.booklet.components.FuriganaText
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.Job
