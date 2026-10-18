@@ -41,6 +41,8 @@ import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.luminance
+import androidx.compose.foundation.Canvas
+import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.CompositingStrategy
@@ -2223,27 +2225,30 @@ private fun SleekTrackScrubber(
     ) {
         val widthPx = constraints.maxWidth.toFloat()
 
-        // 槽轨底色
-        Box(
+        // 槽轨底色与高光槽轨 (在 Draw 阶段直接完成向量绘制，彻底消除每 100ms 强制触发的 Measure/Layout 排版开销，且杜绝任何拉伸形变)
+        Canvas(
             modifier = Modifier
                 .fillMaxWidth()
                 .height(trackHeight)
-                .clip(CircleShape)
-                .background(trackBaseColor)
-        )
-
-        // 已播放高光槽轨 (在 GPU 变换矩阵层缩放 scaleX，彻底消除每 100ms 强制触发的 Measure/Layout 排版开销)
-        Box(
-            modifier = Modifier
-                .fillMaxWidth()
-                .height(trackHeight)
-                .graphicsLayer {
-                    scaleX = currentFraction
-                    transformOrigin = TransformOrigin(0f, 0.5f)
-                }
-                .clip(CircleShape)
-                .background(trackActiveColor)
-        )
+        ) {
+            val h = size.height
+            val radius = CornerRadius(h / 2f, h / 2f)
+            // 槽轨底色
+            drawRoundRect(
+                color = trackBaseColor,
+                size = size,
+                cornerRadius = radius
+            )
+            // 已播放高光槽轨
+            val activeWidth = size.width * currentFraction
+            if (activeWidth > 0f) {
+                drawRoundRect(
+                    color = trackActiveColor,
+                    size = Size(activeWidth, h),
+                    cornerRadius = radius
+                )
+            }
+        }
 
         // 极细圆形滑块指示点 (通过 GPU 硬件变换矩阵 translationX 位移，跳过布局重排)
         val thumbRadiusPx = with(LocalDensity.current) { (thumbSize / 2).toPx() }
