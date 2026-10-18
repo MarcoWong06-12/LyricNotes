@@ -86,10 +86,7 @@ import androidx.compose.ui.layout.LayoutCoordinates
 import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.layout.positionInParent
-import androidx.compose.ui.graphics.asComposeRenderEffect
 import androidx.compose.ui.unit.IntOffset
-import android.graphics.RenderEffect
-import android.graphics.Shader
 import android.os.Build
 import com.linernotes.app.core.lyric.FuriganaEngine
 import com.linernotes.app.presentation.booklet.components.FuriganaMode
@@ -1227,32 +1224,12 @@ private fun NowPlayingLyricsContent(
         PaddingValues(top = topFocalPadding, bottom = bottomFocalPadding, start = 24.dp, end = 24.dp)
     }
 
-    val fadeBrush = remember {
-        Brush.verticalGradient(
-            0.0f to Color.Transparent,
-            0.15f to Color.Black,
-            0.70f to Color.Black,
-            0.88f to Color.Transparent,
-            1.0f to Color.Transparent
-        )
-    }
-
     Box(modifier = Modifier.fillMaxSize()) {
         LazyColumn(
             state = listState,
             contentPadding = listPadding,
             verticalArrangement = Arrangement.spacedBy(18.dp),
-            modifier = Modifier
-                .fillMaxSize()
-                .graphicsLayer(compositingStrategy = CompositingStrategy.Offscreen)
-                .drawWithContent {
-                    drawContent()
-                    // 硬件级上下边缘羽化蒙版 (Apple Music 纯净两端羽化虚空过渡)
-                    drawRect(
-                        brush = fadeBrush,
-                        blendMode = BlendMode.DstIn
-                    )
-                }
+            modifier = Modifier.fillMaxSize()
         ) {
             itemsIndexed(
                 items = lyrics,
@@ -1436,49 +1413,18 @@ private fun LyricLineRow(
         }
     }
 
-    // 舞台 4：GPU 硬件级景深虚化 (Stage 4: GPU Depth of Field Blur on Android 12+ API 31+)
-    val targetBlurRadius = when {
-        isVisuallyActive -> 0f
-        isBrowsing -> when (distance) {
-            0 -> 0f
-            1 -> 0f
-            2 -> 1.2f
-            else -> 2.4f
-        }
-        else -> when (distance) {
-            0 -> 0f
-            1 -> 0f       // 紧邻行不虚化，保持优雅可读
-            2 -> 1.4f     // 次级邻行轻微柔焦
-            else -> 2.6f  // 远端大光圈虚化，营造立体纵深
-        }
-    }
-
-    val blurRenderEffect = remember(targetBlurRadius) {
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S && targetBlurRadius > 0f) {
-            val px = targetBlurRadius * 3f
-            RenderEffect.createBlurEffect(
-                px,
-                px,
-                Shader.TileMode.CLAMP
-            ).asComposeRenderEffect()
-        } else {
-            null
-        }
-    }
-
-    // 透明度与位移动力学弹簧：与视口滚动物理弹簧完全共振 (dampingRatio = 0.76f, stiffness = 110f)
+    // 透明度与位移动力学弹簧：与视口滚动物理弹簧完全共振 (临界阻尼 0.96f, 刚度 145f，彻底杜绝多弹簧超调振荡)
     val lyricAlphaSpring = remember {
         spring<Float>(
-            dampingRatio = 0.76f,
-            stiffness = 110f
+            dampingRatio = 0.96f,
+            stiffness = 145f
         )
     }
 
-    // 活跃行呼吸膨胀专用低刚度厚重弹簧 (AMLL 逆向核心: scaleSpringParams mass=2, damping=25, stiffness=100 -> Compose stiffness ~ 65f)
     val lyricScaleSpring = remember {
         spring<Float>(
-            dampingRatio = 0.82f,
-            stiffness = 65f
+            dampingRatio = 0.96f,
+            stiffness = 145f
         )
     }
 
@@ -1521,9 +1467,6 @@ private fun LyricLineRow(
                 scaleY = animatedScale
                 alpha = animatedRowAlpha
                 transformOrigin = if (isAlignLeft) TransformOrigin(0f, 0.5f) else TransformOrigin(0.5f, 0.5f)
-                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
-                    renderEffect = blurRenderEffect
-                }
             }
             .clip(RoundedCornerShape(14.dp))
             .bouncyPress(
@@ -2280,32 +2223,32 @@ private fun SleekTrackScrubber(
     ) {
         val widthPx = constraints.maxWidth.toFloat()
 
-        // 槽轨底色
+        // 槽轨底色与已播放高光槽轨 (在 Draw Phase 直接绘制，彻底消除每 100ms 强制触发的 Measure/Layout 排版开销)
         Box(
             modifier = Modifier
                 .fillMaxWidth()
                 .height(trackHeight)
                 .clip(CircleShape)
-                .background(trackBaseColor)
+                .drawBehind {
+                    drawRect(trackBaseColor)
+                    if (currentFraction > 0f) {
+                        drawRect(
+                            color = trackActiveColor,
+                            size = Size(width = size.width * currentFraction, height = size.height)
+                        )
+                    }
+                }
         )
 
-        // 已播放高光槽轨
-        Box(
-            modifier = Modifier
-                .fillMaxWidth(currentFraction)
-                .height(trackHeight)
-                .clip(CircleShape)
-                .background(trackActiveColor)
-        )
-
-        // 极细圆形滑块指示点 (具有拖拽触感绽放与高光边框)
+        // 极细圆形滑块指示点 (通过 GPU 硬件变换矩阵 translationX 位移，跳过布局重排)
         val thumbRadiusPx = with(LocalDensity.current) { (thumbSize / 2).toPx() }
-        val thumbOffsetDp = with(LocalDensity.current) {
-            ((widthPx * currentFraction) - thumbRadiusPx).coerceIn(0f, (widthPx - thumbRadiusPx * 2).coerceAtLeast(0f)).toDp()
-        }
         Box(
             modifier = Modifier
-                .offset(x = thumbOffsetDp)
+                .graphicsLayer {
+                    val thumbOffsetPx = ((widthPx * currentFraction) - thumbRadiusPx)
+                        .coerceIn(0f, (widthPx - thumbRadiusPx * 2).coerceAtLeast(0f))
+                    translationX = thumbOffsetPx
+                }
                 .size(thumbSize)
                 .clip(CircleShape)
                 .background(thumbColor)

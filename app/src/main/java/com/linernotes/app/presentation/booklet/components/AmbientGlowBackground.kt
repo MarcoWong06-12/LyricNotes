@@ -257,12 +257,12 @@ fun AmbientGlowBackground(
     }
 
     Box(modifier = modifier.fillMaxSize()) {
-        // 1. 底层：唱片封面大半径高斯模糊 (放大 1.45 倍杜绝边缘白边)
+        // 1. 底层：唱片封面微缩下采样与柔化 (微缩 72x72 已由 GPU 双线性过滤自然扩散，20dp 模糊替代 85dp 节省 16x 填充率)
         if (!coverUrl.isNullOrBlank()) {
             val imageRequest = remember(coverUrl) {
                 ImageRequest.Builder(context)
                     .data(coverUrl)
-                    .size(240, 240)
+                    .size(72, 72)
                     .crossfade(false)
                     .build()
             }
@@ -279,7 +279,7 @@ fun AmbientGlowBackground(
                     }
                     .then(
                         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
-                            Modifier.blur(85.dp)
+                            Modifier.blur(20.dp)
                         } else Modifier
                     )
             )

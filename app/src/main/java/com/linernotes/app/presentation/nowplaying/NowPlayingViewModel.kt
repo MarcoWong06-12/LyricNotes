@@ -1,5 +1,6 @@
 package com.linernotes.app.presentation.nowplaying
 
+import androidx.compose.runtime.Immutable
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.linernotes.app.core.lyric.AiAnnotationCurator
@@ -23,6 +24,7 @@ enum class FuriganaDisplayMode {
     ROMAJI
 }
 
+@Immutable
 data class NowPlayingUiState(
     val nowPlayingData: NowPlayingData = NowPlayingData(),
     val selectedAnnotation: LyricAnnotationEntity? = null,
