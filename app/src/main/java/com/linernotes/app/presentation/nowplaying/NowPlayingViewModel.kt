@@ -43,7 +43,7 @@ data class NowPlayingUiState(
     val isWordByWordEnabled: Boolean = true,
     val isDeCensorEnabled: Boolean = true,
     val showPlaybackControls: Boolean = true,
-    val lyricOffsetMs: Long = -200L,
+    val lyricOffsetMs: Long = 0L,
     val isQueueSheetOpen: Boolean = false,
     val sleepTimerMinutesLeft: Int = 0,
     val isManualSearchSheetOpen: Boolean = false,
@@ -195,8 +195,8 @@ class NowPlayingViewModel @Inject constructor(
     }
 
     fun resetLyricOffset() {
-        _uiState.update { it.copy(lyricOffsetMs = -200L) }
-        nowPlayingRepository.setLyricOffset(-200L)
+        _uiState.update { it.copy(lyricOffsetMs = 0L) }
+        nowPlayingRepository.setLyricOffset(0L)
     }
 
     fun togglePlaybackControls() {

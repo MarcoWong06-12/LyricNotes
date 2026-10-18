@@ -504,7 +504,7 @@ fun LyricNotesSettingsSheet(
                                 0L -> "0 ms"
                                 else -> "${if (lyricOffsetMs > 0) "+" else ""}${lyricOffsetMs} ms"
                             },
-                            color = if (lyricOffsetMs == -200L) Color(0xFF1ED760) else textPrimary,
+                            color = if (lyricOffsetMs == 0L) Color(0xFF1ED760) else textPrimary,
                             fontSize = 13.5.sp,
                             fontWeight = FontWeight.Bold,
                             fontFamily = FontFamily.SansSerif
@@ -517,7 +517,7 @@ fun LyricNotesSettingsSheet(
                     ) {
                         OffsetButton("-100ms", onClick = { onAdjustOffset(-100) }, modifier = Modifier.weight(1f), isDark = isDark)
                         OffsetButton("-50ms", onClick = { onAdjustOffset(-50) }, modifier = Modifier.weight(1f), isDark = isDark)
-                        OffsetButton("-200ms", onClick = onResetOffset, modifier = Modifier.weight(1.1f), isReset = true, isDark = isDark)
+                        OffsetButton("0ms", onClick = onResetOffset, modifier = Modifier.weight(1.1f), isReset = true, isDark = isDark)
                         OffsetButton("+50ms", onClick = { onAdjustOffset(50) }, modifier = Modifier.weight(1f), isDark = isDark)
                         OffsetButton("+100ms", onClick = { onAdjustOffset(100) }, modifier = Modifier.weight(1f), isDark = isDark)
                     }

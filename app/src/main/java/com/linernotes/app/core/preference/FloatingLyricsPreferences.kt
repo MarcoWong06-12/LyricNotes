@@ -101,8 +101,8 @@ class FloatingLyricsPreferences @Inject constructor(
             _textColorFlow.value = value
         }
 
-    // 7. 时间轴延迟/提前补偿 (默认 -200ms 抵消系统与蓝牙音频缓冲延迟，消除提前跳行感)
-    private val _lyricOffsetMsFlow = MutableStateFlow(prefs.getLong(KEY_OFFSET_MS, -200L))
+    // 7. 时间轴延迟/提前补偿 (默认 0ms 原汁原味自然时间轴)
+    private val _lyricOffsetMsFlow = MutableStateFlow(prefs.getLong(KEY_OFFSET_MS, 0L))
     val lyricOffsetMsFlow: StateFlow<Long> = _lyricOffsetMsFlow.asStateFlow()
 
     var lyricOffsetMs: Long

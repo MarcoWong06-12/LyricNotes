@@ -37,10 +37,10 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
 
 /**
- * 现代旗舰级极简流体悬浮底栏 (Apple Music / Lyricify 4 规范)
- * 1. 材质：高透磨砂流体胶囊 (RoundedCornerShape 32dp + 垂直微渐变倒影 + 0.5dp 晶体微倒角边框)
- * 2. 进度：全宽触控声学轨与毫秒级倒计时指示，避免挤压按键区域
- * 3. 布局：清晰三区化架构 —— [左翼辅助群 Queue/Shuffle] <--> [核心主控群 Prev / 48dp Hero Play / Next] <--> [右翼辅助群 Repeat / Tune]
+ * 现代旗舰级无界流体播控栏 (Apple Music 原生「去容器化」规范)
+ * 1. 材质：彻底移除厚重深色卡片胶囊，图标与进度线完全以无容器（Containerless）纯粹晶体悬浮于动态极光之上
+ * 2. 进度：全宽触控声学极细流线与 Mono 时间指示 (已播时间 / 倒计时剩余时间)
+ * 3. 布局：对称五联键 —— [Shuffle 40dp] <--> [Prev 44dp] <--> [52dp Hero Play] <--> [Next 44dp] <--> [Repeat 40dp]
  */
 @Composable
 fun NowPlayingFloatingGlassPlayer(
@@ -54,244 +54,172 @@ fun NowPlayingFloatingGlassPlayer(
     onToggleShuffle: () -> Unit,
     onCycleRepeat: () -> Unit,
     onSeekTo: (Long) -> Unit,
-    onOpenQueue: () -> Unit,
-    onOpenSettings: () -> Unit,
+    onOpenQueue: () -> Unit = {},
+    onOpenSettings: () -> Unit = {},
     modifier: Modifier = Modifier
 ) {
-    val playerBg = if (isDark) {
-        if (isAmoledMode) Color(0xFF0C0C0E) else Color(0xFF131623).copy(alpha = 0.82f)
-    } else {
-        MaterialTheme.colorScheme.surface.copy(alpha = 0.90f)
-    }
-    val playerBorder = if (isDark) {
-        if (isAmoledMode) Color(0xFF222226) else Color.White.copy(alpha = 0.18f)
-    } else {
-        Color.Black.copy(alpha = 0.10f)
-    }
-    val onPlayerTextSec = if (isDark) Color.White.copy(alpha = 0.65f) else Color(0xFF656772)
-    val iconTint = if (isDark) Color.White.copy(alpha = 0.92f) else Color(0xFF1E202B)
+    val onPlayerTextSec = if (isDark) Color.White.copy(alpha = 0.65f) else Color.Black.copy(alpha = 0.60f)
+    val iconTint = if (isDark) Color.White.copy(alpha = 0.94f) else Color(0xFF1E202B)
 
-    Box(
+    Column(
         modifier = modifier
             .fillMaxWidth()
             .navigationBarsPadding()
-            .padding(horizontal = 16.dp, vertical = 8.dp)
+            .padding(horizontal = 24.dp, vertical = 6.dp)
     ) {
-        Surface(
-            color = playerBg,
-            shape = RoundedCornerShape(32.dp),
-            border = BorderStroke(0.5.dp, playerBorder),
-            shadowElevation = 16.dp,
-            modifier = Modifier.fillMaxWidth()
+        // 1. 顶部声学进度轨 (全宽极简流线，透明融入背景，左已播放时间 / 右倒计时剩余时间)
+        PlayerProgressSection(
+            trackState = trackState,
+            isDark = isDark,
+            onPlayerTextSec = onPlayerTextSec,
+            onSeekTo = onSeekTo,
+            modifier = Modifier.padding(bottom = 6.dp)
+        )
+
+        // 2. 现代无界流体播控群 (Apple Music 纯净 5 联键：[随机] [上一首] [52dp 白瓷播放] [下一首] [循环])
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 4.dp, vertical = 2.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.SpaceBetween
         ) {
-            Column(
+            // 1. 随机播放 (Shuffle)
+            val isShuffle = trackState.isShuffleActive
+            val shuffleBg by animateColorAsState(
+                targetValue = if (isShuffle) (if (isDark) Color.White.copy(alpha = 0.22f) else MaterialTheme.colorScheme.primary.copy(alpha = 0.18f)) else Color.Transparent,
+                animationSpec = spring(stiffness = 600f),
+                label = "shuffleBg"
+            )
+            val shuffleTint by animateColorAsState(
+                targetValue = if (isShuffle) (if (isDark) Color(0xFFFFD54F) else MaterialTheme.colorScheme.primary) else iconTint.copy(alpha = 0.55f),
+                animationSpec = spring(stiffness = 600f),
+                label = "shuffleTint"
+            )
+            Surface(
+                color = shuffleBg,
+                shape = CircleShape,
                 modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(horizontal = 14.dp, vertical = 11.dp)
+                    .size(40.dp)
+                    .bouncyIconClickable(onClick = onToggleShuffle)
             ) {
-                // 1. 顶部声学进度轨 (全宽极简流线与时间指示，左已播放时间 / 右倒计时剩余时间)
-                PlayerProgressSection(
-                    trackState = trackState,
-                    isDark = isDark,
-                    onPlayerTextSec = onPlayerTextSec,
-                    onSeekTo = onSeekTo,
-                    modifier = Modifier.padding(bottom = 6.dp)
+                Box(contentAlignment = Alignment.Center) {
+                    Icon(
+                        imageVector = Icons.Default.Shuffle,
+                        contentDescription = if (isShuffle) "随机播放 (已开启)" else "顺序播放",
+                        tint = shuffleTint,
+                        modifier = Modifier.size(20.dp)
+                    )
+                }
+            }
+
+            // 2. 上一首
+            Box(
+                contentAlignment = Alignment.Center,
+                modifier = Modifier
+                    .size(44.dp)
+                    .clip(CircleShape)
+                    .bouncyIconClickable(onClick = onPrevious)
+            ) {
+                Icon(
+                    imageVector = Icons.Default.SkipPrevious,
+                    contentDescription = "上一首",
+                    tint = iconTint,
+                    modifier = Modifier.size(28.dp)
                 )
+            }
 
-                // 2. 底部对称播控群 (左翼辅助群 + 核心主控群 + 右翼辅助群，层次分明，拒绝拥挤)
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.SpaceBetween
-                ) {
-                    // 左翼辅助群：待播队列 (Queue) + 随机播放 (Shuffle)
-                    Row(
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(4.dp)
-                    ) {
-                        // 待播队列
-                        Box(
-                            contentAlignment = Alignment.Center,
-                            modifier = Modifier
-                                .size(34.dp)
-                                .clip(CircleShape)
-                                .bouncyIconClickable(onClick = onOpenQueue)
-                        ) {
-                            Icon(
-                                imageVector = Icons.Default.QueueMusic,
-                                contentDescription = "待播队列",
-                                tint = iconTint.copy(alpha = 0.75f),
-                                modifier = Modifier.size(19.dp)
-                            )
-                        }
-
-                        // 随机播放
-                        val isShuffle = trackState.isShuffleActive
-                        val shuffleBg by animateColorAsState(
-                            targetValue = if (isShuffle) (if (isDark) Color.White.copy(alpha = 0.18f) else MaterialTheme.colorScheme.primary.copy(alpha = 0.15f)) else Color.Transparent,
-                            animationSpec = spring(stiffness = 600f),
-                            label = "shuffleBg"
-                        )
-                        val shuffleTint by animateColorAsState(
-                            targetValue = if (isShuffle) (if (isDark) Color(0xFFFFD54F) else MaterialTheme.colorScheme.primary) else iconTint.copy(alpha = 0.55f),
-                            animationSpec = spring(stiffness = 600f),
-                            label = "shuffleTint"
-                        )
-                        Surface(
-                            color = shuffleBg,
-                            shape = CircleShape,
-                            modifier = Modifier
-                                .size(32.dp)
-                                .bouncyIconClickable(onClick = onToggleShuffle)
-                        ) {
-                            Box(contentAlignment = Alignment.Center) {
-                                Icon(
-                                    imageVector = Icons.Default.Shuffle,
-                                    contentDescription = if (isShuffle) "随机播放 (已开启)" else "顺序播放",
-                                    tint = shuffleTint,
-                                    modifier = Modifier.size(16.dp)
-                                )
-                            }
-                        }
+            // 3. 核心中央 Hero 播放/暂停白瓷圆钮 (52dp 旗舰流体微弹簧)
+            val heroScale by animateFloatAsState(
+                targetValue = if (trackState.isPlaying) 1.04f else 1.0f,
+                animationSpec = spring(dampingRatio = 0.80f, stiffness = 500f),
+                label = "heroScale"
+            )
+            val heroElevation by animateDpAsState(
+                targetValue = if (trackState.isPlaying) 10.dp else 4.dp,
+                animationSpec = spring(dampingRatio = 0.80f, stiffness = 400f),
+                label = "heroElevation"
+            )
+            Surface(
+                color = if (isDark) Color.White else Color(0xFF19191C),
+                shape = CircleShape,
+                shadowElevation = heroElevation,
+                modifier = Modifier
+                    .size(52.dp)
+                    .graphicsLayer {
+                        scaleX = heroScale
+                        scaleY = heroScale
                     }
-
-                    // 核心中央组：上一首 + 46dp Hero 白瓷播放大圆钮 + 下一首
-                    Row(
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(10.dp)
-                    ) {
-                        // 上一首
-                        Box(
-                            contentAlignment = Alignment.Center,
-                            modifier = Modifier
-                                .size(36.dp)
-                                .clip(CircleShape)
-                                .bouncyIconClickable(onClick = onPrevious)
-                        ) {
-                            Icon(
-                                imageVector = Icons.Default.SkipPrevious,
-                                contentDescription = "上一首",
-                                tint = iconTint,
-                                modifier = Modifier.size(22.dp)
-                            )
-                        }
-
-                        // 播放/暂停 Hero 白瓷圆钮
-                        val heroScale by animateFloatAsState(
-                            targetValue = if (trackState.isPlaying) 1.05f else 1.0f,
-                            animationSpec = spring(dampingRatio = 0.80f, stiffness = 500f),
-                            label = "heroScale"
+                    .bouncyIconClickable(
+                        pressedScale = 0.88f,
+                        onClick = onPlayPause
+                    )
+            ) {
+                Box(contentAlignment = Alignment.Center) {
+                    AnimatedContent(
+                        targetState = trackState.isPlaying,
+                        transitionSpec = {
+                            fadeIn(tween(130, easing = LinearOutSlowInEasing)) + scaleIn(initialScale = 0.72f, animationSpec = spring(dampingRatio = 0.78f, stiffness = 600f)) togetherWith
+                                    fadeOut(tween(110)) + scaleOut(targetScale = 0.72f)
+                        },
+                        label = "playPauseMorph"
+                    ) { isPlaying ->
+                        Icon(
+                            imageVector = if (isPlaying) Icons.Default.Pause else Icons.Default.PlayArrow,
+                            contentDescription = if (isPlaying) "暂停" else "播放",
+                            tint = if (isDark) Color(0xFF0F1118) else Color.White,
+                            modifier = Modifier.size(28.dp)
                         )
-                        val heroElevation by animateDpAsState(
-                            targetValue = if (trackState.isPlaying) 10.dp else 4.dp,
-                            animationSpec = spring(dampingRatio = 0.80f, stiffness = 400f),
-                            label = "heroElevation"
-                        )
-                        Surface(
-                            color = if (isDark) Color.White else Color(0xFF19191C),
-                            shape = CircleShape,
-                            shadowElevation = heroElevation,
-                            modifier = Modifier
-                                .size(46.dp)
-                                .graphicsLayer {
-                                    scaleX = heroScale
-                                    scaleY = heroScale
-                                }
-                                .bouncyIconClickable(
-                                    pressedScale = 0.88f,
-                                    onClick = onPlayPause
-                                )
-                        ) {
-                            Box(contentAlignment = Alignment.Center) {
-                                AnimatedContent(
-                                    targetState = trackState.isPlaying,
-                                    transitionSpec = {
-                                        fadeIn(tween(130, easing = LinearOutSlowInEasing)) + scaleIn(initialScale = 0.72f, animationSpec = spring(dampingRatio = 0.78f, stiffness = 600f)) togetherWith
-                                                fadeOut(tween(110)) + scaleOut(targetScale = 0.72f)
-                                    },
-                                    label = "playPauseMorph"
-                                ) { isPlaying ->
-                                    Icon(
-                                        imageVector = if (isPlaying) Icons.Default.Pause else Icons.Default.PlayArrow,
-                                        contentDescription = if (isPlaying) "暂停" else "播放",
-                                        tint = if (isDark) Color(0xFF0F1118) else Color.White,
-                                        modifier = Modifier.size(24.dp)
-                                    )
-                                }
-                            }
-                        }
-
-                        // 下一首
-                        Box(
-                            contentAlignment = Alignment.Center,
-                            modifier = Modifier
-                                .size(36.dp)
-                                .clip(CircleShape)
-                                .bouncyIconClickable(onClick = onNext)
-                        ) {
-                            Icon(
-                                imageVector = Icons.Default.SkipNext,
-                                contentDescription = "下一首",
-                                tint = iconTint,
-                                modifier = Modifier.size(22.dp)
-                            )
-                        }
                     }
+                }
+            }
 
-                    // 右翼辅助群：循环模式 (Repeat) + 设置与更多 (Tune)
-                    Row(
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(4.dp)
-                    ) {
-                        // 循环模式
-                        val isRepeatActive = trackState.repeatMode != 0
-                        val repeatBg by animateColorAsState(
-                            targetValue = if (isRepeatActive) (if (isDark) Color.White.copy(alpha = 0.18f) else MaterialTheme.colorScheme.primary.copy(alpha = 0.15f)) else Color.Transparent,
-                            animationSpec = spring(stiffness = 600f),
-                            label = "repeatBg"
-                        )
-                        val repeatTint by animateColorAsState(
-                            targetValue = if (isRepeatActive) (if (isDark) Color(0xFFFFD54F) else MaterialTheme.colorScheme.primary) else iconTint.copy(alpha = 0.55f),
-                            animationSpec = spring(stiffness = 600f),
-                            label = "repeatTint"
-                        )
-                        Surface(
-                            color = repeatBg,
-                            shape = CircleShape,
-                            modifier = Modifier
-                                .size(32.dp)
-                                .bouncyIconClickable(onClick = onCycleRepeat)
-                        ) {
-                            Box(contentAlignment = Alignment.Center) {
-                                Icon(
-                                    imageVector = if (trackState.repeatMode == 2) Icons.Default.RepeatOne else Icons.Default.Repeat,
-                                    contentDescription = when (trackState.repeatMode) {
-                                        1 -> "列表循环"
-                                        2 -> "单曲循环"
-                                        else -> "顺序播放"
-                                    },
-                                    tint = repeatTint,
-                                    modifier = Modifier.size(16.dp)
-                                )
-                            }
-                        }
+            // 4. 下一首
+            Box(
+                contentAlignment = Alignment.Center,
+                modifier = Modifier
+                    .size(44.dp)
+                    .clip(CircleShape)
+                    .bouncyIconClickable(onClick = onNext)
+            ) {
+                Icon(
+                    imageVector = Icons.Default.SkipNext,
+                    contentDescription = "下一首",
+                    tint = iconTint,
+                    modifier = Modifier.size(28.dp)
+                )
+            }
 
-                        // 设置与更多
-                        Box(
-                            contentAlignment = Alignment.Center,
-                            modifier = Modifier
-                                .size(34.dp)
-                                .clip(CircleShape)
-                                .bouncyIconClickable(onClick = onOpenSettings)
-                        ) {
-                            Icon(
-                                imageVector = Icons.Default.Tune,
-                                contentDescription = "播放与歌词设置",
-                                tint = iconTint.copy(alpha = 0.75f),
-                                modifier = Modifier.size(18.dp)
-                            )
-                        }
-                    }
+            // 5. 循环模式 (Repeat)
+            val isRepeatActive = trackState.repeatMode != 0
+            val repeatBg by animateColorAsState(
+                targetValue = if (isRepeatActive) (if (isDark) Color.White.copy(alpha = 0.22f) else MaterialTheme.colorScheme.primary.copy(alpha = 0.18f)) else Color.Transparent,
+                animationSpec = spring(stiffness = 600f),
+                label = "repeatBg"
+            )
+            val repeatTint by animateColorAsState(
+                targetValue = if (isRepeatActive) (if (isDark) Color(0xFFFFD54F) else MaterialTheme.colorScheme.primary) else iconTint.copy(alpha = 0.55f),
+                animationSpec = spring(stiffness = 600f),
+                label = "repeatTint"
+            )
+            Surface(
+                color = repeatBg,
+                shape = CircleShape,
+                modifier = Modifier
+                    .size(40.dp)
+                    .bouncyIconClickable(onClick = onCycleRepeat)
+            ) {
+                Box(contentAlignment = Alignment.Center) {
+                    Icon(
+                        imageVector = if (trackState.repeatMode == 2) Icons.Default.RepeatOne else Icons.Default.Repeat,
+                        contentDescription = when (trackState.repeatMode) {
+                            1 -> "列表循环"
+                            2 -> "单曲循环"
+                            else -> "顺序播放"
+                        },
+                        tint = repeatTint,
+                        modifier = Modifier.size(20.dp)
+                    )
                 }
             }
         }

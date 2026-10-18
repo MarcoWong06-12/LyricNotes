@@ -314,7 +314,23 @@ fun NowPlayingLyricsContent(
         PaddingValues(top = topFocalPadding, bottom = bottomFocalPadding, start = 24.dp, end = 24.dp)
     }
 
-    Box(modifier = Modifier.fillMaxSize()) {
+    Box(
+        modifier = Modifier
+            .fillMaxSize()
+            .graphicsLayer(compositingStrategy = CompositingStrategy.Offscreen)
+            .drawWithContent {
+                drawContent()
+                drawRect(
+                    brush = Brush.verticalGradient(
+                        0.00f to Color.Transparent,
+                        0.06f to Color.Black,
+                        0.76f to Color.Black,
+                        0.96f to Color.Transparent
+                    ),
+                    blendMode = BlendMode.DstIn
+                )
+            }
+    ) {
         LazyColumn(
             state = listState,
             contentPadding = listPadding,
