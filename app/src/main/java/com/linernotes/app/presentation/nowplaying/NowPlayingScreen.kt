@@ -2223,21 +2223,26 @@ private fun SleekTrackScrubber(
     ) {
         val widthPx = constraints.maxWidth.toFloat()
 
-        // 槽轨底色与已播放高光槽轨 (在 Draw Phase 直接绘制，彻底消除每 100ms 强制触发的 Measure/Layout 排版开销)
+        // 槽轨底色
         Box(
             modifier = Modifier
                 .fillMaxWidth()
                 .height(trackHeight)
                 .clip(CircleShape)
-                .drawBehind {
-                    drawRect(trackBaseColor)
-                    if (currentFraction > 0f) {
-                        drawRect(
-                            color = trackActiveColor,
-                            size = Size(width = size.width * currentFraction, height = size.height)
-                        )
-                    }
+                .background(trackBaseColor)
+        )
+
+        // 已播放高光槽轨 (在 GPU 变换矩阵层缩放 scaleX，彻底消除每 100ms 强制触发的 Measure/Layout 排版开销)
+        Box(
+            modifier = Modifier
+                .fillMaxWidth()
+                .height(trackHeight)
+                .graphicsLayer {
+                    scaleX = currentFraction
+                    transformOrigin = TransformOrigin(0f, 0.5f)
                 }
+                .clip(CircleShape)
+                .background(trackActiveColor)
         )
 
         // 极细圆形滑块指示点 (通过 GPU 硬件变换矩阵 translationX 位移，跳过布局重排)
