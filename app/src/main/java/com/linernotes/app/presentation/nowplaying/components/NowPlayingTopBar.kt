@@ -51,6 +51,7 @@ fun NowPlayingTopBar(
     onOpenSongStory: () -> Unit,
     onOpenQueue: () -> Unit,
     onOpenSettings: () -> Unit,
+    onOpenManualSearch: () -> Unit = {},
     onToggleImmersive: () -> Unit = {},
     modifier: Modifier = Modifier
 ) {
@@ -356,6 +357,41 @@ fun NowPlayingTopBar(
                         onClick = {
                             showMoreMenu = false
                             onToggleImmersive()
+                        },
+                        contentPadding = PaddingValues(horizontal = 16.dp, vertical = 10.dp),
+                        modifier = Modifier
+                            .padding(horizontal = 6.dp, vertical = 2.dp)
+                            .clip(RoundedCornerShape(14.dp))
+                    )
+
+                    Box(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(horizontal = 16.dp, vertical = 2.dp)
+                            .height(0.5.dp)
+                            .background(if (isDark) Color.White.copy(alpha = 0.08f) else Color.Black.copy(alpha = 0.06f))
+                    )
+
+                    DropdownMenuItem(
+                        text = {
+                            Text(
+                                text = "更换歌词版本",
+                                fontSize = 14.sp,
+                                fontWeight = FontWeight.Medium,
+                                color = if (isDark) Color.White else MaterialTheme.colorScheme.onSurface
+                            )
+                        },
+                        leadingIcon = {
+                            Icon(
+                                imageVector = Icons.Default.Search,
+                                contentDescription = null,
+                                tint = pillIconTint,
+                                modifier = Modifier.size(19.dp)
+                            )
+                        },
+                        onClick = {
+                            showMoreMenu = false
+                            onOpenManualSearch()
                         },
                         contentPadding = PaddingValues(horizontal = 16.dp, vertical = 10.dp),
                         modifier = Modifier

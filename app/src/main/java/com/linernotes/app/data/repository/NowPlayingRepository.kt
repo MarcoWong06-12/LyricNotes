@@ -83,11 +83,14 @@ class NowPlayingRepository @Inject constructor(
         val geniusNotice: String? = null
     )
 
-    val lyricOffsetMsFlow: StateFlow<Long> = floatingPreferences.lyricOffsetMsFlow
+    private val _lyricOffsetMsFlow = MutableStateFlow(floatingPreferences.lyricOffsetMs)
+    val lyricOffsetMsFlow: StateFlow<Long> = _lyricOffsetMsFlow.asStateFlow()
     private var lyricOffsetMs: Long = 0L
 
     fun setLyricOffset(offsetMs: Long) {
         lyricOffsetMs = offsetMs
+        _lyricOffsetMsFlow.value = offsetMs
+        currentSongKey?.let { floatingPreferences.setSongOffset(it, offsetMs) }
         floatingPreferences.lyricOffsetMs = offsetMs
     }
 
@@ -102,13 +105,9 @@ class NowPlayingRepository @Inject constructor(
         // 2. 毫秒级时间轴驱动与高亮行定位 (60fps 级流畅推算)
         startPositionTracker()
 
-        // 3. 初始载入并动态监听全局歌词时间轴偏移 (默认 -200ms 音频与蓝牙硬件延迟补偿)
+        // 3. 初始载入全局歌词时间轴偏移 (默认 0ms 原生自然时间轴)
         lyricOffsetMs = floatingPreferences.lyricOffsetMs
-        repositoryScope.launch {
-            floatingPreferences.lyricOffsetMsFlow.collect { offset ->
-                lyricOffsetMs = offset
-            }
-        }
+        _lyricOffsetMsFlow.value = lyricOffsetMs
     }
 
     private fun handlePlaybackStateUpdate(state: TrackPlaybackState) {
@@ -127,6 +126,9 @@ class NowPlayingRepository @Inject constructor(
 
         if (isNewSong) {
             currentSongKey = songKey
+            val songOffset = floatingPreferences.getSongOffset(songKey)
+            lyricOffsetMs = songOffset
+            _lyricOffsetMsFlow.value = songOffset
             _nowPlayingData.update { current ->
                 current.copy(
                     playbackState = state,

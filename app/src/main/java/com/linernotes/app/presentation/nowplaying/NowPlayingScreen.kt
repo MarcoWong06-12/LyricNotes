@@ -345,6 +345,7 @@ fun NowPlayingScreen(
                     onOpenSongStory = onOpenSongStory,
                     onOpenQueue = onOpenQueue,
                     onOpenSettings = onOpenSettings,
+                    onOpenManualSearch = onOpenManualSearch,
                     onToggleImmersive = { isImmersiveMode = !isImmersiveMode }
                 )
             }

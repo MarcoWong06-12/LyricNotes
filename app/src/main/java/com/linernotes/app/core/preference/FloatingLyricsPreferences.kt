@@ -112,6 +112,14 @@ class FloatingLyricsPreferences @Inject constructor(
             _lyricOffsetMsFlow.value = value
         }
 
+    fun getSongOffset(songKey: String): Long {
+        return prefs.getLong("offset_${songKey.trim().lowercase()}", lyricOffsetMs)
+    }
+
+    fun setSongOffset(songKey: String, offsetMs: Long) {
+        prefs.edit().putLong("offset_${songKey.trim().lowercase()}", offsetMs).apply()
+    }
+
     // 8. 记忆屏幕坐标 X / Y（区分横竖屏独立记忆，-1 表示初次由系统计算安全居中与下移避让挖孔）
     var lastPositionX: Int
         get() = prefs.getInt(KEY_POS_PORTRAIT_X, prefs.getInt(KEY_POS_X, -1))
