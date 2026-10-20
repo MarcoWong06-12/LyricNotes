@@ -207,7 +207,6 @@ fun NowPlayingLyricsContent(
     val configuration = LocalConfiguration.current
     val screenHeightDp = configuration.screenHeightDp.dp
     val density = LocalDensity.current
-    val isTablet = configuration.smallestScreenWidthDp >= 600
 
     // Apple Music 官方视口边距：活跃行顶端基线严格锚定在视口偏上部约 22% 黄金阅读带 (约 170dp)
     val focalTopDp = (screenHeightDp * 0.22f).coerceIn(160.dp, 195.dp)
@@ -216,12 +215,14 @@ fun NowPlayingLyricsContent(
     val bottomFocalPadding = screenHeightDp * 0.2775f + (if (showPlaybackControls) 130.dp else 48.dp)
 
     // Apple Music 官方逆向流体曲线与动态滚动时长 (PathInterpolator 0.75, 0.0, 0.25, 1.0)
-    val currentLine = lyrics.getOrNull(currentLineIndex)
-    val nextLine = lyrics.getOrNull(currentLineIndex + 1)
     val scrollDurationMs = remember(currentLineIndex, lyrics) {
-        if (currentLine != null && nextLine != null && currentLine.startTimeMs != null && nextLine.startTimeMs != null) {
-            val currentEnd = currentLine.endTimeMs ?: (currentLine.startTimeMs + 2000L)
-            val gap = (nextLine.startTimeMs - currentEnd).toFloat()
+        val currentLine = lyrics.getOrNull(currentLineIndex)
+        val nextLine = lyrics.getOrNull(currentLineIndex + 1)
+        val curStart = currentLine?.startTimeMs
+        val nxtStart = nextLine?.startTimeMs
+        if (currentLine != null && nextLine != null && curStart != null && nxtStart != null) {
+            val currentEnd = currentLine.endTimeMs ?: (curStart + 2000L)
+            val gap = (nxtStart - currentEnd).toFloat()
             val clampedGap = gap.coerceIn(200f, 750f)
             val t = (clampedGap - 200f) / 550f
             (480f + (750f - 480f) * t).roundToInt()
@@ -561,7 +562,7 @@ fun LyricLineRow(
     val interactionSource = remember { MutableInteractionSource() }
 
     val configuration = LocalConfiguration.current
-    val isTablet = configuration.smallestScreenWidthDp >= 600
+    val isTablet = configuration.screenWidthDp >= 600
     val mainTextSize = if (isTablet) 24.sp else 34.sp
     val mainLineHeight = if (isTablet) 32.sp else 44.sp
     val subTextSize = if (isTablet) 17.sp else 22.sp
