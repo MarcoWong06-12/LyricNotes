@@ -35,6 +35,7 @@ import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.unit.TextUnit
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.linernotes.app.core.i18n.LocalStrings
@@ -48,15 +49,17 @@ import com.linernotes.app.domain.model.BilingualLyricLine
 import com.linernotes.app.domain.model.LyricWord
 import com.linernotes.app.presentation.common.*
 import com.linernotes.app.presentation.nowplaying.FuriganaDisplayMode
+import kotlin.math.roundToInt
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 
 /**
- * 丝滑流畅歌词滚动列表 (流体视差与羽化遮罩)
- * 1. 采用物理级几何中心对齐：动态计算歌词行垂直中点与视口黄金分割线 (36%) 的精确差值
- * 2. 硬件级 direct 光栅化渲染，剔除全屏离屏蒙版拷贝开销
- * 3. 活跃行 28sp 纯白 Bold 聚光灯聚焦，非活跃行 20sp 半透柔光退居次席
+ * Apple Music 官方原生逆向高精度流体歌词视口
+ * 1. 视口滚动流体曲线：r1 = PathInterpolator(0.75f, 0.0f, 0.25f, 1.0f)，时长根据行间隙动态映射 [480ms ~ 750ms]
+ * 2. 状态缩放与透明度曲线：C.j = PathInterpolator(0.39f, 0.575f, 0.565f, 1.0f)
+ * 3. 苹果官方视觉层级：活跃行 34sp Bold (1.0x 缩放, 0.94 Alpha)，非活跃行 (0.98x 缩放, 0.45/0.18 Alpha)
+ * 4. 视口边缘双向羽化渐变：顶部 7% 高度遮罩，底部 27.75% + 播放控制坞高度动态渐变
  */
 @Composable
 fun NowPlayingLyricsContent(
@@ -204,17 +207,32 @@ fun NowPlayingLyricsContent(
     val configuration = LocalConfiguration.current
     val screenHeightDp = configuration.screenHeightDp.dp
     val density = LocalDensity.current
+    val isTablet = configuration.smallestScreenWidthDp >= 600
+
     // Apple Music 官方视口边距：活跃行顶端基线严格锚定在视口偏上部约 22% 黄金阅读带 (约 170dp)
     val focalTopDp = (screenHeightDp * 0.22f).coerceIn(160.dp, 195.dp)
     val focalTopPx = with(density) { focalTopDp.toPx() }
     val topFocalPadding = focalTopDp
-    val bottomFocalPadding = screenHeightDp * 0.72f
+    val bottomFocalPadding = screenHeightDp * 0.2775f + (if (showPlaybackControls) 130.dp else 48.dp)
 
-    // 临界阻尼柔性弹簧 (dampingRatio = 0.96f, stiffness = 145f)
-    val lyricFluidSpring = remember {
-        spring<Float>(
-            dampingRatio = 0.96f,
-            stiffness = 145f
+    // Apple Music 官方逆向流体曲线与动态滚动时长 (PathInterpolator 0.75, 0.0, 0.25, 1.0)
+    val currentLine = lyrics.getOrNull(currentLineIndex)
+    val nextLine = lyrics.getOrNull(currentLineIndex + 1)
+    val scrollDurationMs = remember(currentLineIndex, lyrics) {
+        if (currentLine != null && nextLine != null && currentLine.startTimeMs != null && nextLine.startTimeMs != null) {
+            val currentEnd = currentLine.endTimeMs ?: (currentLine.startTimeMs + 2000L)
+            val gap = (nextLine.startTimeMs - currentEnd).toFloat()
+            val clampedGap = gap.coerceIn(200f, 750f)
+            val t = (clampedGap - 200f) / 550f
+            (480f + (750f - 480f) * t).roundToInt()
+        } else {
+            750
+        }
+    }
+    val lyricFluidScrollSpec = remember(scrollDurationMs) {
+        tween<Float>(
+            durationMillis = scrollDurationMs,
+            easing = CubicBezierEasing(0.75f, 0.0f, 0.25f, 1.0f)
         )
     }
 
@@ -269,7 +287,7 @@ fun NowPlayingLyricsContent(
 
     var lastSongTitle by remember { mutableStateOf("") }
 
-    // Apple Music 官方视线重心动力学 (22% 视口顶端基线锚定 + 临界阻尼物理弹簧)
+    // Apple Music 官方视线重心动力学 (22% 视口顶端基线锚定 + CubicBezier 0.75, 0.0, 0.25, 1.0)
     LaunchedEffect(currentLineIndex, userScrolledAway, lyrics, trackState.title) {
         if (userScrolledAway || lyrics.isEmpty()) {
             return@LaunchedEffect
@@ -289,7 +307,7 @@ fun NowPlayingLyricsContent(
             if (kotlin.math.abs(scrollDelta) > 1.5f) {
                 listState.animateScrollBy(
                     value = scrollDelta,
-                    animationSpec = lyricFluidSpring
+                    animationSpec = lyricFluidScrollSpec
                 )
             }
         } else {
@@ -300,7 +318,7 @@ fun NowPlayingLyricsContent(
                 if (kotlin.math.abs(scrollDelta) > 1.5f) {
                     listState.animateScrollBy(
                         value = scrollDelta,
-                        animationSpec = lyricFluidSpring
+                        animationSpec = lyricFluidScrollSpec
                     )
                 }
             }
@@ -323,9 +341,9 @@ fun NowPlayingLyricsContent(
                 drawRect(
                     brush = Brush.verticalGradient(
                         0.00f to Color.Transparent,
-                        0.06f to Color.Black,
-                        0.76f to Color.Black,
-                        0.96f to Color.Transparent
+                        0.07f to Color.Black,
+                        0.72f to Color.Black,
+                        0.95f to Color.Transparent
                     ),
                     blendMode = BlendMode.DstIn
                 )
@@ -334,8 +352,9 @@ fun NowPlayingLyricsContent(
         LazyColumn(
             state = listState,
             contentPadding = listPadding,
-            verticalArrangement = Arrangement.spacedBy(18.dp),
+            verticalArrangement = Arrangement.spacedBy(20.dp),
             modifier = Modifier.fillMaxSize()
+        )
         ) {
             itemsIndexed(
                 items = lyrics,
@@ -367,7 +386,7 @@ fun NowPlayingLyricsContent(
                             if (visibleItem != null) {
                                 val scrollDelta = visibleItem.offset.toFloat() - focalTopPx
                                 if (kotlin.math.abs(scrollDelta) > 1.5f) {
-                                    listState.animateScrollBy(scrollDelta, lyricFluidSpring)
+                                    listState.animateScrollBy(scrollDelta, lyricFluidScrollSpec)
                                 }
                             } else {
                                 listState.scrollToItem(index, scrollOffset = 0)
@@ -375,7 +394,7 @@ fun NowPlayingLyricsContent(
                                 if (itemAfter != null) {
                                     val scrollDelta = itemAfter.offset.toFloat() - focalTopPx
                                     if (kotlin.math.abs(scrollDelta) > 1.5f) {
-                                        listState.animateScrollBy(scrollDelta, lyricFluidSpring)
+                                        listState.animateScrollBy(scrollDelta, lyricFluidScrollSpec)
                                     }
                                 }
                             }
@@ -480,60 +499,46 @@ fun LyricLineRow(
     val targetRowAlpha = when {
         isBrowsing -> {
             when (distance) {
-                0 -> 1.0f
-                1 -> if (isDark) 0.85f else 0.82f
-                2 -> if (isDark) 0.65f else 0.62f
-                else -> if (isDark) 0.45f else 0.42f
+                0 -> 0.94f
+                1 -> if (isDark) 0.70f else 0.65f
+                2 -> if (isDark) 0.45f else 0.40f
+                else -> if (isDark) 0.25f else 0.20f
             }
         }
-        isVisuallyActive -> 1.0f
+        isVisuallyActive -> 0.94f
         else -> when (distance) {
-            0 -> if (isDark) 0.88f else 0.84f
-            1 -> if (isDark) 0.46f else 0.42f
-            2 -> if (isDark) 0.26f else 0.24f
-            else -> if (isDark) 0.14f else 0.15f
+            0 -> 0.94f
+            1 -> 0.45f
+            else -> 0.18f
         }
     }
 
     val targetScale = when {
         isBrowsing -> when (distance) {
-            0 -> 1.06f
+            0 -> 1.0f
             1 -> 0.98f
-            2 -> 0.94f
-            else -> 0.90f
+            else -> 0.97f
         }
-        isVisuallyActive -> 1.08f
-        else -> when (distance) {
-            0 -> 1.00f
-            1 -> 0.96f
-            2 -> 0.92f
-            else -> 0.88f
-        }
+        isVisuallyActive -> 1.0f
+        else -> 0.98f
     }
 
-    val lyricAlphaSpring = remember {
-        spring<Float>(
-            dampingRatio = 0.96f,
-            stiffness = 145f
-        )
-    }
-
-    val lyricScaleSpring = remember {
-        spring<Float>(
-            dampingRatio = 0.96f,
-            stiffness = 145f
+    val lyricHighlightAnimationSpec = remember {
+        tween<Float>(
+            durationMillis = 350,
+            easing = CubicBezierEasing(0.39f, 0.575f, 0.565f, 1.0f)
         )
     }
 
     val animatedRowAlpha by animateFloatAsState(
         targetValue = targetRowAlpha,
-        animationSpec = lyricAlphaSpring,
+        animationSpec = lyricHighlightAnimationSpec,
         label = "rowAlpha"
     )
 
     val animatedScale by animateFloatAsState(
         targetValue = targetScale,
-        animationSpec = lyricScaleSpring,
+        animationSpec = lyricHighlightAnimationSpec,
         label = "lineScale"
     )
 
@@ -555,6 +560,13 @@ fun LyricLineRow(
     val haptic = LocalHapticFeedback.current
     val interactionSource = remember { MutableInteractionSource() }
 
+    val configuration = LocalConfiguration.current
+    val isTablet = configuration.smallestScreenWidthDp >= 600
+    val mainTextSize = if (isTablet) 24.sp else 34.sp
+    val mainLineHeight = if (isTablet) 32.sp else 44.sp
+    val subTextSize = if (isTablet) 17.sp else 22.sp
+    val subLineHeight = if (isTablet) 22.sp else 28.sp
+
     Column(
         modifier = Modifier
             .fillMaxWidth()
@@ -564,7 +576,7 @@ fun LyricLineRow(
                 alpha = animatedRowAlpha
                 transformOrigin = if (isAlignLeft) TransformOrigin(0f, 0.5f) else TransformOrigin(0.5f, 0.5f)
             }
-            .clip(RoundedCornerShape(14.dp))
+            .clip(RoundedCornerShape(16.dp))
             .bouncyPress(
                 interactionSource = interactionSource,
                 pressedScale = 0.985f,
@@ -583,22 +595,22 @@ fun LyricLineRow(
                     onClick()
                 }
             )
-            .padding(horizontal = 8.dp, vertical = 6.dp),
+            .padding(horizontal = 12.dp, vertical = 6.dp),
         horizontalAlignment = if (isAlignLeft) Alignment.Start else Alignment.CenterHorizontally
     ) {
         val showFurigana = furiganaMode != FuriganaDisplayMode.OFF && FuriganaEngine.isJapanese(displayOriginal)
         if (showFurigana) {
             val segments = remember(displayOriginal) { FuriganaEngine.segmentText(displayOriginal) }
             val baseStyle = TextStyle(
-                fontSize = 28.sp,
+                fontSize = mainTextSize,
                 fontWeight = FontWeight.Bold,
                 fontFamily = FontFamily.SansSerif,
-                lineHeight = 38.sp,
+                lineHeight = mainLineHeight,
                 letterSpacing = (-0.5).sp,
                 textAlign = if (isAlignLeft) TextAlign.Start else TextAlign.Center
             )
             val rubyStyle = TextStyle(
-                fontSize = 13.5.sp,
+                fontSize = if (isTablet) 11.sp else 14.sp,
                 fontWeight = FontWeight.Normal,
                 fontFamily = FontFamily.SansSerif
             )
@@ -624,16 +636,18 @@ fun LyricLineRow(
                 currentPositionMsProvider = currentPositionMsProvider,
                 lyricColor = lyricColor,
                 isAlignLeft = isAlignLeft,
-                isTraditional = isTraditional
+                isTraditional = isTraditional,
+                fontSize = mainTextSize,
+                lineHeight = mainLineHeight
             )
         } else {
             Text(
                 text = displayOriginal,
                 color = lyricColor,
-                fontSize = 28.sp,
+                fontSize = mainTextSize,
                 fontWeight = FontWeight.Bold,
                 fontFamily = FontFamily.SansSerif,
-                lineHeight = 38.sp,
+                lineHeight = mainLineHeight,
                 letterSpacing = (-0.5).sp,
                 textAlign = if (isAlignLeft) TextAlign.Start else TextAlign.Center,
                 modifier = Modifier.fillMaxWidth()
@@ -645,10 +659,10 @@ fun LyricLineRow(
             Text(
                 text = displayTranslation,
                 color = lyricColor.copy(alpha = if (isVisuallyActive) 0.88f else 0.72f),
-                fontSize = 16.sp,
+                fontSize = subTextSize,
                 fontWeight = FontWeight.Medium,
                 fontFamily = FontFamily.SansSerif,
-                lineHeight = 22.sp,
+                lineHeight = subLineHeight,
                 textAlign = if (isAlignLeft) TextAlign.Start else TextAlign.Center,
                 modifier = Modifier.fillMaxWidth()
             )
@@ -684,6 +698,8 @@ fun AppleMusicDualLayerLyricLine(
     lyricColor: Color,
     isAlignLeft: Boolean,
     isTraditional: Boolean = false,
+    fontSize: TextUnit = 34.sp,
+    lineHeight: TextUnit = 44.sp,
     modifier: Modifier = Modifier
 ) {
     val cleanWords = remember(words, isTraditional) {
@@ -709,10 +725,10 @@ fun AppleMusicDualLayerLyricLine(
         Text(
             text = text,
             color = lyricColor,
-            fontSize = 28.sp,
+            fontSize = fontSize,
             fontWeight = FontWeight.Bold,
             fontFamily = FontFamily.SansSerif,
-            lineHeight = 38.sp,
+            lineHeight = lineHeight,
             letterSpacing = (-0.5).sp,
             textAlign = if (isAlignLeft) TextAlign.Start else TextAlign.Center,
             modifier = modifier.fillMaxWidth()
@@ -729,7 +745,9 @@ fun AppleMusicDualLayerLyricLine(
             AppleMusicWordUnit(
                 word = word,
                 currentPositionMsProvider = currentPositionMsProvider,
-                lyricColor = lyricColor
+                lyricColor = lyricColor,
+                fontSize = fontSize,
+                lineHeight = lineHeight
             )
         }
     }
@@ -739,33 +757,36 @@ fun AppleMusicDualLayerLyricLine(
 fun AppleMusicWordUnit(
     word: LyricWord,
     currentPositionMsProvider: () -> Long,
-    lyricColor: Color
+    lyricColor: Color,
+    fontSize: TextUnit = 34.sp,
+    lineHeight: TextUnit = 44.sp
 ) {
     val wordText = word.text
     val duration = word.durationMs.coerceAtLeast(1L)
     val start = word.startTimeMs
     val end = start + duration
     val density = LocalDensity.current
-    val fadeWidth = remember(density) { with(density) { 14.dp.toPx() } }
+    // Apple Music 官方逆向 lyrics_karaoke_gradient_feather_width: 30dp
+    val fadeWidth = remember(density) { with(density) { 30.dp.toPx() } }
 
     Box(contentAlignment = Alignment.TopStart) {
         Text(
             text = wordText,
-            color = lyricColor.copy(alpha = 0.50f),
-            fontSize = 28.sp,
+            color = lyricColor.copy(alpha = 0.45f),
+            fontSize = fontSize,
             fontWeight = FontWeight.Bold,
             fontFamily = FontFamily.SansSerif,
-            lineHeight = 38.sp,
+            lineHeight = lineHeight,
             letterSpacing = (-0.5).sp
         )
 
         Text(
             text = wordText,
             color = lyricColor,
-            fontSize = 28.sp,
+            fontSize = fontSize,
             fontWeight = FontWeight.Bold,
             fontFamily = FontFamily.SansSerif,
-            lineHeight = 38.sp,
+            lineHeight = lineHeight,
             letterSpacing = (-0.5).sp,
             modifier = Modifier
                 .graphicsLayer {
