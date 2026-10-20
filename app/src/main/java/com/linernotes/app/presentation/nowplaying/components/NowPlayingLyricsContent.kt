@@ -355,7 +355,6 @@ fun NowPlayingLyricsContent(
             contentPadding = listPadding,
             verticalArrangement = Arrangement.spacedBy(20.dp),
             modifier = Modifier.fillMaxSize()
-        )
         ) {
             itemsIndexed(
                 items = lyrics,
