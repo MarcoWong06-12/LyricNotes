@@ -178,18 +178,23 @@ class NowPlayingRepository @Inject constructor(
         }
     }
 
-    private fun calculateActiveLineIndex(lyrics: List<BilingualLyricLine>, positionMs: Long): Int {
+    /**
+     * 计算当前活跃歌词行索引 (附带 Apple Music 原生 260ms 开唱前置滑动预备量)
+     * 在歌手开唱前 260ms 即启动流体滚动，使歌词在开唱瞬间已定格在视线焦点，彻底消除滞后追字感
+     */
+    private fun calculateActiveLineIndex(lyrics: List<BilingualLyricLine>, positionMs: Long, leadTimeMs: Long = 260L): Int {
         if (lyrics.isEmpty()) return -1
+        val effectivePos = positionMs + leadTimeMs
         var activeIndex = -1
         for (i in lyrics.indices) {
             val startTime = lyrics[i].startTimeMs ?: continue
-            if (startTime <= positionMs) {
+            if (startTime <= effectivePos) {
                 activeIndex = i
             } else {
                 break
             }
         }
-        // 当处于曲目前奏期 (positionMs 小于第 1 句歌词时间) 时返回 -1，悬浮窗自然显示歌曲名与歌手，避免第1句提前几秒到几十秒显示
+        // 当处于曲目前奏期 (positionMs 小于第 1 句歌词时间 - 提前量) 时返回 -1，悬浮窗自然显示歌曲名与歌手，避免第1句提前几秒到几十秒显示
         return activeIndex
     }
 

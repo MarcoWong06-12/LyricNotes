@@ -216,26 +216,12 @@ fun NowPlayingLyricsContent(
     val topFocalPadding = screenHeightDp * 0.28f
     val bottomFocalPadding = screenHeightDp * 0.38f + (if (showPlaybackControls) 130.dp else 48.dp)
 
-    // Apple Music 官方逆向流体曲线与动态滚动时长 (PathInterpolator 0.75, 0.0, 0.25, 1.0)
-    val scrollDurationMs = remember(currentLineIndex, lyrics) {
-        val currentLine = lyrics.getOrNull(currentLineIndex)
-        val nextLine = lyrics.getOrNull(currentLineIndex + 1)
-        val curStart = currentLine?.startTimeMs
-        val nxtStart = nextLine?.startTimeMs
-        if (currentLine != null && nextLine != null && curStart != null && nxtStart != null) {
-            val currentEnd = currentLine.endTimeMs ?: (curStart + 2000L)
-            val gap = (nxtStart - currentEnd).toFloat()
-            val clampedGap = gap.coerceIn(200f, 750f)
-            val t = (clampedGap - 200f) / 550f
-            (480f + (750f - 480f) * t).roundToInt()
-        } else {
-            750
-        }
-    }
-    val lyricFluidScrollSpec = remember(scrollDurationMs) {
-        tween<Float>(
-            durationMillis = scrollDurationMs,
-            easing = CubicBezierEasing(0.75f, 0.0f, 0.25f, 1.0f)
+    // Apple 官方原生物理流体弹簧 (Damping = 0.86f, Stiffness = 220f)
+    // 零初始迟滞立即起步响应，中段自然流体滑行，到达 36% 视口黄金视线时以次临界阻尼柔和磁吸定格
+    val lyricFluidScrollSpec = remember {
+        spring<Float>(
+            dampingRatio = 0.86f,
+            stiffness = 220f
         )
     }
 
@@ -556,11 +542,12 @@ fun LyricLineRow(
         }
     }
 
-    // 独立条目流体弹簧/位移视差 (Fluid Vertical Parallax)
+    // 独立条目流体弹簧/位移视差 (Apple Music Fluid Vertical Floating Parallax)
     val targetOffsetY = when {
         isVisuallyActive -> 0.dp
-        distance == 1 -> if (index < focalIndex) (-3).dp else 3.dp
-        else -> if (index < focalIndex) (-5).dp else 5.dp
+        distance == 1 -> if (index < focalIndex) (-4).dp else 4.dp
+        distance == 2 -> if (index < focalIndex) (-7).dp else 7.dp
+        else -> if (index < focalIndex) (-10).dp else 10.dp
     }
 
     val lyricHighlightAnimationSpec = remember {
@@ -574,6 +561,13 @@ fun LyricLineRow(
         tween<Dp>(
             durationMillis = 350,
             easing = CubicBezierEasing(0.39f, 0.575f, 0.565f, 1.0f)
+        )
+    }
+
+    val lyricOffsetAnimationSpec = remember {
+        spring<Dp>(
+            dampingRatio = 0.86f,
+            stiffness = 240f
         )
     }
 
@@ -597,7 +591,7 @@ fun LyricLineRow(
 
     val animatedOffsetY by animateDpAsState(
         targetValue = targetOffsetY,
-        animationSpec = lyricDpAnimationSpec,
+        animationSpec = lyricOffsetAnimationSpec,
         label = "lineOffsetY"
     )
 
