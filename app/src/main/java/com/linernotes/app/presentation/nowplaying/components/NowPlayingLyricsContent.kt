@@ -19,6 +19,7 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.blur
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.drawWithContent
 import androidx.compose.ui.graphics.BlendMode
@@ -208,11 +209,11 @@ fun NowPlayingLyricsContent(
     val screenHeightDp = configuration.screenHeightDp.dp
     val density = LocalDensity.current
 
-    // Apple Music 官方视口边距：活跃行顶端基线严格锚定在视口偏上部约 22% 黄金阅读带 (约 170dp)
-    val focalTopDp = (screenHeightDp * 0.22f).coerceIn(160.dp, 195.dp)
-    val focalTopPx = with(density) { focalTopDp.toPx() }
-    val topFocalPadding = focalTopDp
-    val bottomFocalPadding = screenHeightDp * 0.2775f + (if (showPlaybackControls) 130.dp else 48.dp)
+    // Apple Music 官方视口黄金视线高度：活跃行几何中心严格锚定在视口偏上部约 36% 黄金阅读带
+    val focalCenterDp = (screenHeightDp * 0.36f).coerceIn(240.dp, 360.dp)
+    val focalCenterPx = with(density) { focalCenterDp.toPx() }
+    val topFocalPadding = screenHeightDp * 0.28f
+    val bottomFocalPadding = screenHeightDp * 0.38f + (if (showPlaybackControls) 130.dp else 48.dp)
 
     // Apple Music 官方逆向流体曲线与动态滚动时长 (PathInterpolator 0.75, 0.0, 0.25, 1.0)
     val scrollDurationMs = remember(currentLineIndex, lyrics) {
@@ -259,14 +260,15 @@ fun NowPlayingLyricsContent(
         }
     }
 
-    // 动态计算当前落在黄金视觉带最中央的歌词行索引
-    val visibleFocalIndex by remember(currentLineIndex, focalTopPx) {
+    // 动态计算当前落在黄金视觉带最中央的歌词行索引 (基于条目几何中心，消除双语高度差异)
+    val visibleFocalIndex by remember(currentLineIndex, focalCenterPx) {
         derivedStateOf {
             val layoutInfo = listState.layoutInfo
             val visibleItems = layoutInfo.visibleItemsInfo
             if (visibleItems.isEmpty()) return@derivedStateOf (if (currentLineIndex in lyrics.indices) currentLineIndex else 0)
             val closest = visibleItems.minByOrNull { item ->
-                kotlin.math.abs(item.offset.toFloat() - focalTopPx)
+                val itemCenter = item.offset.toFloat() + item.size.toFloat() / 2f
+                kotlin.math.abs(itemCenter - focalCenterPx)
             }
             closest?.index ?: (if (currentLineIndex in lyrics.indices) currentLineIndex else 0)
         }
@@ -288,7 +290,7 @@ fun NowPlayingLyricsContent(
 
     var lastSongTitle by remember { mutableStateOf("") }
 
-    // Apple Music 官方视线重心动力学 (22% 视口顶端基线锚定 + CubicBezier 0.75, 0.0, 0.25, 1.0)
+    // Apple Music 官方视线重心动力学 (36% 视口几何中心锚定 + CubicBezier 0.75, 0.0, 0.25, 1.0)
     LaunchedEffect(currentLineIndex, userScrolledAway, lyrics, trackState.title) {
         if (userScrolledAway || lyrics.isEmpty()) {
             return@LaunchedEffect
@@ -304,19 +306,23 @@ fun NowPlayingLyricsContent(
 
         val visibleItem = listState.layoutInfo.visibleItemsInfo.find { it.index == targetIndex }
         if (visibleItem != null) {
-            val scrollDelta = visibleItem.offset.toFloat() - focalTopPx
-            if (kotlin.math.abs(scrollDelta) > 1.5f) {
+            val itemCenter = visibleItem.offset.toFloat() + visibleItem.size.toFloat() / 2f
+            val scrollDelta = itemCenter - focalCenterPx
+            if (kotlin.math.abs(scrollDelta) > 1.0f) {
                 listState.animateScrollBy(
                     value = scrollDelta,
                     animationSpec = lyricFluidScrollSpec
                 )
             }
         } else {
-            listState.scrollToItem(targetIndex, scrollOffset = 0)
+            val estimatedHalfHeight = with(density) { 45.dp.toPx() }
+            val targetOffset = (focalCenterPx - estimatedHalfHeight).roundToInt()
+            listState.scrollToItem(targetIndex, scrollOffset = -targetOffset)
             val itemAfter = listState.layoutInfo.visibleItemsInfo.find { it.index == targetIndex }
             if (itemAfter != null) {
-                val scrollDelta = itemAfter.offset.toFloat() - focalTopPx
-                if (kotlin.math.abs(scrollDelta) > 1.5f) {
+                val itemCenter = itemAfter.offset.toFloat() + itemAfter.size.toFloat() / 2f
+                val scrollDelta = itemCenter - focalCenterPx
+                if (kotlin.math.abs(scrollDelta) > 1.0f) {
                     listState.animateScrollBy(
                         value = scrollDelta,
                         animationSpec = lyricFluidScrollSpec
@@ -367,6 +373,8 @@ fun NowPlayingLyricsContent(
 
                 LyricLineRow(
                     line = line,
+                    index = index,
+                    focalIndex = focalIndex,
                     isActive = isActive,
                     isFocal = isFocal,
                     distance = distance,
@@ -384,16 +392,20 @@ fun NowPlayingLyricsContent(
                         coroutineScope.launch {
                             val visibleItem = listState.layoutInfo.visibleItemsInfo.find { it.index == index }
                             if (visibleItem != null) {
-                                val scrollDelta = visibleItem.offset.toFloat() - focalTopPx
-                                if (kotlin.math.abs(scrollDelta) > 1.5f) {
+                                val itemCenter = visibleItem.offset.toFloat() + visibleItem.size.toFloat() / 2f
+                                val scrollDelta = itemCenter - focalCenterPx
+                                if (kotlin.math.abs(scrollDelta) > 1.0f) {
                                     listState.animateScrollBy(scrollDelta, lyricFluidScrollSpec)
                                 }
                             } else {
-                                listState.scrollToItem(index, scrollOffset = 0)
+                                val estimatedHalfHeight = with(density) { 45.dp.toPx() }
+                                val targetOffset = (focalCenterPx - estimatedHalfHeight).roundToInt()
+                                listState.scrollToItem(index, scrollOffset = -targetOffset)
                                 val itemAfter = listState.layoutInfo.visibleItemsInfo.find { it.index == index }
                                 if (itemAfter != null) {
-                                    val scrollDelta = itemAfter.offset.toFloat() - focalTopPx
-                                    if (kotlin.math.abs(scrollDelta) > 1.5f) {
+                                    val itemCenter = itemAfter.offset.toFloat() + itemAfter.size.toFloat() / 2f
+                                    val scrollDelta = itemCenter - focalCenterPx
+                                    if (kotlin.math.abs(scrollDelta) > 1.0f) {
                                         listState.animateScrollBy(scrollDelta, lyricFluidScrollSpec)
                                     }
                                 }
@@ -474,11 +486,13 @@ fun NowPlayingLyricsContent(
 }
 
 /**
- * 单行双语歌词组件 (流体物理联动动画)
+ * 单行双语歌词组件 (流体物理联动动画 + 苹果原生景深高斯模糊)
  */
 @Composable
 fun LyricLineRow(
     line: BilingualLyricLine,
+    index: Int,
+    focalIndex: Int,
     isActive: Boolean,
     isFocal: Boolean,
     distance: Int,
@@ -499,15 +513,15 @@ fun LyricLineRow(
     val targetRowAlpha = when {
         isBrowsing -> {
             when (distance) {
-                0 -> 0.94f
-                1 -> if (isDark) 0.70f else 0.65f
-                2 -> if (isDark) 0.45f else 0.40f
-                else -> if (isDark) 0.25f else 0.20f
+                0 -> 0.96f
+                1 -> if (isDark) 0.72f else 0.68f
+                2 -> if (isDark) 0.48f else 0.42f
+                else -> if (isDark) 0.28f else 0.22f
             }
         }
-        isVisuallyActive -> 0.94f
+        isVisuallyActive -> 0.96f
         else -> when (distance) {
-            0 -> 0.94f
+            0 -> 0.96f
             1 -> 0.45f
             else -> 0.18f
         }
@@ -516,15 +530,47 @@ fun LyricLineRow(
     val targetScale = when {
         isBrowsing -> when (distance) {
             0 -> 1.0f
-            1 -> 0.98f
-            else -> 0.97f
+            1 -> 0.985f
+            else -> 0.975f
         }
         isVisuallyActive -> 1.0f
-        else -> 0.98f
+        else -> 0.985f
+    }
+
+    // Apple Music 官方标志性景深高斯模糊 (Depth of Field Bokeh Gaussian Blur)
+    // 聚焦行 0dp 清晰纯净，相邻行 2.5dp 柔焦微虚，远距离行 6.5dp 磨砂焦外虚化
+    val targetBlur = when {
+        isBrowsing -> when (distance) {
+            0 -> 0.dp
+            1 -> 2.dp
+            2 -> 4.dp
+            else -> 6.5.dp
+        }
+        isVisuallyActive -> 0.dp
+        else -> when (distance) {
+            0 -> 0.dp
+            1 -> 2.5.dp
+            2 -> 5.dp
+            else -> 7.5.dp
+        }
+    }
+
+    // 独立条目流体弹簧/位移视差 (Fluid Vertical Parallax)
+    val targetOffsetY = when {
+        isVisuallyActive -> 0.dp
+        distance == 1 -> if (index < focalIndex) (-3).dp else 3.dp
+        else -> if (index < focalIndex) (-5).dp else 5.dp
     }
 
     val lyricHighlightAnimationSpec = remember {
         tween<Float>(
+            durationMillis = 350,
+            easing = CubicBezierEasing(0.39f, 0.575f, 0.565f, 1.0f)
+        )
+    }
+
+    val lyricDpAnimationSpec = remember {
+        tween<Dp>(
             durationMillis = 350,
             easing = CubicBezierEasing(0.39f, 0.575f, 0.565f, 1.0f)
         )
@@ -540,6 +586,18 @@ fun LyricLineRow(
         targetValue = targetScale,
         animationSpec = lyricHighlightAnimationSpec,
         label = "lineScale"
+    )
+
+    val animatedBlur by animateDpAsState(
+        targetValue = targetBlur,
+        animationSpec = lyricDpAnimationSpec,
+        label = "lineBlur"
+    )
+
+    val animatedOffsetY by animateDpAsState(
+        targetValue = targetOffsetY,
+        animationSpec = lyricDpAnimationSpec,
+        label = "lineOffsetY"
     )
 
     val displayOriginal = remember(line.original, isTraditional) {
@@ -570,12 +628,16 @@ fun LyricLineRow(
     Column(
         modifier = Modifier
             .fillMaxWidth()
+            .offset(y = animatedOffsetY)
             .graphicsLayer {
                 scaleX = animatedScale
                 scaleY = animatedScale
                 alpha = animatedRowAlpha
                 transformOrigin = if (isAlignLeft) TransformOrigin(0f, 0.5f) else TransformOrigin(0.5f, 0.5f)
             }
+            .then(
+                if (animatedBlur > 0.dp) Modifier.blur(radius = animatedBlur) else Modifier
+            )
             .clip(RoundedCornerShape(16.dp))
             .bouncyPress(
                 interactionSource = interactionSource,
