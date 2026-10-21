@@ -39,6 +39,7 @@ data class NowPlayingUiState(
     val appLanguage: String = com.linernotes.app.core.i18n.AppLanguage.SYSTEM.code,
     val isAmoledMode: Boolean = false,
     val lyricAlignment: Int = AiPreferences.LYRIC_ALIGN_LEFT,
+    val lyricTextSize: Int = AiPreferences.LYRIC_TEXT_SIZE_STANDARD,
     val isDynamicAuroraEnabled: Boolean = true,
     val isWordByWordEnabled: Boolean = true,
     val isDeCensorEnabled: Boolean = true,
@@ -69,6 +70,7 @@ class NowPlayingViewModel @Inject constructor(
             appLanguage = aiPreferences.appLanguage,
             isAmoledMode = aiPreferences.isAmoledMode,
             lyricAlignment = aiPreferences.lyricAlignment,
+            lyricTextSize = aiPreferences.lyricTextSize,
             isDynamicAuroraEnabled = aiPreferences.isDynamicAuroraEnabled,
             isWordByWordEnabled = aiPreferences.isWordByWordEnabled
         )
@@ -127,6 +129,12 @@ class NowPlayingViewModel @Inject constructor(
         viewModelScope.launch {
             aiPreferences.lyricAlignmentFlow.collect { align ->
                 _uiState.update { it.copy(lyricAlignment = align) }
+            }
+        }
+
+        viewModelScope.launch {
+            aiPreferences.lyricTextSizeFlow.collect { size ->
+                _uiState.update { it.copy(lyricTextSize = size) }
             }
         }
 
@@ -217,6 +225,10 @@ class NowPlayingViewModel @Inject constructor(
 
     fun setLyricAlignment(alignment: Int) {
         aiPreferences.lyricAlignment = alignment
+    }
+
+    fun setLyricTextSize(size: Int) {
+        aiPreferences.lyricTextSize = size
     }
 
     fun setDynamicAuroraEnabled(enabled: Boolean) {

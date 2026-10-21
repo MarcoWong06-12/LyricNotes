@@ -45,6 +45,13 @@ class LyricSanitizerTest {
     }
 
     @Test
+    fun `test family matters that shit decensoring`() {
+        val line = "And begged 'em to sue me and get that **** down"
+        val clean = LyricSanitizer.decensorLine(line)
+        assertEquals("And begged 'em to sue me and get that shit down", clean)
+    }
+
+    @Test
     fun `test decensor title`() {
         assertEquals("Life's a Bitch", LyricSanitizer.decensorTitle("Life's a B***h"))
     }

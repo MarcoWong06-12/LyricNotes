@@ -56,6 +56,7 @@ fun LyricNotesSettingsSheet(
     appLanguage: String = com.linernotes.app.core.i18n.AppLanguage.SYSTEM.code,
     isAmoledMode: Boolean = false,
     lyricAlignment: Int = com.linernotes.app.core.preference.AiPreferences.LYRIC_ALIGN_LEFT,
+    lyricTextSize: Int = com.linernotes.app.core.preference.AiPreferences.LYRIC_TEXT_SIZE_STANDARD,
     isDynamicAuroraEnabled: Boolean = true,
     isWordByWordEnabled: Boolean = true,
     isDeCensorEnabled: Boolean,
@@ -71,6 +72,7 @@ fun LyricNotesSettingsSheet(
     onSetAppLanguage: (String) -> Unit = {},
     onSetAmoledMode: (Boolean) -> Unit = {},
     onSetLyricAlignment: (Int) -> Unit = {},
+    onSetLyricTextSize: (Int) -> Unit = {},
     onSetDynamicAuroraEnabled: (Boolean) -> Unit = {},
     onSetWordByWordEnabled: (Boolean) -> Unit = {},
     onToggleDeCensor: () -> Unit,
@@ -1017,6 +1019,54 @@ fun LyricNotesSettingsSheet(
                                 isSelected = lyricAlignment == com.linernotes.app.core.preference.AiPreferences.LYRIC_ALIGN_CENTER,
                                 isDark = isDark,
                                 onClick = { onSetLyricAlignment(com.linernotes.app.core.preference.AiPreferences.LYRIC_ALIGN_CENTER) },
+                                modifier = Modifier.weight(1f)
+                            )
+                        }
+                    }
+
+                    HorizontalDivider(color = dividerColor, thickness = 0.5.dp)
+
+                    Column(
+                        modifier = Modifier.padding(vertical = 10.dp),
+                        verticalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        Text(
+                            text = strings.lyricTextSizeLabel,
+                            color = textPrimary,
+                            fontSize = 14.5.sp,
+                            fontWeight = FontWeight.SemiBold,
+                            fontFamily = FontFamily.SansSerif
+                        )
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.spacedBy(6.dp)
+                        ) {
+                            FluidOptionPill(
+                                label = strings.textSizeCompact,
+                                isSelected = lyricTextSize == com.linernotes.app.core.preference.AiPreferences.LYRIC_TEXT_SIZE_COMPACT,
+                                isDark = isDark,
+                                onClick = { onSetLyricTextSize(com.linernotes.app.core.preference.AiPreferences.LYRIC_TEXT_SIZE_COMPACT) },
+                                modifier = Modifier.weight(1f)
+                            )
+                            FluidOptionPill(
+                                label = strings.textSizeStandard,
+                                isSelected = lyricTextSize == com.linernotes.app.core.preference.AiPreferences.LYRIC_TEXT_SIZE_STANDARD,
+                                isDark = isDark,
+                                onClick = { onSetLyricTextSize(com.linernotes.app.core.preference.AiPreferences.LYRIC_TEXT_SIZE_STANDARD) },
+                                modifier = Modifier.weight(1f)
+                            )
+                            FluidOptionPill(
+                                label = strings.textSizeLarge,
+                                isSelected = lyricTextSize == com.linernotes.app.core.preference.AiPreferences.LYRIC_TEXT_SIZE_LARGE,
+                                isDark = isDark,
+                                onClick = { onSetLyricTextSize(com.linernotes.app.core.preference.AiPreferences.LYRIC_TEXT_SIZE_LARGE) },
+                                modifier = Modifier.weight(1f)
+                            )
+                            FluidOptionPill(
+                                label = strings.textSizeExtraLarge,
+                                isSelected = lyricTextSize == com.linernotes.app.core.preference.AiPreferences.LYRIC_TEXT_SIZE_EXTRA_LARGE,
+                                isDark = isDark,
+                                onClick = { onSetLyricTextSize(com.linernotes.app.core.preference.AiPreferences.LYRIC_TEXT_SIZE_EXTRA_LARGE) },
                                 modifier = Modifier.weight(1f)
                             )
                         }

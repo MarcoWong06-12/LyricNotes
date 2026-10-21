@@ -92,6 +92,7 @@ fun NowPlayingLyricsContent(
     lyricOffsetMs: Long = 0L,
     isWordByWordEnabled: Boolean = true,
     lyricAlignment: Int = AiPreferences.LYRIC_ALIGN_LEFT,
+    lyricTextSize: Int = AiPreferences.LYRIC_TEXT_SIZE_STANDARD,
     showPlaybackControls: Boolean = true,
     furiganaMode: FuriganaDisplayMode = FuriganaDisplayMode.OFF,
     onLineClicked: (BilingualLyricLine) -> Unit,
@@ -224,11 +225,11 @@ fun NowPlayingLyricsContent(
     val screenHeightDp = configuration.screenHeightDp.dp
     val density = LocalDensity.current
 
-    // Apple Music 原生黃金閱讀帶：活躍行幾何垂直中心嚴格錨定在視口偏上部 35% 區域
-    val focalCenterDp = (screenHeightDp * 0.35f).coerceIn(220.dp, 340.dp)
-    val focalCenterPx = with(density) { focalCenterDp.toPx() }
-    val topFocalPadding = (focalCenterDp - 32.dp).coerceAtLeast(160.dp)
-    val bottomFocalPadding = screenHeightDp * 0.52f + (if (showPlaybackControls) 120.dp else 40.dp)
+    // Apple Music 官方原生黃金閱讀帶：活躍行起始歌唱基準線聚焦於視口偏上部 25% 區域 (避免多行/雙語歌詞整體下沉至底部)
+    val focalTargetDp = (screenHeightDp * 0.25f).coerceIn(160.dp, 230.dp)
+    val focalTargetPx = with(density) { focalTargetDp.toPx() }
+    val topFocalPadding = (focalTargetDp - 16.dp).coerceAtLeast(120.dp)
+    val bottomFocalPadding = screenHeightDp * 0.55f + (if (showPlaybackControls) 120.dp else 40.dp)
 
     // Apple Music 官方原生視口滾動曲線 (480ms 經典 iOS Quart-Out 流體絲滑滑動，120Hz 無回彈、無頓挫)
     val lyricFluidScrollSpec = remember {
@@ -260,15 +261,21 @@ fun NowPlayingLyricsContent(
         }
     }
 
-    // 瀏覽模式下動態計算當前最接近 36% 黃金焦點線的行索引
-    val visibleFocalIndex by remember(currentLineIndex, focalCenterPx) {
+    // 瀏覽模式下動態計算當前最接近黃金焦點線的行索引
+    val visibleFocalIndex by remember(currentLineIndex, focalTargetPx) {
         derivedStateOf {
             val layoutInfo = listState.layoutInfo
             val visibleItems = layoutInfo.visibleItemsInfo
             if (visibleItems.isEmpty()) return@derivedStateOf (if (currentLineIndex in lyrics.indices) currentLineIndex else 0)
+            val thresholdPx = with(density) { 80.dp.toPx() }
+            val capPx = with(density) { 36.dp.toPx() }
             val closest = visibleItems.minByOrNull { item ->
-                val itemCenter = item.offset.toFloat() + item.size.toFloat() / 2f
-                kotlin.math.abs(itemCenter - focalCenterPx)
+                val itemAnchor = if (item.size > thresholdPx) {
+                    item.offset.toFloat() + minOf(item.size.toFloat() * 0.30f, capPx)
+                } else {
+                    item.offset.toFloat() + item.size.toFloat() / 2f
+                }
+                kotlin.math.abs(itemAnchor - focalTargetPx)
             }
             closest?.index ?: (if (currentLineIndex in lyrics.indices) currentLineIndex else 0)
         }
@@ -305,8 +312,14 @@ fun NowPlayingLyricsContent(
 
         val visibleItem = listState.layoutInfo.visibleItemsInfo.find { it.index == targetIndex }
         if (visibleItem != null) {
-            val itemCenter = visibleItem.offset.toFloat() + visibleItem.size.toFloat() / 2f
-            val scrollDelta = itemCenter - focalCenterPx
+            val thresholdPx = with(density) { 80.dp.toPx() }
+            val capPx = with(density) { 36.dp.toPx() }
+            val itemAnchor = if (visibleItem.size > thresholdPx) {
+                visibleItem.offset.toFloat() + minOf(visibleItem.size.toFloat() * 0.30f, capPx)
+            } else {
+                visibleItem.offset.toFloat() + visibleItem.size.toFloat() / 2f
+            }
+            val scrollDelta = itemAnchor - focalTargetPx
             if (kotlin.math.abs(scrollDelta) > 1.5f) {
                 listState.animateScrollBy(
                     value = scrollDelta,
@@ -358,6 +371,7 @@ fun NowPlayingLyricsContent(
                     isWordByWordEnabled = isWordByWordEnabled,
                     currentPositionMsProvider = currentPositionMsProvider,
                     lyricAlignment = lyricAlignment,
+                    lyricTextSize = lyricTextSize,
                     furiganaMode = furiganaMode,
                     onClick = {
                         userScrolledAway = false
@@ -489,6 +503,7 @@ fun LyricLineRow(
     isWordByWordEnabled: Boolean = true,
     currentPositionMsProvider: () -> Long = { 0L },
     lyricAlignment: Int = AiPreferences.LYRIC_ALIGN_LEFT,
+    lyricTextSize: Int = AiPreferences.LYRIC_TEXT_SIZE_STANDARD,
     furiganaMode: FuriganaDisplayMode = FuriganaDisplayMode.OFF,
     onClick: () -> Unit,
     onAnnotationClick: () -> Unit
@@ -566,10 +581,30 @@ fun LyricLineRow(
 
     val configuration = LocalConfiguration.current
     val isTablet = configuration.screenWidthDp >= 600
-    val mainTextSize = if (isTablet) 24.sp else 34.sp
-    val mainLineHeight = if (isTablet) 32.sp else 44.sp
-    val subTextSize = if (isTablet) 17.sp else 22.sp
-    val subLineHeight = if (isTablet) 22.sp else 28.sp
+    val mainTextSize: TextUnit = when (lyricTextSize) {
+        AiPreferences.LYRIC_TEXT_SIZE_COMPACT -> if (isTablet) 20.sp else 26.sp
+        AiPreferences.LYRIC_TEXT_SIZE_LARGE -> if (isTablet) 28.sp else 38.sp
+        AiPreferences.LYRIC_TEXT_SIZE_EXTRA_LARGE -> if (isTablet) 32.sp else 44.sp
+        else -> if (isTablet) 24.sp else 34.sp
+    }
+    val mainLineHeight: TextUnit = when (lyricTextSize) {
+        AiPreferences.LYRIC_TEXT_SIZE_COMPACT -> if (isTablet) 28.sp else 36.sp
+        AiPreferences.LYRIC_TEXT_SIZE_LARGE -> if (isTablet) 38.sp else 48.sp
+        AiPreferences.LYRIC_TEXT_SIZE_EXTRA_LARGE -> if (isTablet) 44.sp else 56.sp
+        else -> if (isTablet) 32.sp else 44.sp
+    }
+    val subTextSize: TextUnit = when (lyricTextSize) {
+        AiPreferences.LYRIC_TEXT_SIZE_COMPACT -> if (isTablet) 14.sp else 18.sp
+        AiPreferences.LYRIC_TEXT_SIZE_LARGE -> if (isTablet) 19.sp else 24.sp
+        AiPreferences.LYRIC_TEXT_SIZE_EXTRA_LARGE -> if (isTablet) 22.sp else 26.sp
+        else -> if (isTablet) 17.sp else 22.sp
+    }
+    val subLineHeight: TextUnit = when (lyricTextSize) {
+        AiPreferences.LYRIC_TEXT_SIZE_COMPACT -> if (isTablet) 20.sp else 24.sp
+        AiPreferences.LYRIC_TEXT_SIZE_LARGE -> if (isTablet) 26.sp else 30.sp
+        AiPreferences.LYRIC_TEXT_SIZE_EXTRA_LARGE -> if (isTablet) 30.sp else 34.sp
+        else -> if (isTablet) 22.sp else 28.sp
+    }
 
     Column(
         modifier = Modifier

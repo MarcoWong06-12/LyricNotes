@@ -52,6 +52,19 @@ class AiPreferences @Inject constructor(
             _lyricAlignmentFlow.value = value
         }
 
+    // 全屏歌词字体字号大小：0 = 紧凑 (26sp), 1 = 标准 (34sp, 默认), 2 = 大号 (38sp), 3 = 特大 (44sp)
+    private val _lyricTextSizeFlow = kotlinx.coroutines.flow.MutableStateFlow(
+        prefs.getInt("lyric_text_size", LYRIC_TEXT_SIZE_STANDARD)
+    )
+    val lyricTextSizeFlow: kotlinx.coroutines.flow.StateFlow<Int> = _lyricTextSizeFlow
+
+    var lyricTextSize: Int
+        get() = _lyricTextSizeFlow.value
+        set(value) {
+            prefs.edit().putInt("lyric_text_size", value).apply()
+            _lyricTextSizeFlow.value = value
+        }
+
     // 动态流体极光背景 (Dynamic Fluid Aurora Canvas)：基于专辑封面色彩自适应流动，营造舞台光场
     private val _isDynamicAuroraEnabledFlow = kotlinx.coroutines.flow.MutableStateFlow(
         prefs.getBoolean("is_dynamic_aurora_enabled", true)
@@ -81,6 +94,10 @@ class AiPreferences @Inject constructor(
     companion object {
         const val LYRIC_ALIGN_LEFT = 0
         const val LYRIC_ALIGN_CENTER = 1
+        const val LYRIC_TEXT_SIZE_COMPACT = 0
+        const val LYRIC_TEXT_SIZE_STANDARD = 1
+        const val LYRIC_TEXT_SIZE_LARGE = 2
+        const val LYRIC_TEXT_SIZE_EXTRA_LARGE = 3
     }
 
     private fun computeDefaultTraditional(lang: String): Boolean {
