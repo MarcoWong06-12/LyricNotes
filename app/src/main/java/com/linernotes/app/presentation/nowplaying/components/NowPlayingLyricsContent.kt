@@ -229,11 +229,11 @@ fun NowPlayingLyricsContent(
     val topFocalPadding = (focalCenterDp - 32.dp).coerceAtLeast(160.dp)
     val bottomFocalPadding = screenHeightDp * 0.52f + (if (showPlaybackControls) 120.dp else 40.dp)
 
-    // Apple Music 官方原生視口滾動曲線 (520ms 經典 iOS Ease-Out 平滑滑動，無回彈、無頓挫)
+    // Apple Music 官方原生視口滾動曲線 (480ms 經典 iOS Quart-Out 流體絲滑滑動，120Hz 無回彈、無頓挫)
     val lyricFluidScrollSpec = remember {
         tween<Float>(
-            durationMillis = 520,
-            easing = CubicBezierEasing(0.25f, 0.1f, 0.25f, 1.0f)
+            durationMillis = 480,
+            easing = CubicBezierEasing(0.22f, 1.0f, 0.36f, 1.0f)
         )
     }
 
@@ -325,22 +325,7 @@ fun NowPlayingLyricsContent(
     }
 
     Box(
-        modifier = Modifier
-            .fillMaxSize()
-            .graphicsLayer(compositingStrategy = CompositingStrategy.Offscreen)
-            .drawWithContent {
-                drawContent()
-                // Apple Music 雙向邊緣羽化：頂部 8% 透明過渡，底部 28% 控制塢羽化
-                drawRect(
-                    brush = Brush.verticalGradient(
-                        0.00f to Color.Transparent,
-                        0.08f to Color.Black,
-                        0.72f to Color.Black,
-                        0.95f to Color.Transparent
-                    ),
-                    blendMode = BlendMode.DstIn
-                )
-            }
+        modifier = Modifier.fillMaxSize()
     ) {
         LazyColumn(
             state = listState,
@@ -350,7 +335,7 @@ fun NowPlayingLyricsContent(
         ) {
             itemsIndexed(
                 items = lyrics,
-                key = { index, line -> "${index}_${line.startTimeMs ?: 0L}_${line.original.hashCode()}" }
+                key = { index, line -> line.startTimeMs ?: index.toLong() }
             ) { index, line ->
                 val isActive = (index == currentLineIndex)
                 val isFocal = (index == focalIndex)
@@ -388,6 +373,41 @@ fun NowPlayingLyricsContent(
                 )
             }
         }
+
+        // 頂部與底部優雅漸變遮罩 (直接於窗口緩衝區疊加繪製，0 MB 顯存開銷，120Hz 滿幀保障)
+        val fadeColor = if (isDark) {
+            if (isAmoledMode) Color.Black else Color(0xFF070709)
+        } else {
+            MaterialTheme.colorScheme.background
+        }
+
+        Box(
+            modifier = Modifier
+                .fillMaxWidth()
+                .height(64.dp)
+                .align(Alignment.TopCenter)
+                .background(
+                    brush = Brush.verticalGradient(
+                        0.0f to fadeColor.copy(alpha = 0.85f),
+                        0.5f to fadeColor.copy(alpha = 0.40f),
+                        1.0f to Color.Transparent
+                    )
+                )
+        )
+
+        Box(
+            modifier = Modifier
+                .fillMaxWidth()
+                .height(if (showPlaybackControls) 130.dp else 56.dp)
+                .align(Alignment.BottomCenter)
+                .background(
+                    brush = Brush.verticalGradient(
+                        0.0f to Color.Transparent,
+                        0.5f to fadeColor.copy(alpha = 0.50f),
+                        1.0f to fadeColor.copy(alpha = 0.90f)
+                    )
+                )
+        )
 
         // 浮動回到正在播放位置微膠囊
         val showReturnPill = userScrolledAway && !isUserDragging && (visibleFocalIndex != currentLineIndex) && currentLineIndex in lyrics.indices && currentLineIndex >= 0
@@ -612,7 +632,7 @@ fun LyricLineRow(
                 horizontalArrangement = if (isAlignLeft) Arrangement.Start else Arrangement.Center,
                 modifier = Modifier.fillMaxWidth()
             )
-        } else if (isWordByWordEnabled && line.words.isNotEmpty()) {
+        } else if (isVisuallyActive && isWordByWordEnabled && line.words.isNotEmpty()) {
             AppleMusicDualLayerLyricLine(
                 text = displayOriginal,
                 words = line.words,
@@ -823,16 +843,6 @@ fun LyricAnnotationBadge(
     onClick: () -> Unit
 ) {
     val strings = LocalStrings.current
-    val infiniteTransition = rememberInfiniteTransition(label = "badgeGlow")
-    val glowAlpha by infiniteTransition.animateFloat(
-        initialValue = 0.35f,
-        targetValue = 0.85f,
-        animationSpec = infiniteRepeatable(
-            animation = tween(1500, easing = FastOutSlowInEasing),
-            repeatMode = RepeatMode.Reverse
-        ),
-        label = "glowAlpha"
-    )
 
     val badgeBg = if (isActive) {
         if (isDark) Color(0xFFFFD54F).copy(alpha = 0.16f) else Color(0xFFFFE082).copy(alpha = 0.35f)
@@ -840,7 +850,7 @@ fun LyricAnnotationBadge(
         if (isDark) Color.White.copy(alpha = 0.08f) else MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.70f)
     }
     val badgeBorder = if (isActive) {
-        if (isDark) Color(0xFFFFD54F).copy(alpha = glowAlpha) else Color(0xFFFFA000).copy(alpha = glowAlpha)
+        if (isDark) Color(0xFFFFD54F).copy(alpha = 0.75f) else Color(0xFFFFA000).copy(alpha = 0.75f)
     } else {
         if (isDark) Color.White.copy(alpha = 0.12f) else MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.40f)
     }
