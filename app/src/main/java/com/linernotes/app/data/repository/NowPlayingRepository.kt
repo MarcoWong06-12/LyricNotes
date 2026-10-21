@@ -179,10 +179,10 @@ class NowPlayingRepository @Inject constructor(
     }
 
     /**
-     * 计算当前活跃歌词行索引 (附带 Apple Music 原生 260ms 开唱前置滑动预备量)
-     * 在歌手开唱前 260ms 即启动流体滚动，使歌词在开唱瞬间已定格在视线焦点，彻底消除滞后追字感
+     * 计算当前活跃歌词行索引 (附带 80ms 硬件/蓝牙音频输出延迟精确补偿)
+     * 避免过大的提前量导致上一句歌词尚未唱完就突兀跳到下一句，确保歌词与人声咬合自然
      */
-    private fun calculateActiveLineIndex(lyrics: List<BilingualLyricLine>, positionMs: Long, leadTimeMs: Long = 260L): Int {
+    private fun calculateActiveLineIndex(lyrics: List<BilingualLyricLine>, positionMs: Long, leadTimeMs: Long = 80L): Int {
         if (lyrics.isEmpty()) return -1
         val effectivePos = positionMs + leadTimeMs
         var activeIndex = -1
