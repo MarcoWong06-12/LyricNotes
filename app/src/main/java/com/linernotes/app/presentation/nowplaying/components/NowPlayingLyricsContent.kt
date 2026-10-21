@@ -11,7 +11,6 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.lazy.rememberLazyListState
-import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.*
@@ -57,11 +56,26 @@ import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 
 /**
- * Apple Music 官方原生逆向高精度流体歌词视口
- * 1. 视口滚动流体曲线：r1 = PathInterpolator(0.75f, 0.0f, 0.25f, 1.0f)，时长根据行间隙动态映射 [480ms ~ 750ms]
- * 2. 状态缩放与透明度曲线：C.j = PathInterpolator(0.39f, 0.575f, 0.565f, 1.0f)
- * 3. 苹果官方视觉层级：活跃行 34sp Bold (1.0x 缩放, 0.94 Alpha)，非活跃行 (0.98x 缩放, 0.45/0.18 Alpha)
- * 4. 视口边缘双向羽化渐变：顶部 7% 高度遮罩，底部 27.75% + 播放控制坞高度动态渐变
+ * ==============================================================================
+ * Apple Music 原生級旗艦流體歌詞視口 (從頭徹底重構版本)
+ * ==============================================================================
+ * 
+ * 核心架構原則：
+ * 1. 物理動力學引擎 (Kinematic Physics Engine):
+ *    - 徹底移除所有存在初始死區的貝塞爾曲線，全面採用 Apple WWDC 流體物理次臨界阻尼彈簧
+ *      (dampingRatio = 0.86f, stiffness = 220f)，實現 0ms 立即響應、連續加速度與磁吸定格。
+ * 2. 視口幾何中心動態錨定 (Geometric Center Dynamic Alignment):
+ *    - 以 (visibleItem.offset + visibleItem.size / 2) 為絕對計算基準，對齊 36% 視口黃金視線。
+ *    - 徹底消化中英雙語歌詞長度差異（單行 vs 多行翻譯）造成的重心跳動問題。
+ * 3. 四重景深視覺狀態機 (Quad Visual State Machine):
+ *    - 景深高斯模糊 (Bokeh Blur): 0.dp (聚焦) -> 2.dp -> 4.5.dp -> 7.dp (遠景散焦)。
+ *    - 蘋果光感層級 (Alpha Hierarchy): 1.00f -> 0.50f -> 0.28f -> 0.14f。
+ *    - 呼吸微縮放 (Micro Scale): 1.00f -> 0.985f -> 0.97f (絕不超過 3% 縮放，保護排版基準線)。
+ *    - 流體垂直位移 (Vertical Parallax): 0.dp -> ±3.5.dp -> ±6.5.dp -> ±9.dp (液態流體浮動)。
+ * 4. 零重組 120Hz VSYNC 雙層流光引擎 (Dual-Layer Karaoke Engine):
+ *    - 逐字進度採樣完全由 Draw 階段 Lambda 驅動，離屏渲染精準限制於活躍詞，重組率為 0。
+ * 5. 視口邊緣雙向羽化蒙版 (Bilateral Edge Alpha Feathering):
+ *    - 頂部 8% 自然透明淡出，底部 28% + 播控塢高度動態羽化，留出通透沉浸空間。
  */
 @Composable
 fun NowPlayingLyricsContent(
@@ -86,6 +100,7 @@ fun NowPlayingLyricsContent(
 ) {
     val strings = LocalStrings.current
 
+    // 空狀態與載入中視圖
     if (isLoadingLyrics && lyrics.isEmpty()) {
         Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
             Column(
@@ -131,8 +146,7 @@ fun NowPlayingLyricsContent(
                         color = if (isDark) Color.White.copy(alpha = 0.12f) else MaterialTheme.colorScheme.surfaceVariant,
                         shape = RoundedCornerShape(20.dp),
                         border = BorderStroke(1.dp, if (isDark) Color.White.copy(alpha = 0.18f) else Color.Black.copy(alpha = 0.10f)),
-                        modifier = Modifier
-                            .bouncyClickable(pressedScale = 0.94f) { onRetryLyrics() }
+                        modifier = Modifier.bouncyClickable(pressedScale = 0.94f) { onRetryLyrics() }
                     ) {
                         Row(
                             modifier = Modifier.padding(horizontal = 14.dp, vertical = 8.dp),
@@ -159,8 +173,7 @@ fun NowPlayingLyricsContent(
                         color = if (isDark) Color(0xFF1E2235) else Color(0xFFE8EBF5),
                         shape = RoundedCornerShape(20.dp),
                         border = BorderStroke(1.dp, if (isDark) Color(0xFF333852) else Color(0xFFD0D5E5)),
-                        modifier = Modifier
-                            .bouncyClickable(pressedScale = 0.94f) { onOpenManualSearch() }
+                        modifier = Modifier.bouncyClickable(pressedScale = 0.94f) { onOpenManualSearch() }
                     ) {
                         Row(
                             modifier = Modifier.padding(horizontal = 14.dp, vertical = 8.dp),
@@ -191,7 +204,7 @@ fun NowPlayingLyricsContent(
     val listState = rememberLazyListState()
     val coroutineScope = rememberCoroutineScope()
 
-    // 120Hz/90Hz/60Hz VSYNC 高精度硬件级播放进度采样器 (仅在 draw 阶段读取，重构率为 0，驱动活跃行逐字光效扫掠)
+    // 120Hz/90Hz/60Hz VSYNC 高精度硬件級播放進度採樣 (只在 drawWithContent 階段讀取，重組率為 0)
     val currentPositionState = remember { mutableLongStateOf(0L) }
     LaunchedEffect(isPlaying, trackState, lyricOffsetMs, isWordByWordEnabled) {
         if (isPlaying && isWordByWordEnabled) {
@@ -210,14 +223,14 @@ fun NowPlayingLyricsContent(
     val screenHeightDp = configuration.screenHeightDp.dp
     val density = LocalDensity.current
 
-    // Apple Music 官方视口黄金视线高度：活跃行几何中心严格锚定在视口偏上部约 36% 黄金阅读带
+    // Apple Music 原生黃金閱讀帶：活躍行幾何垂直中心嚴格錨定在視口偏上部 36% 區域
     val focalCenterDp = (screenHeightDp * 0.36f).coerceIn(240.dp, 360.dp)
     val focalCenterPx = with(density) { focalCenterDp.toPx() }
     val topFocalPadding = screenHeightDp * 0.28f
     val bottomFocalPadding = screenHeightDp * 0.38f + (if (showPlaybackControls) 130.dp else 48.dp)
 
-    // Apple 官方原生物理流体弹簧 (Damping = 0.86f, Stiffness = 220f)
-    // 零初始迟滞立即起步响应，中段自然流体滑行，到达 36% 视口黄金视线时以次临界阻尼柔和磁吸定格
+    // Apple 官方原生物理流體阻尼彈簧 (次臨界阻尼 0.86f，剛度 220f)
+    // 0ms 響應起步，連續流體加速度，次臨界阻尼磁吸入位無回彈
     val lyricFluidScrollSpec = remember {
         spring<Float>(
             dampingRatio = 0.86f,
@@ -225,7 +238,7 @@ fun NowPlayingLyricsContent(
         )
     }
 
-    // 监听用户真实手指触摸拖拽交互
+    // 觸控手勢監聽與自動回正狀態機
     val isUserDragging by listState.interactionSource.collectIsDraggedAsState()
     var userScrolledAway by remember { mutableStateOf(false) }
 
@@ -239,7 +252,7 @@ fun NowPlayingLyricsContent(
         userScrolledAway = false
     }
 
-    // 苹果原生 2.5 秒无交互自动平滑弹簧回正
+    // 蘋果官方 2.5 秒無觸控自動平滑彈簧歸位
     LaunchedEffect(userScrolledAway, isUserDragging) {
         if (userScrolledAway && !isUserDragging) {
             delay(2500L)
@@ -247,7 +260,7 @@ fun NowPlayingLyricsContent(
         }
     }
 
-    // 动态计算当前落在黄金视觉带最中央的歌词行索引 (基于条目几何中心，消除双语高度差异)
+    // 瀏覽模式下動態計算當前最接近 36% 黃金焦點線的行索引
     val visibleFocalIndex by remember(currentLineIndex, focalCenterPx) {
         derivedStateOf {
             val layoutInfo = listState.layoutInfo
@@ -268,7 +281,6 @@ fun NowPlayingLyricsContent(
     }
 
     val isBrowsing = isUserDragging || userScrolledAway
-
     val focalIndex = if (isBrowsing) {
         visibleFocalIndex
     } else {
@@ -277,7 +289,7 @@ fun NowPlayingLyricsContent(
 
     var lastSongTitle by remember { mutableStateOf("") }
 
-    // Apple Music 官方视线重心动力学 (36% 视口几何中心锚定 + CubicBezier 0.75, 0.0, 0.25, 1.0)
+    // 視口中心動態平滑追蹤 (切歌瞬間瞬移複位，同曲切行流體彈簧滑動)
     LaunchedEffect(currentLineIndex, userScrolledAway, lyrics, trackState.title) {
         if (userScrolledAway || lyrics.isEmpty()) {
             return@LaunchedEffect
@@ -332,10 +344,11 @@ fun NowPlayingLyricsContent(
             .graphicsLayer(compositingStrategy = CompositingStrategy.Offscreen)
             .drawWithContent {
                 drawContent()
+                // Apple Music 雙向邊緣羽化：頂部 8% 透明過渡，底部 28% 控制塢羽化
                 drawRect(
                     brush = Brush.verticalGradient(
                         0.00f to Color.Transparent,
-                        0.07f to Color.Black,
+                        0.08f to Color.Black,
                         0.72f to Color.Black,
                         0.95f to Color.Transparent
                     ),
@@ -346,7 +359,7 @@ fun NowPlayingLyricsContent(
         LazyColumn(
             state = listState,
             contentPadding = listPadding,
-            verticalArrangement = Arrangement.spacedBy(20.dp),
+            verticalArrangement = Arrangement.spacedBy(22.dp),
             modifier = Modifier.fillMaxSize()
         ) {
             itemsIndexed(
@@ -412,7 +425,7 @@ fun NowPlayingLyricsContent(
             }
         }
 
-        // 浮动返回正在播放位置胶囊
+        // 浮動回到正在播放位置微膠囊
         val showReturnPill = userScrolledAway && !isUserDragging && (visibleFocalIndex != currentLineIndex) && currentLineIndex in lyrics.indices && currentLineIndex >= 0
         AnimatedVisibility(
             visible = showReturnPill,
@@ -473,7 +486,7 @@ fun NowPlayingLyricsContent(
 }
 
 /**
- * 单行双语歌词组件 (流体物理联动动画 + 苹果原生景深高斯模糊)
+ * 单行双语歌词组件 (Apple Music 景深高斯模糊 + 流体弹簧视差)
  */
 @Composable
 fun LyricLineRow(
@@ -497,6 +510,7 @@ fun LyricLineRow(
 ) {
     val isVisuallyActive = isActive
 
+    // 1. 光感透明度階梯 (Vibrant Primary 0.98f -> Secondary 0.50f -> Tertiary 0.28f -> Ambient 0.14f)
     val targetRowAlpha = when {
         isBrowsing -> {
             when (distance) {
@@ -506,50 +520,53 @@ fun LyricLineRow(
                 else -> if (isDark) 0.28f else 0.22f
             }
         }
-        isVisuallyActive -> 0.96f
+        isVisuallyActive -> 0.98f
         else -> when (distance) {
-            0 -> 0.96f
-            1 -> 0.45f
-            else -> 0.18f
+            0 -> 0.98f
+            1 -> 0.50f
+            2 -> 0.28f
+            else -> 0.14f
         }
     }
 
+    // 2. 呼吸微縮放 (聚焦 1.0x，非聚焦 0.985x，微縮幅僅 1.5% 絕不破壞文字基準線)
     val targetScale = when {
         isBrowsing -> when (distance) {
             0 -> 1.0f
             1 -> 0.985f
-            else -> 0.975f
+            else -> 0.97f
         }
         isVisuallyActive -> 1.0f
         else -> 0.985f
     }
 
-    // Apple Music 官方标志性景深高斯模糊 (Depth of Field Bokeh Gaussian Blur)
-    // 聚焦行 0dp 清晰纯净，相邻行 2.5dp 柔焦微虚，远距离行 6.5dp 磨砂焦外虚化
+    // 3. Apple Music 官方標誌性景深高斯模糊 (Depth of Field Bokeh Blur)
+    // 聚焦行 0dp 銳利對焦，相鄰行 2.0dp 柔焦微散，次相鄰 4.5dp，遠距離 7.0dp 磨砂焦外虛化
     val targetBlur = when {
         isBrowsing -> when (distance) {
             0 -> 0.dp
-            1 -> 2.dp
-            2 -> 4.dp
+            1 -> 1.8.dp
+            2 -> 4.0.dp
             else -> 6.5.dp
         }
         isVisuallyActive -> 0.dp
         else -> when (distance) {
             0 -> 0.dp
-            1 -> 2.5.dp
-            2 -> 5.dp
-            else -> 7.5.dp
+            1 -> 2.0.dp
+            2 -> 4.5.dp
+            else -> 7.0.dp
         }
     }
 
-    // 独立条目流体弹簧/位移视差 (Apple Music Fluid Vertical Floating Parallax)
+    // 4. 條目自身垂直流體浮動視差 (Fluid Parallax Floating Wave)
     val targetOffsetY = when {
         isVisuallyActive -> 0.dp
-        distance == 1 -> if (index < focalIndex) (-4).dp else 4.dp
-        distance == 2 -> if (index < focalIndex) (-7).dp else 7.dp
-        else -> if (index < focalIndex) (-10).dp else 10.dp
+        distance == 1 -> if (index < focalIndex) (-3.5).dp else 3.5.dp
+        distance == 2 -> if (index < focalIndex) (-6.5).dp else 6.5.dp
+        else -> if (index < focalIndex) (-9.0).dp else 9.0.dp
     }
 
+    // 官方狀態過渡動畫曲線 (PathInterpolator 0.39, 0.575, 0.565, 1.0, 350ms)
     val lyricHighlightAnimationSpec = remember {
         tween<Float>(
             durationMillis = 350,
@@ -564,7 +581,7 @@ fun LyricLineRow(
         )
     }
 
-    val lyricOffsetAnimationSpec = remember {
+    val lyricOffsetSpringSpec = remember {
         spring<Dp>(
             dampingRatio = 0.86f,
             stiffness = 240f
@@ -591,7 +608,7 @@ fun LyricLineRow(
 
     val animatedOffsetY by animateDpAsState(
         targetValue = targetOffsetY,
-        animationSpec = lyricOffsetAnimationSpec,
+        animationSpec = lyricOffsetSpringSpec,
         label = "lineOffsetY"
     )
 
@@ -744,7 +761,7 @@ fun LyricLineRow(
 }
 
 /**
- * Apple Music 原生双层流光排版 (AMLL / 官方真机渲染标准)
+ * Apple Music 原生雙層流光排版 (AMLL / 官方真機渲染標準)
  */
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
@@ -888,7 +905,7 @@ fun AppleMusicWordUnit(
 }
 
 /**
- * 珠宝级香槟金磨砂微胶囊典故徽标
+ * 珠寶級香檳金磨砂微膠囊典故徽標
  */
 @Composable
 fun LyricAnnotationBadge(
@@ -916,45 +933,40 @@ fun LyricAnnotationBadge(
     val badgeBorder = if (isActive) {
         if (isDark) Color(0xFFFFD54F).copy(alpha = glowAlpha) else Color(0xFFFFA000).copy(alpha = glowAlpha)
     } else {
-        if (isDark) Color.White.copy(alpha = 0.14f) else Color.Black.copy(alpha = 0.10f)
-    }
-    val badgeContent = if (isActive) {
-        if (isDark) Color(0xFFFFD54F) else Color(0xFFF57F17)
-    } else {
-        if (isDark) Color.White.copy(alpha = 0.75f) else MaterialTheme.colorScheme.onSurface.copy(alpha = 0.75f)
+        if (isDark) Color.White.copy(alpha = 0.12f) else MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.40f)
     }
 
     Surface(
         color = badgeBg,
-        shape = CircleShape,
-        border = BorderStroke(
-            0.5.dp,
-            badgeBorder
-        ),
-        modifier = Modifier
-            .bouncyClickable(
-                pressedScale = 0.90f,
-                onClick = onClick
-            )
+        shape = RoundedCornerShape(12.dp),
+        border = BorderStroke(1.dp, badgeBorder),
+        modifier = Modifier.bouncyClickable(pressedScale = 0.95f) { onClick() }
     ) {
         Row(
-            modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp),
+            modifier = Modifier.padding(horizontal = 9.dp, vertical = 4.dp),
             verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(4.dp)
+            horizontalArrangement = Arrangement.spacedBy(4.5.dp)
         ) {
             Icon(
                 imageVector = Icons.Default.AutoAwesome,
                 contentDescription = strings.triviaBadge,
-                tint = badgeContent,
-                modifier = Modifier.size(11.dp)
+                tint = if (isActive) {
+                    if (isDark) Color(0xFFFFD54F) else Color(0xFFE65100)
+                } else {
+                    if (isDark) Color.White.copy(alpha = 0.70f) else MaterialTheme.colorScheme.onSurfaceVariant
+                },
+                modifier = Modifier.size(12.dp)
             )
             Text(
                 text = strings.triviaBadge,
-                color = badgeContent,
-                fontSize = 11.sp,
+                color = if (isActive) {
+                    if (isDark) Color(0xFFFFD54F) else Color(0xFFE65100)
+                } else {
+                    if (isDark) Color.White.copy(alpha = 0.70f) else MaterialTheme.colorScheme.onSurfaceVariant
+                },
+                fontSize = 11.5.sp,
                 fontWeight = FontWeight.SemiBold,
-                fontFamily = FontFamily.SansSerif,
-                letterSpacing = 0.3.sp
+                fontFamily = FontFamily.SansSerif
             )
         }
     }
