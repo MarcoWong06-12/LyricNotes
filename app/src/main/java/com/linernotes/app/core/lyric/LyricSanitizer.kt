@@ -6,7 +6,8 @@ import java.util.regex.Pattern
 /**
  * 歌词与曲目标题反审查/反和谐还原引擎 (Lyric Sanitizer / Decensoring Engine)
  *
- * 针对流媒体平台审查机制中对脏话和敏感词的掩码替换（如 B***h, *****, *************, ****ing, n****s），
+ * 针对流媒体平台审查机制中对脏话和敏感词的掩码替换（如 B***h, *****, *************, ****ing, n****s, mother****er），
+ * 电台审查净版替换（如 little sucker / mother trucker -> motherfucker, what the freak -> what the fuck），
  * 以及中文译文中遗留的星号乱码（如 猴嘴*************、发生什么事*****），
  * 在完全保留高品质双语翻译与时间戳的同时，毫秒级还原原版英文词汇与自然中文译文。
  */
@@ -28,16 +29,51 @@ object LyricSanitizer {
         "damn", "damned", "goddamn"
     )
 
+    private val PROFANITY_ROOTS = listOf(
+        "fuck", "shit", "bitch", "nigga", "nigg", "ass", "cunt", "dick", "cock", "pussy", "bastard", "damn"
+    )
+
+    /**
+     * 常见电台审查净版词组到原版脏话的还原映射表 (Radio Clean Euphemism Reversal)
+     */
+    private val RADIO_CLEAN_PAIRS = listOf(
+        Regex("""(?i)\blittle\s+sucker\b""") to "motherfucker",
+        Regex("""(?i)\bmother\s+trucker\b""") to "motherfucker",
+        Regex("""(?i)\bmother\s+sucker\b""") to "motherfucker",
+        Regex("""(?i)\bmonster\s+monster\b""") to "motherfucker",
+        Regex("""(?i)\bbrother\s+brother\b""") to "motherfucker",
+        Regex("""(?i)\bwhat\s+the\s+freak\b""") to "what the fuck",
+        Regex("""(?i)\bwho\s+the\s+freak\b""") to "who the fuck",
+        Regex("""(?i)\bwhere\s+the\s+freak\b""") to "where the fuck",
+        Regex("""(?i)\bhow\s+the\s+freak\b""") to "how the fuck",
+        Regex("""(?i)\bwhy\s+the\s+freak\b""") to "why the fuck",
+        Regex("""(?i)\bshut\s+the\s+freak\s+up\b""") to "shut the fuck up",
+        Regex("""(?i)\bget\s+the\s+freak\s+out\b""") to "get the fuck out",
+        Regex("""(?i)\bdon['’]?t\s+give\s+a\s+freak\b""") to "don't give a fuck",
+        Regex("""(?i)\bgive\s+a\s+freak\b""") to "give a fuck",
+        Regex("""(?i)\bas\s+freak\b""") to "as fuck"
+    )
+
+    private val RADIO_CLEAN_DETECTION_REGEX = Regex(
+        """(?i)\b(?:little\s+sucker|mother\s+trucker|mother\s+sucker|shut\s+the\s+freak\s+up|what\s+the\s+freak|give\s+a\s+freak|don['’]?t\s+embarrass\s+me[\s,]+(?:little|little\s+sucker))\b"""
+    )
+
     private val CENSOR_CHECK_REGEX = Regex("""[a-zA-Z]*\*+[a-zA-Z]*|\*{2,}""")
     private val WORD_TOKEN_REGEX = Regex("""[\w'’*]+""")
     private val TIMESTAMP_REGEX = Regex("""\[\d{1,2}:\d{2}(?:\.\d{1,3})?\]""")
 
     /**
-     * 判断文本中是否包含审查掩码星号
+     * 判断文本中是否包含审查掩码星号或电台审查净版短语
      */
     fun hasCensorship(text: String?): Boolean {
-        if (text.isNullOrBlank() || !text.contains('*')) return false
-        return CENSOR_CHECK_REGEX.containsMatchIn(text)
+        if (text.isNullOrBlank()) return false
+        if (text.contains('*')) return CENSOR_CHECK_REGEX.containsMatchIn(text)
+        return hasRadioCleanPhrases(text)
+    }
+
+    fun hasRadioCleanPhrases(text: String?): Boolean {
+        if (text.isNullOrBlank()) return false
+        return RADIO_CLEAN_DETECTION_REGEX.containsMatchIn(text)
     }
 
     private val PRIORITY_PROFANITIES = listOf(
@@ -45,9 +81,22 @@ object LyricSanitizer {
     )
 
     /**
-     * 常见固定搭配与 Hip-Hop 经典短语正则表（实现无参考歌词时毫秒级精准解密）
+     * 常见固定搭配与经典流行/Hip-Hop 短语正则表（实现毫秒级精准解密）
      */
     private val COMMON_PHRASE_RULES = listOf(
+        // Sabrina Carpenter - Please Please Please 及流行副歌惯用语
+        Regex("""(?i)\bdon['’]?t\s+embarrass\s+me[\s,]*(?:mother\*+ers?|mother\s*trucker|little\s+sucker|little|\*+)""") to "don't embarrass me, motherfucker",
+        Regex("""(?i)\bembarrass\s+me[\s,]*(?:mother\*+ers?|mother\s*trucker|little\s+sucker|little|\*+)""") to "embarrass me, motherfucker",
+
+        // Motherfucker 各类掩码与变体全覆盖
+        Regex("""(?i)\bmother\s*\*+ers\b""") to "motherfuckers",
+        Regex("""(?i)\bmother\s*\*+er\b""") to "motherfucker",
+        Regex("""(?i)\bmother\s*\*+ing\b""") to "motherfucking",
+        Regex("""(?i)\bmother\s*\*+as\b""") to "motherfuckas",
+        Regex("""(?i)\bmother\s*\*+a\b""") to "motherfucka",
+        Regex("""(?i)\bmother\s*\*+\b""") to "motherfucker",
+        Regex("""(?i)\bmother\s*(?<!\*)\*{4,14}(?!\*)""") to "motherfucker",
+
         // King Kunta / Kendrick Lamar 及西海岸经典搭配
         Regex("""(?i)\bmonkey[\s-]+mouth[\s-]*(?<!\*)\*{5,15}(?!\*)""") to "monkey-mouth motherfuckers",
         Regex("""(?i)\bwhats?\s+happenin['’]?[\s,]*(?<!\*)\*{4,6}(?!\*)""") to "whats happenin' nigga",
@@ -134,13 +183,21 @@ object LyricSanitizer {
         Regex("""(?i)(?<!\*)\*{4}\s+up\b""") to "fuck up",
         Regex("""(?i)(?<!\*)\*{4}\s+no\b""") to "fuck no",
         Regex("""(?i)(?<!\*)\*{4}\s+yeah\b""") to "fuck yeah",
-        Regex("""(?i)\bas\s+(?<!\*)\*{4}(?!\*)""") to "as fuck",
-        Regex("""(?i)\bmother\s*(?<!\*)\*{6,8}(?!\*)""") to "motherfucker",
-        Regex("""(?i)\bmother\s*(?<!\*)\*{7,9}s(?!\*)""") to "motherfuckers"
+        Regex("""(?i)\bas\s+(?<!\*)\*{4}(?!\*)""") to "as fuck"
     )
 
+    private fun preserveCase(template: String, word: String): String {
+        val letters = template.filter { it.isLetter() }
+        return when {
+            letters.isNotEmpty() && letters.all { it.isUpperCase() } -> word.uppercase()
+            letters.isNotEmpty() && letters.first().isUpperCase() -> word.replaceFirstChar { it.uppercase() }
+            template.firstOrNull()?.isUpperCase() == true -> word.replaceFirstChar { it.uppercase() }
+            else -> word
+        }
+    }
+
     /**
-     * 单个词的本地字典反和谐匹配 (支持 B***h, f***ing, ****ing, s***, n**** 及纯星号长度推导)
+     * 单个词的本地字典反和谐匹配 (支持 mother****er, B***h, f***ing, ****ing, s***, n**** 及纯星号长度推导)
      */
     fun matchFromDictionary(token: String): String? {
         if (!token.contains('*')) return null
@@ -162,11 +219,7 @@ object LyricSanitizer {
             }
 
             if (matched != null) {
-                return when {
-                    letters.all { it.isUpperCase() } -> matched.uppercase()
-                    letters.first().isUpperCase() -> matched.replaceFirstChar { it.uppercase() }
-                    else -> matched
-                }
+                return preserveCase(token, matched)
             }
         }
 
@@ -174,8 +227,7 @@ object LyricSanitizer {
         val starCount = token.count { it == '*' }
         val guessed = when {
             starCount >= 13 -> "motherfuckers"
-            starCount == 12 -> "motherfucker"
-            starCount == 11 -> "motherfucker"
+            starCount == 12 || starCount == 11 -> "motherfucker"
             starCount == 10 -> "cocksucker"
             starCount == 8 || starCount == 9 -> "bullshit"
             starCount == 7 -> "fucking"
@@ -186,89 +238,213 @@ object LyricSanitizer {
             else -> null
         }
 
-        return guessed
+        return guessed?.let { preserveCase(token, it) }
     }
 
     /**
      * 单行英文歌词或标题反和谐
-     * @param censoredLine 包含掩码的行 (如 "Life's a B***h" 或 "monkey mouth ************* sittin'")
-     * @param uncensoredRefLine 可选的无审查参考行 (如来自 Genius 或 LRCLIB)
+     * @param censoredLine 包含掩码或审查用语的行 (如 "I beg you, don't embarrass me, mother****er, oh")
+     * @param uncensoredRefLine 可选的无审查参考行 (如来自 LRCLIB 或 Genius)
+     * @param translationHint 可选的该行中文翻译线索 (如 "求妳了 別讓我難堪 混蛋 噢")
      */
-    fun decensorLine(censoredLine: String, uncensoredRefLine: String? = null): String {
+    fun decensorLine(
+        censoredLine: String,
+        uncensoredRefLine: String? = null,
+        translationHint: String? = null
+    ): String {
         val unescaped = HtmlUtils.unescapeHtml(censoredLine)
         if (!hasCensorship(unescaped)) return unescaped
 
-        var text = unescaped
+        val tsMatch = TIMESTAMP_REGEX.find(unescaped)
+        val tsPrefix = tsMatch?.value
+        var stageText = if (tsPrefix != null) unescaped.replace(TIMESTAMP_REGEX, "").trim() else unescaped
 
-        // 阶段 1：若提供了无审查参考行，优先执行词级严格对齐替换（准确率最高）
-        if (!uncensoredRefLine.isNullOrBlank()) {
-            val cleanRefLine = uncensoredRefLine.replace(TIMESTAMP_REGEX, "").trim()
-            val refWords = WORD_TOKEN_REGEX.findAll(cleanRefLine).map { it.value }.toList()
-            if (refWords.isNotEmpty()) {
-                val tsMatch = TIMESTAMP_REGEX.find(text)
-                val tsPrefix = tsMatch?.value
-                val stageText = if (tsPrefix != null) text.replace(TIMESTAMP_REGEX, "").trim() else text
+        // 阶段 1：优先匹配已知高置信度经典短语规则 (如 Sabrina Carpenter 标志性副歌、monkey-mouth motherfuckers、get that shit 等)
+        for ((regex, replacement) in COMMON_PHRASE_RULES) {
+            stageText = stageText.replace(regex, replacement)
+        }
 
-                val sb = StringBuilder()
-                var lastEnd = 0
-                for ((wordIdx, wordMatch) in WORD_TOKEN_REGEX.findAll(stageText).withIndex()) {
-                    sb.append(stageText.substring(lastEnd, wordMatch.range.first))
-                    val word = wordMatch.value
-                    if (word.contains('*')) {
-                        var rep = if (wordIdx < refWords.size) {
-                            refWords[wordIdx]
-                        } else {
-                            refWords.firstOrNull { Math.abs(it.length - word.length) <= 1 } ?: word
-                        }
-                        val letters = word.filter { it.isLetter() }
-                        if (letters.isNotEmpty()) {
-                            if (letters.all { it.isUpperCase() }) {
-                                rep = rep.uppercase()
-                            } else if (letters.first().isUpperCase()) {
-                                rep = rep.replaceFirstChar { it.uppercase() }
-                            }
-                        }
-                        sb.append(rep)
-                    } else {
-                        sb.append(word)
-                    }
-                    lastEnd = wordMatch.range.last + 1
+        // 阶段 2：针对包含部分字母的掩码词 (如 mother****er, b***h, s***, ****ing, n****s)，
+        // 本地词典匹配具有绝对语义权威，绝不容许被未经校验的非脏话参考词（如电台版 little sucker 中的 "little"）错误覆盖！
+        if (stageText.contains('*')) {
+            stageText = stageText.replace(CENSOR_CHECK_REGEX) { matchResult ->
+                val tok = matchResult.value
+                val letters = tok.filter { it.isLetter() }
+                if (letters.isNotEmpty()) {
+                    matchFromDictionary(tok) ?: tok
+                } else {
+                    tok
                 }
-                if (lastEnd < stageText.length) {
-                    sb.append(stageText.substring(lastEnd))
-                }
-                text = if (tsPrefix != null) "$tsPrefix ${sb}" else sb.toString()
             }
         }
 
-        if (!text.contains('*')) return text
-
-        // 阶段 2：应用固定搭配与短语规则（如 "monkey mouth *************" -> "monkey-mouth motherfuckers"）
-        for ((regex, replacement) in COMMON_PHRASE_RULES) {
-            text = text.replace(regex, replacement)
+        // 阶段 3：若仍有纯星号（如 ****, *************），且提供了参考行，执行安全锚点对齐与电台反和谐校验
+        if (stageText.contains('*') && !uncensoredRefLine.isNullOrBlank()) {
+            stageText = alignWithReferenceSafe(stageText, uncensoredRefLine)
         }
 
-        if (!text.contains('*')) return text
-
-        // 阶段 3：使用本地词典及确定性长度推导单个星号词
-        text = text.replace(CENSOR_CHECK_REGEX) { matchResult ->
-            val tok = matchResult.value
-            matchFromDictionary(tok) ?: tok
+        // 阶段 4：若仍有星号，结合该行的中文译文线索交叉推导
+        // 例如：中文行中出现 “混蛋” 且英文行长度 10-13 星号 -> 确定为 motherfucker
+        if (stageText.contains('*') && !translationHint.isNullOrBlank()) {
+            stageText = resolveFromTranslationHint(stageText, translationHint)
         }
 
-        if (!text.contains('*')) return text
+        // 阶段 5：剩余未知单个星号词由词典/长度确定性推导
+        if (stageText.contains('*')) {
+            stageText = stageText.replace(CENSOR_CHECK_REGEX) { matchResult ->
+                val tok = matchResult.value
+                matchFromDictionary(tok) ?: tok
+            }
+        }
 
-        // 阶段 4：纯星号长度兜底替换（杜绝任何星号遗漏）
-        text = text
-            .replace(Regex("""\*{12,}"""), "motherfuckers")
-            .replace(Regex("""\*{10,11}"""), "motherfucker")
-            .replace(Regex("""\*{7,9}"""), "fucking")
-            .replace(Regex("""\*{6}"""), "niggas")
-            .replace(Regex("""\*{5}"""), "nigga")
-            .replace(Regex("""\*{4}"""), "fuck")
-            .replace(Regex("""\*{3}"""), "ass")
-            .replace(Regex("""\*{1,2}"""), "")
+        // 阶段 6：纯星号长度兜底替换（杜绝任何星号遗漏）
+        if (stageText.contains('*')) {
+            stageText = stageText
+                .replace(Regex("""\*{12,}"""), "motherfuckers")
+                .replace(Regex("""\*{10,11}"""), "motherfucker")
+                .replace(Regex("""\*{7,9}"""), "fucking")
+                .replace(Regex("""\*{6}"""), "niggas")
+                .replace(Regex("""\*{5}"""), "nigga")
+                .replace(Regex("""\*{4}"""), "fuck")
+                .replace(Regex("""\*{3}"""), "ass")
+                .replace(Regex("""\*{1,2}"""), "")
+        }
 
+        // 阶段 7：还原残留的电台审查净版短语 (如 little sucker -> motherfucker, what the freak -> what the fuck)
+        for ((regex, replacement) in RADIO_CLEAN_PAIRS) {
+            stageText = stageText.replace(regex, replacement)
+        }
+
+        return if (tsPrefix != null) "$tsPrefix $stageText" else stageText
+    }
+
+    /**
+     * 安全的参考行对齐机制：
+     * 1. 采用前后非星号词作为锚点定位候选词切片；
+     * 2. 候选词必须命中 PROFANITY_LIST 或属于电台替代短语，严禁使用如 "little", "blue" 等普通词覆盖星号；
+     * 3. 杜绝因电台版词数不一致（如 mother****er 对应 little sucker 导致多出一个词）产生的下标错位。
+     */
+    private fun alignWithReferenceSafe(stageText: String, refLine: String): String {
+        val cleanRefLine = refLine.replace(TIMESTAMP_REGEX, "").trim()
+        val refWords = WORD_TOKEN_REGEX.findAll(cleanRefLine).map { it.value }.toList()
+        if (refWords.isEmpty()) return stageText
+
+        val stageMatches = WORD_TOKEN_REGEX.findAll(stageText).toList()
+        val sb = StringBuilder()
+        var lastEnd = 0
+
+        for ((idx, wordMatch) in stageMatches.withIndex()) {
+            sb.append(stageText.substring(lastEnd, wordMatch.range.first))
+            val word = wordMatch.value
+
+            if (word.contains('*')) {
+                val prevAnchor = stageMatches.subList(0, idx).lastOrNull { !it.value.contains('*') }?.value
+                val nextAnchor = stageMatches.subList(idx + 1, stageMatches.size).firstOrNull { !it.value.contains('*') }?.value
+
+                val candidate = resolveCandidateFromRef(word, prevAnchor, nextAnchor, refWords, idx)
+                if (candidate != null) {
+                    sb.append(preserveCase(word, candidate))
+                } else {
+                    sb.append(word)
+                }
+            } else {
+                sb.append(word)
+            }
+            lastEnd = wordMatch.range.last + 1
+        }
+        if (lastEnd < stageText.length) {
+            sb.append(stageText.substring(lastEnd))
+        }
+        return sb.toString()
+    }
+
+    private fun resolveCandidateFromRef(
+        maskedWord: String,
+        prevAnchor: String?,
+        nextAnchor: String?,
+        refWords: List<String>,
+        wordIdx: Int
+    ): String? {
+        // 1. 基于前后锚点搜寻候选词切片
+        val prevIdx = if (prevAnchor != null) {
+            refWords.indexOfFirst { it.equals(prevAnchor, ignoreCase = true) }
+        } else -1
+        val nextIdx = if (nextAnchor != null && prevIdx != -1) {
+            refWords.subList(prevIdx + 1, refWords.size).indexOfFirst { it.equals(nextAnchor, ignoreCase = true) }.let {
+                if (it != -1) prevIdx + 1 + it else -1
+            }
+        } else if (nextAnchor != null) {
+            refWords.indexOfFirst { it.equals(nextAnchor, ignoreCase = true) }
+        } else -1
+
+        val candidateSlice = if (prevIdx != -1 && nextIdx != -1 && nextIdx > prevIdx + 1) {
+            refWords.subList(prevIdx + 1, nextIdx)
+        } else if (prevIdx != -1 && prevIdx + 1 < refWords.size) {
+            refWords.subList(prevIdx + 1, (prevIdx + 3).coerceAtMost(refWords.size))
+        } else if (nextIdx != -1 && nextIdx > 0) {
+            refWords.subList((nextIdx - 2).coerceAtLeast(0), nextIdx)
+        } else if (wordIdx < refWords.size) {
+            listOf(refWords[wordIdx])
+        } else {
+            emptyList()
+        }
+
+        if (candidateSlice.isEmpty()) return null
+
+        // 校验 A：检查候选切片是否构成电台版净词组合（如 "little sucker" -> "motherfucker"）
+        val sliceCombined = candidateSlice.joinToString(" ").lowercase()
+        for ((regex, replacement) in RADIO_CLEAN_PAIRS) {
+            if (regex.containsMatchIn(sliceCombined)) {
+                return replacement
+            }
+        }
+
+        // 校验 B：候选词是否属于已知脏词
+        for (cand in candidateSlice) {
+            val lower = cand.lowercase()
+            if (lower in PROFANITY_LIST || PROFANITY_ROOTS.any { lower.contains(it) }) {
+                // 若原词带字母通配，还需验证字母吻合
+                val letters = maskedWord.filter { it.isLetter() }
+                if (letters.isNotEmpty()) {
+                    val pattern = Pattern.compile("^" + maskedWord.lowercase().replace("*", ".") + "$")
+                    if (pattern.matcher(lower).matches()) {
+                        return cand
+                    }
+                } else {
+                    return cand
+                }
+            }
+        }
+
+        // 严格拒绝非脏话普通单词替代星号！
+        return null
+    }
+
+    /**
+     * 根据中文翻译行语义线索反推英文星号词
+     */
+    private fun resolveFromTranslationHint(stageText: String, transHint: String): String {
+        var text = stageText
+        when {
+            transHint.contains("混蛋们") -> {
+                text = text.replace(Regex("""(?i)\b[a-zA-Z]*\*+[a-zA-Z]*|\*{6,}"""), "motherfuckers")
+            }
+            transHint.contains("混蛋") -> {
+                text = text.replace(Regex("""(?i)\b[a-zA-Z]*\*+[a-zA-Z]*|\*{6,}"""), "motherfucker")
+            }
+            transHint.contains("他妈的") -> {
+                text = text.replace(Regex("""(?i)\b[a-zA-Z]*\*+[a-zA-Z]*|\*{4,}"""), "fucking")
+            }
+            transHint.contains("狗屎") -> {
+                text = text.replace(Regex("""(?i)\b[a-zA-Z]*\*+[a-zA-Z]*|\*{4,}"""), "shit")
+            }
+            transHint.contains("婊子") -> {
+                text = text.replace(Regex("""(?i)\b[a-zA-Z]*\*+[a-zA-Z]*|\*{4,}"""), "bitch")
+            }
+            transHint.contains("兄弟") -> {
+                text = text.replace(Regex("""(?i)\b[a-zA-Z]*\*+[a-zA-Z]*|\*{4,}"""), "nigga")
+            }
+        }
         return text
     }
 
@@ -291,6 +467,8 @@ object LyricSanitizer {
             .replace(Regex("""去\s*\*{2,4}\s*的"""), "去他妈的")
             .replace(Regex("""狗\s*\*{2,4}"""), "狗屎")
             .replace(Regex("""闭\s*\*{2,4}\s*嘴"""), "闭嘴")
+            .replace(Regex("""混\s*\*{1,4}"""), "混蛋")
+            .replace(Regex("""婊\s*\*{1,4}"""), "婊子")
 
         if (!result.contains('*')) return result
 
@@ -370,7 +548,6 @@ object LyricSanitizer {
             val clClean = cl.replace(TIMESTAMP_REGEX, "").trim()
             if (!hasCensorship(clClean)) return@map cl
 
-            // 在参考列表中搜寻最相似行
             val normCl = clClean.replace(Regex("""[^\w\s]"""), "").lowercase()
             val bestRef = flattenedRef.maxByOrNull { rl ->
                 val normRl = rl.replace(TIMESTAMP_REGEX, "").replace(Regex("""[^\w\s]"""), "").lowercase()
@@ -391,22 +568,23 @@ object LyricSanitizer {
      * 整首歌曲歌词反和谐
      * @param censoredLyrics 包含审查掩码的歌词文本 (支持 LRC 时间轴格式)
      * @param uncensoredRefLyrics 可选的无审查全球参考歌词 (如 LRCLIB 返回的英文纯净歌词)
+     * @param translationLyrics 可选的该歌曲中文双语翻译文本 (用于提供语义线索交叉校验)
      */
-    fun decensorLyrics(censoredLyrics: String, uncensoredRefLyrics: String? = null): String {
+    fun decensorLyrics(
+        censoredLyrics: String,
+        uncensoredRefLyrics: String? = null,
+        translationLyrics: String? = null
+    ): String {
         val unescaped = HtmlUtils.unescapeHtml(censoredLyrics)
         if (!hasCensorship(unescaped)) return unescaped
 
         val cLines = unescaped.lines()
-        if (uncensoredRefLyrics.isNullOrBlank()) {
-            return cLines.joinToString("\n") { decensorLine(it, null) }
-        }
 
-        val rLines = HtmlUtils.unescapeHtml(uncensoredRefLyrics).lines()
+        val rLines = uncensoredRefLyrics?.let { HtmlUtils.unescapeHtml(it).lines() } ?: emptyList()
+        val tLines = translationLyrics?.let { HtmlUtils.unescapeHtml(it).lines() } ?: emptyList()
 
-        // 构建参考行提取器（按时间戳优先匹配，否则按顺序匹配）
         val refMapByTimestamp = mutableMapOf<String, String>()
         val pureRefLines = mutableListOf<String>()
-
         for (rl in rLines) {
             val tsMatch = TIMESTAMP_REGEX.find(rl)
             if (tsMatch != null) {
@@ -418,7 +596,22 @@ object LyricSanitizer {
             }
         }
 
+        val transMapByTimestamp = mutableMapOf<String, String>()
+        val pureTransLines = mutableListOf<String>()
+        for (tl in tLines) {
+            val tsMatch = TIMESTAMP_REGEX.find(tl)
+            if (tsMatch != null) {
+                transMapByTimestamp[tsMatch.value] = tl
+            }
+            val cleaned = tl.replace(TIMESTAMP_REGEX, "").trim()
+            if (cleaned.isNotBlank()) {
+                pureTransLines.add(cleaned)
+            }
+        }
+
         var pureRefIdx = 0
+        var pureTransIdx = 0
+
         val sanitizedLines = cLines.map { cl ->
             val tsMatch = TIMESTAMP_REGEX.find(cl)
             val refLine = if (tsMatch != null && refMapByTimestamp.containsKey(tsMatch.value)) {
@@ -429,7 +622,15 @@ object LyricSanitizer {
                 null
             }
 
-            decensorLine(cl, refLine)
+            val transLine = if (tsMatch != null && transMapByTimestamp.containsKey(tsMatch.value)) {
+                transMapByTimestamp[tsMatch.value]
+            } else if (cl.replace(TIMESTAMP_REGEX, "").trim().isNotBlank() && pureTransIdx < pureTransLines.size) {
+                pureTransLines[pureTransIdx++]
+            } else {
+                null
+            }
+
+            decensorLine(cl, refLine, transLine)
         }
 
         return sanitizedLines.joinToString("\n")

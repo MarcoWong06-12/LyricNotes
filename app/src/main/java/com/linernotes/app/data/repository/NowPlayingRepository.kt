@@ -384,7 +384,7 @@ class NowPlayingRepository @Inject constructor(
                         }
 
                         // 脏字脱敏反屏蔽处理
-                        val cleanOrig = LyricSanitizer.decensorLyrics(origLyrics)
+                        val cleanOrig = LyricSanitizer.decensorLyrics(origLyrics, uncensoredRefLyrics = null, translationLyrics = transLyrics)
                         val cleanTrans = LyricSanitizer.decensorChineseLyrics(transLyrics, cleanOrig)
 
                         // 结构化时间轴对齐
@@ -730,7 +730,7 @@ class NowPlayingRepository @Inject constructor(
                 }
             }
 
-            val cleanOrig = LyricSanitizer.decensorLyrics(origLyrics)
+            val cleanOrig = LyricSanitizer.decensorLyrics(origLyrics, uncensoredRefLyrics = null, translationLyrics = transLyrics)
             val cleanTrans = LyricSanitizer.decensorChineseLyrics(transLyrics, cleanOrig)
             lyrics = LyricAligner.align(cleanOrig, cleanTrans)
         }

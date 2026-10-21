@@ -236,7 +236,9 @@ object UnifiedLyricsService {
                 calibratedWinner.copy(coverUrl = resolvedCover)
             } else calibratedWinner
 
-            val reference = candidates.firstOrNull { it !== best && it.originalLyrics.isNotBlank() }
+            val reference = lrclibRes?.takeIf { it !== best && it.originalLyrics.isNotBlank() }
+                ?: candidates.firstOrNull { it !== best && !LyricSanitizer.hasCensorship(it.originalLyrics) && it.originalLyrics.isNotBlank() }
+                ?: candidates.firstOrNull { it !== best && it.originalLyrics.isNotBlank() }
             sanitizeResult(enrichedWinner, reference)
         } else null
     }
@@ -322,7 +324,7 @@ object UnifiedLyricsService {
         val hasTitleCensor = LyricSanitizer.hasCensorship(unescapedTitle)
 
         val cleanLyrics = if (hasOrigCensor) {
-            LyricSanitizer.decensorLyrics(unescapedOrig, refResult?.originalLyrics)
+            LyricSanitizer.decensorLyrics(unescapedOrig, refResult?.originalLyrics, unescapedTrans)
         } else unescapedOrig
         val cleanChinese = if (hasTransCensor) {
             LyricSanitizer.decensorChineseLyrics(unescapedTrans, cleanLyrics)

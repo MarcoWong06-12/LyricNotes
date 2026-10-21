@@ -110,4 +110,48 @@ class LyricSanitizerTest {
         val cleanZh = LyricSanitizer.decensorChineseLine(testZh)
         assertFalse(cleanZh.contains("*"))
     }
+
+    @Test
+    fun `test sabrina carpenter please please please decensoring with partially masked letters`() {
+        val line = "I beg you, don't embarrass me, mother****er, oh"
+        val clean = LyricSanitizer.decensorLine(line)
+        assertEquals("I beg you, don't embarrass me, motherfucker, oh", clean)
+    }
+
+    @Test
+    fun `test radio clean reference does not corrupt partially masked profanity`() {
+        val censored = "I beg you, don't embarrass me, mother****er, oh"
+        val radioRef = "I beg you don't embarrass me little sucker oh"
+        val result = LyricSanitizer.decensorLine(censored, radioRef)
+        assertEquals("I beg you, don't embarrass me, motherfucker, oh", result)
+    }
+
+    @Test
+    fun `test radio clean euphemism reversal with pure asterisks`() {
+        val censored = "I beg you, don't embarrass me, *************, oh"
+        val radioRef = "I beg you don't embarrass me little sucker oh"
+        val result = LyricSanitizer.decensorLine(censored, radioRef)
+        assertEquals("I beg you, don't embarrass me, motherfucker, oh", result)
+    }
+
+    @Test
+    fun `test radio clean line reversal without asterisks`() {
+        val radio1 = "I beg you, don't embarrass me, little sucker, oh"
+        assertEquals("I beg you, don't embarrass me, motherfucker, oh", LyricSanitizer.decensorLine(radio1))
+
+        val radio2 = "I beg you, don't embarrass me, little, oh"
+        assertEquals("I beg you, don't embarrass me, motherfucker, oh", LyricSanitizer.decensorLine(radio2))
+
+        val radio3 = "Why the freak did you do that?"
+        assertEquals("Why the fuck did you do that?", LyricSanitizer.decensorLine(radio3))
+    }
+
+    @Test
+    fun `test translation hint decensoring when reference is radio edited`() {
+        val censored = "[01:16.166] I beg you, don't embarrass me, *************, oh"
+        val radioRef = "[01:16.28] I beg you don't embarrass me little sucker oh"
+        val trans = "[01:16.166] 求妳了 別讓我難堪 混蛋 噢"
+        val result = LyricSanitizer.decensorLine(censored, radioRef, trans)
+        assertEquals("[01:16.166] I beg you, don't embarrass me, motherfucker, oh", result)
+    }
 }
