@@ -901,13 +901,6 @@ fun AppleMusicWordUnit(
     val density = LocalDensity.current
     // Apple Music 官方逆向 lyrics_karaoke_gradient_feather_width: 30dp
     val fadeWidth = remember(density) { with(density) { 30.dp.toPx() } }
-    val maxLiftPx = remember(density) { with(density) { 2.2.dp.toPx() } }
-
-    // 根據音節時長預計算阻尼系數 (爆破音抑振，長拖音增幅)，0 運行時開銷
-    val durationDamping = remember(duration) {
-        ((duration - 40f) / 180f).coerceIn(0.25f, 1.15f)
-    }
-
     val featherBrush = remember(fadeWidth) {
         Brush.horizontalGradient(
             listOf(Color.White, Color.Transparent),
@@ -916,28 +909,7 @@ fun AppleMusicWordUnit(
         )
     }
 
-    // 外層容器統一承載聲學微浮起與呼吸形變，確保底層暗字與頂層亮字幾何 100% 嚴絲合縫
-    Box(
-        contentAlignment = Alignment.TopStart,
-        modifier = Modifier.graphicsLayer {
-            val now = currentPositionMsProvider()
-            if (now in start until end) {
-                val p = ((now - start).toFloat() / duration.toFloat()).coerceIn(0f, 1f)
-                // 非對稱聲學包絡 E(p) = sin(pi * p^0.68)：快速起音、溫潤回落
-                val skewedP = Math.pow(p.toDouble(), 0.68).toFloat()
-                val envelope = kotlin.math.sin(skewedP * Math.PI.toFloat()) * durationDamping
-
-                translationY = -maxLiftPx * envelope
-                scaleX = 1f + 0.018f * envelope
-                scaleY = 1f + 0.028f * envelope
-                transformOrigin = TransformOrigin(0.5f, 0.85f)
-            } else {
-                translationY = 0f
-                scaleX = 1f
-                scaleY = 1f
-            }
-        }
-    ) {
+    Box(contentAlignment = Alignment.TopStart) {
         Text(
             text = wordText,
             color = lyricColor.copy(alpha = 0.45f),
