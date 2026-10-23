@@ -44,6 +44,8 @@ data class NowPlayingUiState(
     val isWordByWordEnabled: Boolean = true,
     val isDeCensorEnabled: Boolean = true,
     val showPlaybackControls: Boolean = true,
+    val songOffsetMs: Long = 0L,
+    val globalOffsetMs: Long = 0L,
     val lyricOffsetMs: Long = 0L,
     val isQueueSheetOpen: Boolean = false,
     val sleepTimerMinutesLeft: Int = 0,
@@ -100,6 +102,18 @@ class NowPlayingViewModel @Inject constructor(
         viewModelScope.launch {
             nowPlayingRepository.lyricOffsetMsFlow.collect { offset ->
                 _uiState.update { it.copy(lyricOffsetMs = offset) }
+            }
+        }
+
+        viewModelScope.launch {
+            nowPlayingRepository.songOffsetMsFlow.collect { offset ->
+                _uiState.update { it.copy(songOffsetMs = offset) }
+            }
+        }
+
+        viewModelScope.launch {
+            nowPlayingRepository.globalOffsetMsFlow.collect { offset ->
+                _uiState.update { it.copy(globalOffsetMs = offset) }
             }
         }
 
@@ -198,20 +212,32 @@ class NowPlayingViewModel @Inject constructor(
         _uiState.update { it.copy(isSettingsSheetOpen = false) }
     }
 
+    fun adjustSongOffset(deltaMs: Long) {
+        nowPlayingRepository.adjustSongOffset(deltaMs)
+    }
+
+    fun resetSongOffset() {
+        nowPlayingRepository.resetSongOffset()
+    }
+
+    fun adjustGlobalOffset(deltaMs: Long) {
+        nowPlayingRepository.adjustGlobalOffset(deltaMs)
+    }
+
+    fun resetGlobalOffset() {
+        nowPlayingRepository.resetGlobalOffset()
+    }
+
     fun adjustLyricOffset(deltaMs: Long) {
-        val newOffset = _uiState.value.lyricOffsetMs + deltaMs
-        _uiState.update { it.copy(lyricOffsetMs = newOffset) }
-        nowPlayingRepository.setLyricOffset(newOffset)
+        adjustSongOffset(deltaMs)
     }
 
     fun setLyricOffset(offsetMs: Long) {
-        _uiState.update { it.copy(lyricOffsetMs = offsetMs) }
         nowPlayingRepository.setLyricOffset(offsetMs)
     }
 
     fun resetLyricOffset() {
-        _uiState.update { it.copy(lyricOffsetMs = 0L) }
-        nowPlayingRepository.setLyricOffset(0L)
+        resetSongOffset()
     }
 
     fun togglePlaybackControls() {

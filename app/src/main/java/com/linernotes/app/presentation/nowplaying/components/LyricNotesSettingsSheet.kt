@@ -61,11 +61,17 @@ fun LyricNotesSettingsSheet(
     isWordByWordEnabled: Boolean = true,
     isDeCensorEnabled: Boolean,
     showPlaybackControls: Boolean,
-    lyricOffsetMs: Long,
+    songOffsetMs: Long = 0L,
+    globalOffsetMs: Long = 0L,
+    lyricOffsetMs: Long = 0L,
     onOpenSongStory: () -> Unit,
     onReloadGenius: () -> Unit = {},
-    onAdjustOffset: (Long) -> Unit,
-    onResetOffset: () -> Unit,
+    onAdjustSongOffset: (Long) -> Unit = {},
+    onResetSongOffset: () -> Unit = {},
+    onAdjustGlobalOffset: (Long) -> Unit = {},
+    onResetGlobalOffset: () -> Unit = {},
+    onAdjustOffset: (Long) -> Unit = onAdjustSongOffset,
+    onResetOffset: () -> Unit = onResetSongOffset,
     onSetFuriganaMode: (FuriganaDisplayMode) -> Unit,
     onToggleTraditionalChinese: () -> Unit,
     onSetThemeMode: (String) -> Unit = {},
@@ -481,47 +487,115 @@ fun LyricNotesSettingsSheet(
                 }
             }
 
-            // 3. 歌词时间轴微调与低延迟补偿 (Lyrics Offset)
+            // 3. 歌词时间轴微调与低延迟补偿 (支持单曲独立记忆与全局基准延迟)
+            var offsetScope by remember { mutableStateOf(0) } // 0 = 单曲, 1 = 全局
             Surface(
                 color = cardBg,
                 shape = RoundedCornerShape(18.dp),
                 border = BorderStroke(0.5.dp, cardBorder),
                 modifier = Modifier.fillMaxWidth()
             ) {
-                Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                Column(
+                    modifier = Modifier.padding(horizontal = 16.dp, vertical = 14.dp),
+                    verticalArrangement = Arrangement.spacedBy(10.dp)
+                ) {
+                    // 顶栏：标题与范围切换器 (单曲 / 全局)
                     Row(
                         modifier = Modifier.fillMaxWidth(),
                         horizontalArrangement = Arrangement.SpaceBetween,
                         verticalAlignment = Alignment.CenterVertically
                     ) {
                         Text(
-                            text = strings.timelineOffsetLabel,
+                            text = if (offsetScope == 0) strings.offsetScopeSongTitle else strings.offsetScopeGlobalTitle,
                             color = textPrimary,
                             fontSize = 15.sp,
                             fontWeight = FontWeight.Bold,
                             fontFamily = FontFamily.SansSerif
                         )
+
+                        // 范围选择分段胶囊
+                        Row(
+                            modifier = Modifier
+                                .background(
+                                    if (isDark) Color.White.copy(alpha = 0.08f) else Color.Black.copy(alpha = 0.05f),
+                                    RoundedCornerShape(12.dp)
+                                )
+                                .padding(2.dp),
+                            horizontalArrangement = Arrangement.spacedBy(2.dp)
+                        ) {
+                            val scopes = listOf(0 to strings.offsetScopeSong, 1 to strings.offsetScopeGlobal)
+                            scopes.forEach { (scopeVal, label) ->
+                                val isSelected = offsetScope == scopeVal
+                                Box(
+                                    modifier = Modifier
+                                        .clip(RoundedCornerShape(10.dp))
+                                        .background(
+                                            if (isSelected) {
+                                                if (isDark) Color(0xFF1E88E5) else Color(0xFF0288D1)
+                                            } else Color.Transparent
+                                        )
+                                        .clickable { offsetScope = scopeVal }
+                                        .padding(horizontal = 10.dp, vertical = 4.dp),
+                                    contentAlignment = Alignment.Center
+                                ) {
+                                    Text(
+                                        text = label,
+                                        color = if (isSelected) Color.White else textPrimary.copy(alpha = 0.65f),
+                                        fontSize = 12.sp,
+                                        fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium
+                                    )
+                                }
+                            }
+                        }
+                    }
+
+                    // 延迟数值与说明信息
+                    val currentVal = if (offsetScope == 0) songOffsetMs else globalOffsetMs
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
                         Text(
-                            text = when (lyricOffsetMs) {
+                            text = if (offsetScope == 0) strings.offsetScopeSongDesc else strings.offsetScopeGlobalDesc,
+                            color = textPrimary.copy(alpha = 0.55f),
+                            fontSize = 11.5.sp,
+                            modifier = Modifier.weight(1f)
+                        )
+                        Text(
+                            text = when (currentVal) {
                                 0L -> "0 ms"
-                                else -> "${if (lyricOffsetMs > 0) "+" else ""}${lyricOffsetMs} ms"
+                                else -> "${if (currentVal > 0) "+" else ""}${currentVal} ms"
                             },
-                            color = if (lyricOffsetMs == 0L) Color(0xFF1ED760) else textPrimary,
-                            fontSize = 13.5.sp,
+                            color = if (currentVal == 0L) Color(0xFF1ED760) else (if (isDark) Color(0xFF81D4FA) else Color(0xFF0288D1)),
+                            fontSize = 14.sp,
                             fontWeight = FontWeight.Bold,
                             fontFamily = FontFamily.SansSerif
                         )
                     }
 
+                    // 若处于单曲模式且全局存在基准偏移，提示当前综合实际生效值
+                    if (offsetScope == 0 && globalOffsetMs != 0L) {
+                        Text(
+                            text = "${strings.offsetEffectiveLabel}: ${if (lyricOffsetMs > 0) "+" else ""}${lyricOffsetMs} ms (${strings.offsetScopeGlobal}: ${if (globalOffsetMs > 0) "+" else ""}${globalOffsetMs} ms)",
+                            color = textPrimary.copy(alpha = 0.45f),
+                            fontSize = 11.sp
+                        )
+                    }
+
+                    // 5 档微调按钮 [-100ms, -50ms, 0ms, +50ms, +100ms]
                     Row(
                         modifier = Modifier.fillMaxWidth(),
                         horizontalArrangement = Arrangement.spacedBy(6.dp)
                     ) {
-                        OffsetButton("-100ms", onClick = { onAdjustOffset(-100) }, modifier = Modifier.weight(1f), isDark = isDark)
-                        OffsetButton("-50ms", onClick = { onAdjustOffset(-50) }, modifier = Modifier.weight(1f), isDark = isDark)
-                        OffsetButton("0ms", onClick = onResetOffset, modifier = Modifier.weight(1.1f), isReset = true, isDark = isDark)
-                        OffsetButton("+50ms", onClick = { onAdjustOffset(50) }, modifier = Modifier.weight(1f), isDark = isDark)
-                        OffsetButton("+100ms", onClick = { onAdjustOffset(100) }, modifier = Modifier.weight(1f), isDark = isDark)
+                        val onAdjust = if (offsetScope == 0) onAdjustSongOffset else onAdjustGlobalOffset
+                        val onReset = if (offsetScope == 0) onResetSongOffset else onResetGlobalOffset
+
+                        OffsetButton("-100ms", onClick = { onAdjust(-100) }, modifier = Modifier.weight(1f), isDark = isDark)
+                        OffsetButton("-50ms", onClick = { onAdjust(-50) }, modifier = Modifier.weight(1f), isDark = isDark)
+                        OffsetButton("0ms", onClick = onReset, modifier = Modifier.weight(1.1f), isReset = true, isDark = isDark)
+                        OffsetButton("+50ms", onClick = { onAdjust(50) }, modifier = Modifier.weight(1f), isDark = isDark)
+                        OffsetButton("+100ms", onClick = { onAdjust(100) }, modifier = Modifier.weight(1f), isDark = isDark)
                     }
                 }
             }

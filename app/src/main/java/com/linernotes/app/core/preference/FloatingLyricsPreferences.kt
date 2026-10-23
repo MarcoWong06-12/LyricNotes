@@ -101,23 +101,34 @@ class FloatingLyricsPreferences @Inject constructor(
             _textColorFlow.value = value
         }
 
-    // 7. 时间轴延迟/提前补偿 (默认 0ms 原汁原味自然时间轴)
-    private val _lyricOffsetMsFlow = MutableStateFlow(prefs.getLong(KEY_OFFSET_MS, 0L))
-    val lyricOffsetMsFlow: StateFlow<Long> = _lyricOffsetMsFlow.asStateFlow()
+    // 7. 时间轴延迟/提前补偿 (全局基准 0ms，单曲独立微调)
+    private val _globalOffsetMsFlow = MutableStateFlow(prefs.getLong(KEY_OFFSET_MS, 0L))
+    val globalOffsetMsFlow: StateFlow<Long> = _globalOffsetMsFlow.asStateFlow()
+    val lyricOffsetMsFlow: StateFlow<Long> = _globalOffsetMsFlow.asStateFlow()
 
-    var lyricOffsetMs: Long
-        get() = _lyricOffsetMsFlow.value
+    var globalOffsetMs: Long
+        get() = _globalOffsetMsFlow.value
         set(value) {
             prefs.edit().putLong(KEY_OFFSET_MS, value).apply()
-            _lyricOffsetMsFlow.value = value
+            _globalOffsetMsFlow.value = value
+        }
+
+    var lyricOffsetMs: Long
+        get() = globalOffsetMs
+        set(value) {
+            globalOffsetMs = value
         }
 
     fun getSongOffset(songKey: String): Long {
-        return prefs.getLong("offset_${songKey.trim().lowercase()}", lyricOffsetMs)
+        return prefs.getLong("offset_${songKey.trim().lowercase()}", 0L)
     }
 
     fun setSongOffset(songKey: String, offsetMs: Long) {
         prefs.edit().putLong("offset_${songKey.trim().lowercase()}", offsetMs).apply()
+    }
+
+    fun clearSongOffset(songKey: String) {
+        prefs.edit().remove("offset_${songKey.trim().lowercase()}").apply()
     }
 
     // 8. 记忆屏幕坐标 X / Y（区分横竖屏独立记忆，-1 表示初次由系统计算安全居中与下移避让挖孔）

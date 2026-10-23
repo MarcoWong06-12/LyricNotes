@@ -84,15 +84,56 @@ class NowPlayingRepository @Inject constructor(
         val geniusNotice: String? = null
     )
 
-    private val _lyricOffsetMsFlow = MutableStateFlow(floatingPreferences.lyricOffsetMs)
+    private var globalOffsetMs: Long = floatingPreferences.globalOffsetMs
+    private var currentSongOffsetMs: Long = 0L
+    private var lyricOffsetMs: Long = globalOffsetMs + currentSongOffsetMs
+
+    private val _lyricOffsetMsFlow = MutableStateFlow(lyricOffsetMs)
     val lyricOffsetMsFlow: StateFlow<Long> = _lyricOffsetMsFlow.asStateFlow()
-    private var lyricOffsetMs: Long = 0L
+
+    private val _songOffsetMsFlow = MutableStateFlow(0L)
+    val songOffsetMsFlow: StateFlow<Long> = _songOffsetMsFlow.asStateFlow()
+
+    private val _globalOffsetMsFlow = MutableStateFlow(globalOffsetMs)
+    val globalOffsetMsFlow: StateFlow<Long> = _globalOffsetMsFlow.asStateFlow()
+
+    fun adjustSongOffset(deltaMs: Long) {
+        setSongOffset(currentSongOffsetMs + deltaMs)
+    }
+
+    fun setSongOffset(offsetMs: Long) {
+        currentSongOffsetMs = offsetMs
+        _songOffsetMsFlow.value = offsetMs
+        currentSongKey?.let { floatingPreferences.setSongOffset(it, offsetMs) }
+        updateEffectiveOffset()
+    }
+
+    fun resetSongOffset() {
+        setSongOffset(0L)
+    }
+
+    fun adjustGlobalOffset(deltaMs: Long) {
+        setGlobalOffset(globalOffsetMs + deltaMs)
+    }
+
+    fun setGlobalOffset(offsetMs: Long) {
+        globalOffsetMs = offsetMs
+        floatingPreferences.globalOffsetMs = offsetMs
+        _globalOffsetMsFlow.value = offsetMs
+        updateEffectiveOffset()
+    }
+
+    fun resetGlobalOffset() {
+        setGlobalOffset(0L)
+    }
 
     fun setLyricOffset(offsetMs: Long) {
-        lyricOffsetMs = offsetMs
-        _lyricOffsetMsFlow.value = offsetMs
-        currentSongKey?.let { floatingPreferences.setSongOffset(it, offsetMs) }
-        floatingPreferences.lyricOffsetMs = offsetMs
+        setSongOffset(offsetMs)
+    }
+
+    private fun updateEffectiveOffset() {
+        lyricOffsetMs = globalOffsetMs + currentSongOffsetMs
+        _lyricOffsetMsFlow.value = lyricOffsetMs
     }
 
     init {
@@ -107,8 +148,9 @@ class NowPlayingRepository @Inject constructor(
         startPositionTracker()
 
         // 3. 初始载入全局歌词时间轴偏移 (默认 0ms 原生自然时间轴)
-        lyricOffsetMs = floatingPreferences.lyricOffsetMs
-        _lyricOffsetMsFlow.value = lyricOffsetMs
+        globalOffsetMs = floatingPreferences.globalOffsetMs
+        _globalOffsetMsFlow.value = globalOffsetMs
+        updateEffectiveOffset()
     }
 
     private fun handlePlaybackStateUpdate(state: TrackPlaybackState) {
@@ -129,8 +171,9 @@ class NowPlayingRepository @Inject constructor(
             currentSongKey = songKey
             lastAutoRetryTimeMs = SystemClock.elapsedRealtime()
             val songOffset = floatingPreferences.getSongOffset(songKey)
-            lyricOffsetMs = songOffset
-            _lyricOffsetMsFlow.value = songOffset
+            currentSongOffsetMs = songOffset
+            _songOffsetMsFlow.value = songOffset
+            updateEffectiveOffset()
             _nowPlayingData.update { current ->
                 current.copy(
                     playbackState = state,
