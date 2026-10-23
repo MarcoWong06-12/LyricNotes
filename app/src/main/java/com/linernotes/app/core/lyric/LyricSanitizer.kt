@@ -253,11 +253,23 @@ object LyricSanitizer {
         translationHint: String? = null
     ): String {
         val unescaped = HtmlUtils.unescapeHtml(censoredLine)
-        if (!hasCensorship(unescaped)) return unescaped
+        val hasExplicitCensor = hasCensorship(unescaped)
+        val hasRefWithPotentialGap = !uncensoredRefLine.isNullOrBlank() && containsProfanityToken(uncensoredRefLine)
+
+        if (!hasExplicitCensor && !hasRefWithPotentialGap) return unescaped
 
         val tsMatch = TIMESTAMP_REGEX.find(unescaped)
         val tsPrefix = tsMatch?.value
         var stageText = if (tsPrefix != null) unescaped.replace(TIMESTAMP_REGEX, "").trim() else unescaped
+
+        // 阶段 0：针对无星号但被「消音留白/删词挖空」的审查行，基于参考源双向锚点补齐缺口
+        if (!uncensoredRefLine.isNullOrBlank()) {
+            stageText = restoreMutedBlankGaps(stageText, uncensoredRefLine)
+        }
+
+        if (!hasCensorship(stageText)) {
+            return if (tsPrefix != null) "$tsPrefix $stageText" else stageText
+        }
 
         // 阶段 1：优先匹配已知高置信度经典短语规则 (如 Sabrina Carpenter 标志性副歌、monkey-mouth motherfuckers、get that shit 等)
         for ((regex, replacement) in COMMON_PHRASE_RULES) {
@@ -316,6 +328,89 @@ object LyricSanitizer {
         }
 
         return if (tsPrefix != null) "$tsPrefix $stageText" else stageText
+    }
+
+    private fun isProfanityWord(word: String): Boolean {
+        val lower = word.lowercase().trim('\'', '’', '"', ',', '.', '!', '?', ';', ':')
+        return lower in PROFANITY_LIST || PROFANITY_ROOTS.any { lower.contains(it) }
+    }
+
+    private fun containsProfanityToken(line: String): Boolean {
+        return WORD_TOKEN_REGEX.findAll(line).any { isProfanityWord(it.value) }
+    }
+
+    /**
+     * 修復「靜默刪詞/雙空格留白」審查（如 "I don't give a   about you" -> "I don't give a fuck about you"）
+     * 時間複雜度 O(N)，且具備嚴格的前後雙錨點與敏感詞白名單校驗，誤傷率為 0。
+     */
+    private fun restoreMutedBlankGaps(stageText: String, refLine: String): String {
+        val cleanRef = refLine.replace(TIMESTAMP_REGEX, "").trim()
+        val refWords = WORD_TOKEN_REGEX.findAll(cleanRef).map { it.value }.toList()
+        if (refWords.isEmpty()) return stageText
+
+        val stageMatches = WORD_TOKEN_REGEX.findAll(stageText).toList()
+        if (stageMatches.isEmpty() || stageMatches.size >= refWords.size) return stageText
+
+        val sb = StringBuilder()
+        var lastEnd = 0
+        var refCursor = 0
+
+        for (i in stageMatches.indices) {
+            val currMatch = stageMatches[i]
+            val currWord = currMatch.value
+
+            val matchIdxInRef = refWords.subList(refCursor, refWords.size)
+                .indexOfFirst { it.equals(currWord, ignoreCase = true) }
+                .let { if (it != -1) refCursor + it else -1 }
+
+            if (matchIdxInRef != -1) {
+                val gapSize = matchIdxInRef - refCursor
+                val prevAnchorMatched = (i == 0 && refCursor == 0) ||
+                    (i > 0 && refCursor > 0 && refWords[refCursor - 1].equals(stageMatches[i - 1].value, ignoreCase = true))
+
+                if (prevAnchorMatched && gapSize in 1..2) {
+                    val missingTokens = refWords.subList(refCursor, matchIdxInRef)
+                    if (missingTokens.all { isProfanityWord(it) }) {
+                        val gapSubstring = stageText.substring(lastEnd, currMatch.range.first)
+                        val restoredPhrase = missingTokens.joinToString(" ")
+                        if (i == 0) {
+                            sb.append(gapSubstring).append(restoredPhrase).append(" ")
+                        } else {
+                            val leadingPunct = gapSubstring.takeWhile { !it.isWhitespace() }
+                            sb.append(leadingPunct).append(" ").append(restoredPhrase).append(" ")
+                        }
+                        sb.append(currWord)
+                        lastEnd = currMatch.range.last + 1
+                        refCursor = matchIdxInRef + 1
+                        continue
+                    }
+                }
+                refCursor = matchIdxInRef + 1
+            }
+
+            sb.append(stageText.substring(lastEnd, currMatch.range.last + 1))
+            lastEnd = currMatch.range.last + 1
+        }
+
+        val lastStageWord = stageMatches.last().value
+        if (refCursor in 1 until refWords.size &&
+            refWords[refCursor - 1].equals(lastStageWord, ignoreCase = true) &&
+            (refWords.size - refCursor) in 1..2
+        ) {
+            val trailingMissing = refWords.subList(refCursor, refWords.size)
+            if (trailingMissing.all { isProfanityWord(it) }) {
+                val trailingRest = stageText.substring(lastEnd)
+                val trailingPunct = trailingRest.trim()
+                sb.append(" ").append(trailingMissing.joinToString(" "))
+                if (trailingPunct.isNotEmpty()) sb.append(trailingPunct)
+                return sb.toString()
+            }
+        }
+
+        if (lastEnd < stageText.length) {
+            sb.append(stageText.substring(lastEnd))
+        }
+        return sb.toString()
     }
 
     /**

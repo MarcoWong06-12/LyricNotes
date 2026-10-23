@@ -11,9 +11,11 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.blur
 import androidx.compose.ui.draw.drawBehind
+import androidx.compose.ui.draw.drawWithCache
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.drawscope.withTransform
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
@@ -285,61 +287,102 @@ fun AmbientGlowBackground(
                 )
             }
 
-            // 2. 动态光斑流体弥散层与纵深保护蒙版 (全部延迟至 GPU Draw Phase 绘制，重组率降为 0)
+            // 2. 动态光斑流体弥散层与纵深保护蒙版 (drawWithCache 预缓存静态 Shader + GPU 矩阵变换，每帧 0 对象分配)
             Box(
                 modifier = Modifier
                     .fillMaxSize()
-                    .drawBehind {
-                        val w = size.width
-                        val h = size.height
+                    .drawWithCache {
+                        val w = size.width.coerceAtLeast(1f)
+                        val h = size.height.coerceAtLeast(1f)
 
-                        // 光斑 1 (主色调)
-                        drawRect(
-                            brush = Brush.radialGradient(
-                                colors = orb1Colors,
-                                center = Offset(w * 0.28f + orb1OffsetX, h * 0.25f + orb1OffsetY),
-                                radius = (w * 0.75f) * orb1Scale
-                            ),
-                            alpha = if (effectiveDark) 0.65f else 0.40f
+                        val c1 = Offset(w * 0.28f, h * 0.25f)
+                        val c2 = Offset(w * 0.72f, h * 0.65f)
+                        val c3 = Offset(w * 0.45f, h * 0.82f)
+                        val c4 = Offset(w * 0.60f, h * 0.35f)
+
+                        // 仅在切歌换色或画布尺寸改变时创建一次 Native Shader
+                        val brush1 = Brush.radialGradient(
+                            colors = orb1Colors,
+                            center = c1,
+                            radius = w * 0.75f
                         )
-
-                        // 光斑 2 (副色调)
-                        drawRect(
-                            brush = Brush.radialGradient(
-                                colors = orb2Colors,
-                                center = Offset(w * 0.72f + orb2OffsetX, h * 0.65f + orb2OffsetY),
-                                radius = w * 0.82f
-                            ),
-                            alpha = if (effectiveDark) 0.55f else 0.35f
+                        val brush2 = Brush.radialGradient(
+                            colors = orb2Colors,
+                            center = c2,
+                            radius = w * 0.82f
                         )
+                        val brush3 = Brush.radialGradient(
+                            colors = orb3Colors,
+                            center = c3,
+                            radius = w * 0.78f
+                        )
+                        val brush4 = Brush.radialGradient(
+                            colors = orb4Colors,
+                            center = c4,
+                            radius = w * 0.60f
+                        )
+                        val verticalOverlayBrush = Brush.verticalGradient(colors = overlayColors)
 
-                        // 仅在动态流体极光模式下激活光斑 3 与光斑 4，交织为高阶极光网格
-                        if (isDynamicAurora) {
-                            // 光斑 3 (深沉氛围)
-                            drawRect(
-                                brush = Brush.radialGradient(
-                                    colors = orb3Colors,
-                                    center = Offset(w * 0.45f + orb3OffsetX, h * 0.82f + orb3OffsetY),
-                                    radius = w * 0.78f
-                                ),
-                                alpha = if (effectiveDark) 0.50f else 0.30f
-                            )
+                        // 预留 150px 边界冗余，防止光斑平移时矩形边缘在画布内露馅
+                        val bleed = 150f
+                        val expandedTopLeft = Offset(-bleed, -bleed)
+                        val expandedSize = androidx.compose.ui.geometry.Size(w + bleed * 2f, h + bleed * 2f)
 
-                            // 光斑 4 (空灵浮动点缀)
-                            drawRect(
-                                brush = Brush.radialGradient(
-                                    colors = orb4Colors,
-                                    center = Offset(w * 0.60f + orb4OffsetX, h * 0.35f + orb4OffsetY),
-                                    radius = w * 0.60f
-                                ),
-                                alpha = if (effectiveDark) 0.45f else 0.25f
-                            )
+                        onDrawBehind {
+                            // 光斑 1 (主色调：平移 + 呼吸缩放)
+                            withTransform({
+                                translate(left = orb1OffsetX, top = orb1OffsetY)
+                                scale(scaleX = orb1Scale, scaleY = orb1Scale, pivot = c1)
+                            }) {
+                                drawRect(
+                                    brush = brush1,
+                                    topLeft = expandedTopLeft,
+                                    size = expandedSize,
+                                    alpha = if (effectiveDark) 0.65f else 0.40f
+                                )
+                            }
+
+                            // 光斑 2 (副色调：平移)
+                            withTransform({
+                                translate(left = orb2OffsetX, top = orb2OffsetY)
+                            }) {
+                                drawRect(
+                                    brush = brush2,
+                                    topLeft = expandedTopLeft,
+                                    size = expandedSize,
+                                    alpha = if (effectiveDark) 0.55f else 0.35f
+                                )
+                            }
+
+                            if (isDynamicAurora) {
+                                // 光斑 3 (深沉氛围)
+                                withTransform({
+                                    translate(left = orb3OffsetX, top = orb3OffsetY)
+                                }) {
+                                    drawRect(
+                                        brush = brush3,
+                                        topLeft = expandedTopLeft,
+                                        size = expandedSize,
+                                        alpha = if (effectiveDark) 0.50f else 0.30f
+                                    )
+                                }
+
+                                // 光斑 4 (空灵浮动点缀)
+                                withTransform({
+                                    translate(left = orb4OffsetX, top = orb4OffsetY)
+                                }) {
+                                    drawRect(
+                                        brush = brush4,
+                                        topLeft = expandedTopLeft,
+                                        size = expandedSize,
+                                        alpha = if (effectiveDark) 0.45f else 0.25f
+                                    )
+                                }
+                            }
+
+                            // 纵深渐变遮罩
+                            drawRect(brush = verticalOverlayBrush)
                         }
-
-                        // 纵深渐变遮罩：顶部保护状态栏/标题对比度，中部通透，底部柔和半透（杜绝死黑）
-                        drawRect(
-                            brush = Brush.verticalGradient(colors = overlayColors)
-                        )
                     }
             )
         }

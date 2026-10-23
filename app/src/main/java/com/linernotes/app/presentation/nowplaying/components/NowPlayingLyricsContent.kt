@@ -425,14 +425,14 @@ fun NowPlayingLyricsContent(
             ) { index, line ->
                 val isActive = (index == currentLineIndex)
                 val isFocal = (index == focalIndex)
-                val distance = kotlin.math.abs(index - focalIndex).coerceAtMost(3)
+                val relativeOrder = (index - focalIndex).coerceIn(-2, 3)
                 val annotation = annotatedLines[index]
 
                 LyricLineRow(
                     line = line,
                     isActive = isActive,
                     isFocal = isFocal,
-                    distance = distance,
+                    relativeOrder = relativeOrder,
                     isBrowsing = isBrowsing,
                     annotation = annotation,
                     isTraditional = isTraditional,
@@ -558,7 +558,7 @@ fun LyricLineRow(
     line: BilingualLyricLine,
     isActive: Boolean,
     isFocal: Boolean,
-    distance: Int,
+    relativeOrder: Int,
     isBrowsing: Boolean,
     annotation: LyricAnnotationEntity?,
     isTraditional: Boolean,
@@ -573,6 +573,8 @@ fun LyricLineRow(
     onAnnotationClick: () -> Unit
 ) {
     val isVisuallyActive = isActive
+    val distance = kotlin.math.abs(relativeOrder)
+    val density = LocalDensity.current
 
     // 1. 光感透明度階梯 (Vibrant Primary 0.98f -> Secondary 0.50f -> Tertiary 0.28f -> Ambient 0.14f)
     val targetRowAlpha = when {
@@ -605,11 +607,32 @@ fun LyricLineRow(
         else -> 0.97f
     }
 
+    // 3. Apple Music 跨行波浪級聯位移 (Staggered Wave Cascade)
+    // 手動滑動瀏覽時歸零以保證 1:1 跟手性；自動播放時按有符號行序呈波浪梯度展開
+    val targetWaveOffsetDp = if (isBrowsing) {
+        0f
+    } else {
+        when {
+            relativeOrder < 0 -> -2.0f
+            relativeOrder == 0 -> 0.0f
+            relativeOrder == 1 -> 5.0f
+            relativeOrder == 2 -> 9.0f
+            else -> 11.0f
+        }
+    }
+
     // Apple 官方狀態過渡動畫曲線 (500ms 經典 iOS Ease-Out，柔和漸變光感交融，消除突兀跳躍)
     val lyricHighlightAnimationSpec = remember {
         tween<Float>(
             durationMillis = 500,
             easing = CubicBezierEasing(0.25f, 0.1f, 0.25f, 1.0f)
+        )
+    }
+
+    val cascadeSpringSpec = remember {
+        spring<Float>(
+            dampingRatio = 0.84f,
+            stiffness = 260f
         )
     }
 
@@ -623,6 +646,12 @@ fun LyricLineRow(
         targetValue = targetScale,
         animationSpec = lyricHighlightAnimationSpec,
         label = "lineScale"
+    )
+
+    val animatedWaveOffsetDp by animateFloatAsState(
+        targetValue = targetWaveOffsetDp,
+        animationSpec = cascadeSpringSpec,
+        label = "waveCascadeY"
     )
 
     val displayOriginal = remember(line.original, isTraditional) {
@@ -677,6 +706,7 @@ fun LyricLineRow(
                 scaleX = animatedScale
                 scaleY = animatedScale
                 alpha = animatedRowAlpha
+                translationY = animatedWaveOffsetDp * density.density
                 transformOrigin = if (isAlignLeft) TransformOrigin(0f, 0.5f) else TransformOrigin(0.5f, 0.5f)
             }
             .clip(RoundedCornerShape(16.dp))
@@ -871,6 +901,13 @@ fun AppleMusicWordUnit(
     val density = LocalDensity.current
     // Apple Music 官方逆向 lyrics_karaoke_gradient_feather_width: 30dp
     val fadeWidth = remember(density) { with(density) { 30.dp.toPx() } }
+    val maxLiftPx = remember(density) { with(density) { 2.2.dp.toPx() } }
+
+    // 根據音節時長預計算阻尼系數 (爆破音抑振，長拖音增幅)，0 運行時開銷
+    val durationDamping = remember(duration) {
+        ((duration - 40f) / 180f).coerceIn(0.25f, 1.15f)
+    }
+
     val featherBrush = remember(fadeWidth) {
         Brush.horizontalGradient(
             listOf(Color.White, Color.Transparent),
@@ -879,7 +916,28 @@ fun AppleMusicWordUnit(
         )
     }
 
-    Box(contentAlignment = Alignment.TopStart) {
+    // 外層容器統一承載聲學微浮起與呼吸形變，確保底層暗字與頂層亮字幾何 100% 嚴絲合縫
+    Box(
+        contentAlignment = Alignment.TopStart,
+        modifier = Modifier.graphicsLayer {
+            val now = currentPositionMsProvider()
+            if (now in start until end) {
+                val p = ((now - start).toFloat() / duration.toFloat()).coerceIn(0f, 1f)
+                // 非對稱聲學包絡 E(p) = sin(pi * p^0.68)：快速起音、溫潤回落
+                val skewedP = Math.pow(p.toDouble(), 0.68).toFloat()
+                val envelope = kotlin.math.sin(skewedP * Math.PI.toFloat()) * durationDamping
+
+                translationY = -maxLiftPx * envelope
+                scaleX = 1f + 0.018f * envelope
+                scaleY = 1f + 0.028f * envelope
+                transformOrigin = TransformOrigin(0.5f, 0.85f)
+            } else {
+                translationY = 0f
+                scaleX = 1f
+                scaleY = 1f
+            }
+        }
+    ) {
         Text(
             text = wordText,
             color = lyricColor.copy(alpha = 0.45f),

@@ -162,4 +162,21 @@ class LyricSanitizerTest {
         val result = LyricSanitizer.decensorLine(censored, "", trans)
         assertEquals("Cut that shit out and stop this fuck", result)
     }
+
+    @Test
+    fun `test blank gap and dropped word restoration without asterisks`() {
+        val censoredWithDoubleSpace = "I don't give a   about you"
+        val ref = "I don't give a fuck about you"
+        val result1 = LyricSanitizer.decensorLine(censoredWithDoubleSpace, ref)
+        assertEquals("I don't give a fuck about you", result1)
+
+        val censoredMissingWord = "I don't give a about you"
+        val result2 = LyricSanitizer.decensorLine(censoredMissingWord, ref)
+        assertEquals("I don't give a fuck about you", result2)
+
+        val trailingDropped = "What the"
+        val trailingRef = "What the fuck"
+        val result3 = LyricSanitizer.decensorLine(trailingDropped, trailingRef)
+        assertEquals("What the fuck", result3)
+    }
 }
