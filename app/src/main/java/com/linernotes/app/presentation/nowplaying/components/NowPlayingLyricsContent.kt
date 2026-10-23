@@ -64,12 +64,12 @@ import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 
 /**
- * iOS Apple Music 原生零死區多米諾波浪引擎 (Zero-Dead-Zone Staggered Domino Wave State)
+ * iOS Apple Music 原生溫潤流體多米諾波浪引擎 (Velvety Critically-Damped Domino Wave State)
  */
 @Stable
 class AppleMusicWaveState(lyricsCount: Int) {
-    var elapsedMs by mutableFloatStateOf(1000f)
-    var baseDurationMs by mutableFloatStateOf(380f)
+    var elapsedMs by mutableFloatStateOf(1400f)
+    var baseDurationMs by mutableFloatStateOf(680f)
     var actualScrolledPx by mutableFloatStateOf(0f)
     var baseProgress by mutableFloatStateOf(1f)
     val currentOffsetsPx = FloatArray(lyricsCount.coerceAtLeast(1))
@@ -84,23 +84,22 @@ class AppleMusicWaveState(lyricsCount: Int) {
         Arrays.fill(initialOffsetsPx, 0f)
         actualScrolledPx = 0f
         baseProgress = 1f
-        elapsedMs = 1000f
+        elapsedMs = 1400f
     }
 }
 
 /**
- * iOS CASpringAnimation 零死區瞬時爆發阻尼曲線：
- * 在 t=0 瞬間即具備充沛初速度 (v0 = 2.6, omega = 7.2)，前 100ms 即可完成 65% 位移，
- * 徹底消除 CubicBezier(0.75, 0.0, 0.25, 1.0) 前半段 250ms 停滯不動的遲鈍感。
+ * iOS CASpringAnimation 臨界阻尼質量彈簧曲線 (mass = 1.0, stiffness = 115, damping = 20)：
+ * 從靜止平滑加速 (v0 = 0, omega = 4.8)，既無生硬突兀的初速度猛衝，又無遲滯死區，
+ * 在 680ms 內呈現如液態雲台般溫潤、有份量感的起步與長尾絲滑收束。
  */
 private fun appleMusicSpringCurve(u: Float): Float {
     val t = u.coerceIn(0f, 1f)
     if (t <= 0f) return 0f
     if (t >= 1f) return 1f
-    val omega = 7.2f
-    val v0 = 2.6f
-    val raw = 1f - (1f + (omega - v0) * t) * exp(-omega * t)
-    val endNorm = 1f - (1f + (omega - v0)) * exp(-omega)
+    val omega = 4.8f
+    val raw = 1f - (1f + omega * t) * exp(-omega * t)
+    val endNorm = 1f - (1f + omega) * exp(-omega)
     return (raw / endNorm).coerceIn(0f, 1f)
 }
 
@@ -279,11 +278,11 @@ fun NowPlayingLyricsContent(
     val topFocalPadding = (focalTargetDp - 20.dp).coerceAtLeast(140.dp)
     val bottomFocalPadding = screenHeightDp * 0.55f + (if (showPlaybackControls) 120.dp else 40.dp)
 
-    // Apple Music 零死區瞬時響應視口滾動曲線 (0ms 立即啟動，消除前半段停滯)
+    // Apple Music 溫潤視口滾動曲線 (用於遠距離回正)
     val lyricFluidScrollSpec = remember {
         tween<Float>(
-            durationMillis = 380,
-            easing = CubicBezierEasing(0.16f, 1.0f, 0.3f, 1.0f)
+            durationMillis = 660,
+            easing = CubicBezierEasing(0.25f, 0.1f, 0.25f, 1.0f)
         )
     }
 
@@ -366,14 +365,14 @@ fun NowPlayingLyricsContent(
             return@LaunchedEffect
         }
 
-        // 根據相鄰歌詞行時間差自適應調校基礎滾動時長 (330ms ~ 410ms，乾脆利落不拖泥帶水)
+        // 根據相鄰歌詞行時間差自適應調校基礎滾動時長 (580ms ~ 700ms，溫潤從容、如液態雲台般優雅滑動)
         val curStart = lyrics.getOrNull(targetIndex)?.startTimeMs ?: 0L
         val nextStart = lyrics.getOrNull(targetIndex + 1)?.startTimeMs ?: (curStart + 3000L)
         val lineDurationMs = (nextStart - curStart).coerceIn(300L, 4000L)
         val dynamicBaseDurationMs = when {
-            lineDurationMs < 650L -> 330f
-            lineDurationMs < 1300L -> 370f
-            else -> 400f
+            lineDurationMs < 650L -> 540f
+            lineDurationMs < 1300L -> 640f
+            else -> 700f
         }
 
         suspend fun runAppleMusicWaveScroll(scrollDelta: Float) {
@@ -384,8 +383,8 @@ fun NowPlayingLyricsContent(
             waveState.baseProgress = 0f
             waveState.elapsedMs = 0f
 
-            // 緊湊 28ms 級聯時差：總時長涵蓋最後一行 (r = 5) 的起跑延遲 + 彈簧收束
-            val totalWaveMs = dynamicBaseDurationMs + 5f * 28f + 110f
+            // 42ms 溫潤級聯時差：總時長涵蓋最後一行 (r = 5) 的起跑延遲 + 彈簧長尾收束
+            val totalWaveMs = dynamicBaseDurationMs + 5f * 42f + 160f
             var prevTargetScrollPx = 0f
             val waveAnim = Animatable(0f)
 
@@ -689,60 +688,46 @@ fun LyricLineRow(
         }
     }
 
-    // 2. iOS Apple Music 真实聚焦缩放比例 (非活跃行退居 0.90x~0.92x，进入焦点位时以高响应弹簧跃升至 1.00x)
+    // 2. iOS Apple Music 官方克制微縮放 (聚焦 1.00x，非活躍行 0.965x~0.98x，溫潤舒展絕不突兀放大跳動)
     val targetScale = when {
         isBrowsing -> when (distance) {
             0 -> 1.0f
-            1 -> 0.96f
-            else -> 0.94f
+            1 -> 0.985f
+            else -> 0.97f
         }
         isVisuallyActive -> 1.0f
         distance == 0 -> 1.0f
-        distance == 1 -> 0.92f
-        distance == 2 -> 0.90f
-        else -> 0.88f
+        distance == 1 -> 0.975f
+        else -> 0.965f
     }
 
-    // 3. GPU 景深高斯散焦层级 (Bokeh Depth-of-Field Blur：聚焦与手动浏览 0dp 刀锋锐利 -> 1.6dp -> 3.2dp -> 4.8dp 远景散焦)
+    // 3. GPU 景深高斯散焦层级 (Bokeh Depth-of-Field Blur：聚焦与手动浏览 0dp 刀锋锐利 -> 1.5dp -> 3.0dp -> 4.5dp 远景散焦)
     val targetBlurDp = when {
         isBrowsing -> 0f
         isVisuallyActive || distance == 0 -> 0f
-        distance == 1 -> 1.6f
-        distance == 2 -> 3.2f
-        else -> 4.8f
+        distance == 1 -> 1.5f
+        distance == 2 -> 3.0f
+        else -> 4.5f
     }
 
-    // 4. 活跃行呼吸气场推开位移 (Active Breathing Halo：上方已唱行微退 -5dp，下方待唱行微让 +7dp)
-    val targetBreathingOffsetDp = if (isBrowsing) {
-        0f
-    } else {
-        when {
-            relativeOrder < 0 -> -5.0f
-            relativeOrder == 0 -> 0.0f
-            relativeOrder == 1 -> 7.0f
-            relativeOrder == 2 -> 11.0f
-            else -> 13.0f
-        }
-    }
-
-    // 高响应零死区弹簧与 Expo Ease-Out (彻底告别迟钝缓慢)
+    // 4. 溫潤阻尼彈簧與 560ms CoreAnimation Ease-Out (從容優雅，消除過快彈跳感)
     val appleFocalSpringSpec = remember {
         spring<Float>(
-            dampingRatio = 0.82f,
-            stiffness = 340f
+            dampingRatio = 0.92f,
+            stiffness = 120f
         )
     }
 
-    val appleFastEaseOutSpec = remember {
+    val appleWarmEaseOutSpec = remember {
         tween<Float>(
-            durationMillis = 320,
-            easing = CubicBezierEasing(0.16f, 1.0f, 0.3f, 1.0f)
+            durationMillis = 560,
+            easing = CubicBezierEasing(0.25f, 0.1f, 0.25f, 1.0f)
         )
     }
 
     val animatedRowAlpha by animateFloatAsState(
         targetValue = targetRowAlpha,
-        animationSpec = appleFastEaseOutSpec,
+        animationSpec = appleWarmEaseOutSpec,
         label = "rowAlpha"
     )
 
@@ -754,14 +739,8 @@ fun LyricLineRow(
 
     val animatedBlurDp by animateFloatAsState(
         targetValue = targetBlurDp,
-        animationSpec = appleFastEaseOutSpec,
+        animationSpec = appleWarmEaseOutSpec,
         label = "lineBokehBlur"
-    )
-
-    val animatedBreathingOffsetDp by animateFloatAsState(
-        targetValue = targetBreathingOffsetDp,
-        animationSpec = appleFocalSpringSpec,
-        label = "breathingHaloY"
     )
 
     // 预缓存量化后的 GPU BlurEffect，避免静止状态下在 graphicsLayer 重复分配对象
@@ -821,7 +800,7 @@ fun LyricLineRow(
                 scaleY = animatedScale
                 alpha = animatedRowAlpha
 
-                // 计算 iOS Apple Music 零死区紧凑多米诺时间差波浪位移 (28ms per row Staggered Domino Wave)
+                // 计算 iOS Apple Music 温润多米诺时间差波浪位移 (42ms per row Staggered Domino Wave)
                 var dynamicWavePx = 0f
                 val ws = waveState
                 if (!isBrowsing && ws != null) {
@@ -829,7 +808,7 @@ fun LyricLineRow(
                     val baseDur = ws.baseDurationMs
                     val scrolledPx = ws.actualScrolledPx
                     val p0 = ws.baseProgress
-                    val totalDur = baseDur + 5f * 28f + 110f
+                    val totalDur = baseDur + 5f * 42f + 160f
 
                     if (tMs < totalDur && (kotlin.math.abs(scrolledPx) > 0.5f || lineIndex in ws.initialOffsetsPx.indices)) {
                         val delayMs: Float
@@ -837,24 +816,24 @@ fun LyricLineRow(
                         if (scrolledPx >= 0f) {
                             when {
                                 relativeOrder < 0 -> {
-                                    // 刚唱完的上一行：0ms 瞬时上移退场，速度比基准快 15%
+                                    // 刚唱完的上一行：0ms 率先柔和上移
                                     delayMs = 0f
-                                    rowDurMs = baseDur * 0.85f
+                                    rowDurMs = baseDur * 0.92f
                                 }
                                 relativeOrder == 0 -> {
-                                    // 新激活的当前行：8ms 紧随其后涌入焦点位
-                                    delayMs = 8f
+                                    // 新激活的当前行：12ms 温润跟进滑入黄金焦点线
+                                    delayMs = 12f
                                     rowDurMs = baseDur
                                 }
                                 else -> {
-                                    // 下方待唱行 (r = 1..5)：每隔 28ms 紧凑依次起跑追赶，既有丝绸波浪感又干脆利落！
-                                    delayMs = 8f + relativeOrder * 28f
-                                    rowDurMs = baseDur + relativeOrder * 14f
+                                    // 下方待唱行 (r = 1..5)：每隔 42ms 依次从容起跑追赶，呈现丝绸般柔和的波浪跟随
+                                    delayMs = 12f + relativeOrder * 42f
+                                    rowDurMs = baseDur + relativeOrder * 24f
                                 }
                             }
                         } else {
-                            delayMs = distance * 24f
-                            rowDurMs = baseDur + distance * 12f
+                            delayMs = distance * 36f
+                            rowDurMs = baseDur + distance * 20f
                         }
 
                         val ur = ((tMs - delayMs) / rowDurMs).coerceIn(0f, 1f)
@@ -863,7 +842,7 @@ fun LyricLineRow(
                         val initOffset = if (lineIndex in ws.initialOffsetsPx.indices) ws.initialOffsetsPx[lineIndex] else 0f
                         val residualY = initOffset * (1f - pr)
 
-                        val ratio = if (p0 > 0.0001f) (pr / p0).coerceIn(0f, 1.35f) else 0f
+                        val ratio = if (p0 > 0.0001f) (pr / p0).coerceIn(0f, 1.25f) else 0f
                         val staggerLagY = scrolledPx * (1f - ratio)
 
                         dynamicWavePx = residualY + staggerLagY
@@ -873,7 +852,7 @@ fun LyricLineRow(
                     }
                 }
 
-                translationY = animatedBreathingOffsetDp * density.density + dynamicWavePx
+                translationY = dynamicWavePx
                 transformOrigin = if (isAlignLeft) TransformOrigin(0f, 0.5f) else TransformOrigin(0.5f, 0.5f)
 
                 // Android 12+ (API 31+) RenderNode 硬件级景深高斯散焦
