@@ -173,16 +173,16 @@ class NowPlayingRepository @Inject constructor(
                         }
                     }
                 }
-                delay(if (state.isPlaying) 50L else 300L) // 播放时50ms灵敏追踪，暂停时300ms大幅节电
+                delay(if (state.isPlaying) 32L else 300L) // 播放时32ms低延迟追踪，暂停时300ms大幅节电
             }
         }
     }
 
     /**
-     * 计算当前活跃歌词行索引 (附带 80ms 硬件/蓝牙音频输出延迟精确补偿)
-     * 避免过大的提前量导致上一句歌词尚未唱完就突兀跳到下一句，确保歌词与人声咬合自然
+     * 计算当前活跃歌词行索引 (附带 160ms Apple Music 声学预滚动提前量与蓝牙音频延迟补偿)
+     * 让下一行歌词在歌手开唱前 160ms 立即启动上浮，人声唱出首字时恰好稳稳定格在焦点位
      */
-    private fun calculateActiveLineIndex(lyrics: List<BilingualLyricLine>, positionMs: Long, leadTimeMs: Long = 80L): Int {
+    private fun calculateActiveLineIndex(lyrics: List<BilingualLyricLine>, positionMs: Long, leadTimeMs: Long = 160L): Int {
         if (lyrics.isEmpty()) return -1
         val effectivePos = positionMs + leadTimeMs
         var activeIndex = -1
