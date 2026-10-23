@@ -1,5 +1,6 @@
 package com.linernotes.app.presentation.nowplaying.components
 
+import android.os.Build
 import androidx.compose.animation.*
 import androidx.compose.animation.core.*
 import androidx.compose.foundation.BorderStroke
@@ -24,9 +25,11 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.drawWithContent
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.BlendMode
+import androidx.compose.ui.graphics.BlurEffect
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.CompositingStrategy
+import androidx.compose.ui.graphics.TileMode
 import androidx.compose.ui.graphics.TransformOrigin
 import androidx.compose.ui.graphics.drawscope.translate
 import androidx.compose.ui.graphics.graphicsLayer
@@ -53,10 +56,56 @@ import com.linernotes.app.domain.model.BilingualLyricLine
 import com.linernotes.app.domain.model.LyricWord
 import com.linernotes.app.presentation.common.*
 import com.linernotes.app.presentation.nowplaying.FuriganaDisplayMode
+import java.util.Arrays
+import kotlin.math.exp
 import kotlin.math.roundToInt
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
+
+/**
+ * iOS Apple Music 原生多米諾時間差波浪狀態機 (Phase-Synchronized Staggered Domino Wave State)
+ *
+ * 在 `listState.scroll` 的 Phase 0 (Animation Frame) 中同步推進滾動與波浪時鐘，
+ * 並在每行的 `graphicsLayer` (Phase 3) 中抵消全局位移、注入逐行延遲起跑曲線，
+ * 實現真正的「首行先動、下方各行每隔 58ms 依次彈簧起跑追趕」的絲綢波浪效果，且全程 0 重組。
+ */
+@Stable
+class AppleMusicWaveState(lyricsCount: Int) {
+    var elapsedMs by mutableFloatStateOf(1200f)
+    var baseDurationMs by mutableFloatStateOf(520f)
+    var actualScrolledPx by mutableFloatStateOf(0f)
+    var baseProgress by mutableFloatStateOf(1f)
+    val currentOffsetsPx = FloatArray(lyricsCount.coerceAtLeast(1))
+    val initialOffsetsPx = FloatArray(lyricsCount.coerceAtLeast(1))
+
+    fun snapshotResiduals() {
+        System.arraycopy(currentOffsetsPx, 0, initialOffsetsPx, 0, currentOffsetsPx.size)
+    }
+
+    fun clearAll() {
+        Arrays.fill(currentOffsetsPx, 0f)
+        Arrays.fill(initialOffsetsPx, 0f)
+        actualScrolledPx = 0f
+        baseProgress = 1f
+        elapsedMs = 1200f
+    }
+}
+
+/**
+ * Apple Music CoreAnimation 阻尼彈簧解析曲線：
+ * 起步具備充沛的初速度衝量，中後段以指數衰減磁吸定格，徹底消除普通貝塞爾的初段死區與末段生硬剎車。
+ */
+private fun appleMusicSpringCurve(u: Float): Float {
+    val t = u.coerceIn(0f, 1f)
+    if (t <= 0f) return 0f
+    if (t >= 1f) return 1f
+    val omega = 6.4f
+    val v0 = 1.9f
+    val raw = 1f - (1f + (omega - v0) * t) * exp(-omega * t)
+    val endNorm = 1f - (1f + (omega - v0)) * exp(-omega)
+    return (raw / endNorm).coerceIn(0f, 1f)
+}
 
 /**
  * ==============================================================================
@@ -233,12 +282,17 @@ fun NowPlayingLyricsContent(
     val topFocalPadding = (focalTargetDp - 16.dp).coerceAtLeast(120.dp)
     val bottomFocalPadding = screenHeightDp * 0.55f + (if (showPlaybackControls) 120.dp else 40.dp)
 
-    // Apple Music 官方原生視口滾動曲線 (620ms 經典 Core Animation Ease-Out 液態溫潤滑動，優雅從容，120Hz 滿幀絲滑)
+    // Apple Music 官方原生視口滾動曲線 (用於遠距離跨頁回正)
     val lyricFluidScrollSpec = remember {
         tween<Float>(
-            durationMillis = 620,
+            durationMillis = 560,
             easing = CubicBezierEasing(0.25f, 0.1f, 0.25f, 1.0f)
         )
+    }
+
+    // Apple Music 逐行時間差多米諾波浪引擎狀態機 (按曲目歌詞數初始化，全程於 graphicsLayer 零重組讀取)
+    val waveState = remember(lyrics.size, trackState.title) {
+        AppleMusicWaveState(lyrics.size)
     }
 
     // 觸控手勢監聽與自動回正狀態機
@@ -248,11 +302,13 @@ fun NowPlayingLyricsContent(
     LaunchedEffect(isUserDragging) {
         if (isUserDragging) {
             userScrolledAway = true
+            waveState.clearAll()
         }
     }
 
     LaunchedEffect(trackState.title, trackState.artist) {
         userScrolledAway = false
+        waveState.clearAll()
     }
 
     // 蘋果官方 2.5 秒無觸控自動平滑彈簧歸位
@@ -298,7 +354,7 @@ fun NowPlayingLyricsContent(
 
     var lastSongTitle by remember { mutableStateOf("") }
 
-    // 視口中心動態平滑追蹤 (切歌瞬間瞬移複位，同曲切行流體平滑滑動)
+    // 視口中心動態平滑追蹤 + Apple Music 逐行時間差多米諾波浪引擎
     LaunchedEffect(currentLineIndex, userScrolledAway, lyrics, trackState.title) {
         if (userScrolledAway || lyrics.isEmpty()) {
             return@LaunchedEffect
@@ -308,8 +364,54 @@ fun NowPlayingLyricsContent(
 
         if (isSongChanged) {
             lastSongTitle = trackState.title
+            waveState.clearAll()
             listState.scrollToItem(targetIndex, scrollOffset = 0)
             return@LaunchedEffect
+        }
+
+        // 根據相鄰歌詞行時間差自適應調校基礎滾動時長 (440ms ~ 560ms)
+        val curStart = lyrics.getOrNull(targetIndex)?.startTimeMs ?: 0L
+        val nextStart = lyrics.getOrNull(targetIndex + 1)?.startTimeMs ?: (curStart + 3000L)
+        val lineDurationMs = (nextStart - curStart).coerceIn(350L, 4000L)
+        val dynamicBaseDurationMs = when {
+            lineDurationMs < 700L -> 420f
+            lineDurationMs < 1400L -> 480f
+            else -> 530f
+        }
+
+        suspend fun runAppleMusicWaveScroll(scrollDelta: Float) {
+            if (kotlin.math.abs(scrollDelta) <= 1.5f) return
+            waveState.snapshotResiduals()
+            waveState.baseDurationMs = dynamicBaseDurationMs
+            waveState.actualScrolledPx = 0f
+            waveState.baseProgress = 0f
+            waveState.elapsedMs = 0f
+
+            // 總時長涵蓋最後一行 (r = 6) 的起跑延遲 (6 * 56ms) + 行彈簧收束時長
+            val totalWaveMs = dynamicBaseDurationMs + 6f * 56f + 160f
+            var prevTargetScrollPx = 0f
+            val waveAnim = Animatable(0f)
+
+            listState.scroll {
+                waveAnim.animateTo(
+                    targetValue = totalWaveMs,
+                    animationSpec = tween(durationMillis = totalWaveMs.roundToInt(), easing = LinearEasing)
+                ) {
+                    val tMs = value
+                    val u0 = (tMs / dynamicBaseDurationMs).coerceIn(0f, 1f)
+                    val p0 = appleMusicSpringCurve(u0)
+                    val targetScrollPx = scrollDelta * p0
+                    val stepPx = targetScrollPx - prevTargetScrollPx
+                    prevTargetScrollPx = targetScrollPx
+                    if (kotlin.math.abs(stepPx) > 0.01f) {
+                        val consumed = scrollBy(stepPx)
+                        waveState.actualScrolledPx += consumed
+                    }
+                    waveState.baseProgress = p0
+                    waveState.elapsedMs = tMs
+                }
+            }
+            waveState.clearAll()
         }
 
         val visibleItem = listState.layoutInfo.visibleItemsInfo.find { it.index == targetIndex }
@@ -322,12 +424,7 @@ fun NowPlayingLyricsContent(
                 visibleItem.offset.toFloat() + visibleItem.size.toFloat() / 2f
             }
             val scrollDelta = itemAnchor - focalTargetPx
-            if (kotlin.math.abs(scrollDelta) > 1.5f) {
-                listState.animateScrollBy(
-                    value = scrollDelta,
-                    animationSpec = lyricFluidScrollSpec
-                )
-            }
+            runAppleMusicWaveScroll(scrollDelta)
         } else {
             val firstVisible = listState.firstVisibleItemIndex
             if (kotlin.math.abs(targetIndex - firstVisible) > 4) {
@@ -336,6 +433,7 @@ fun NowPlayingLyricsContent(
                 } else {
                     (targetIndex + 2).coerceAtMost(lyrics.lastIndex)
                 }
+                waveState.clearAll()
                 listState.scrollToItem(preJumpIndex)
             }
             val relayoutItem = listState.layoutInfo.visibleItemsInfo.find { it.index == targetIndex }
@@ -348,12 +446,7 @@ fun NowPlayingLyricsContent(
                     relayoutItem.offset.toFloat() + relayoutItem.size.toFloat() / 2f
                 }
                 val scrollDelta = itemAnchor - focalTargetPx
-                if (kotlin.math.abs(scrollDelta) > 1.5f) {
-                    listState.animateScrollBy(
-                        value = scrollDelta,
-                        animationSpec = lyricFluidScrollSpec
-                    )
-                }
+                runAppleMusicWaveScroll(scrollDelta)
             } else {
                 listState.animateScrollToItem(targetIndex)
             }
@@ -425,15 +518,17 @@ fun NowPlayingLyricsContent(
             ) { index, line ->
                 val isActive = (index == currentLineIndex)
                 val isFocal = (index == focalIndex)
-                val relativeOrder = (index - focalIndex).coerceIn(-2, 3)
+                val relativeOrder = (index - focalIndex).coerceIn(-2, 6)
                 val annotation = annotatedLines[index]
 
                 LyricLineRow(
                     line = line,
+                    lineIndex = index,
                     isActive = isActive,
                     isFocal = isFocal,
                     relativeOrder = relativeOrder,
                     isBrowsing = isBrowsing,
+                    waveState = waveState,
                     annotation = annotation,
                     isTraditional = isTraditional,
                     isDark = isDark,
@@ -551,15 +646,17 @@ fun NowPlayingLyricsContent(
 }
 
 /**
- * 单行双语歌词组件 (Apple Music 景深高斯模糊 + 流体弹簧视差)
+ * 单行双语歌词组件 (iOS Apple Music 原生级：逐行多米诺时间差波浪 + GPU 景深散焦模糊 + 0.88x~1.00x 弹性聚焦放大 + 呼吸推开气场)
  */
 @Composable
 fun LyricLineRow(
     line: BilingualLyricLine,
+    lineIndex: Int = 0,
     isActive: Boolean,
     isFocal: Boolean,
     relativeOrder: Int,
     isBrowsing: Boolean,
+    waveState: AppleMusicWaveState? = null,
     annotation: LyricAnnotationEntity?,
     isTraditional: Boolean,
     isDark: Boolean,
@@ -576,83 +673,102 @@ fun LyricLineRow(
     val distance = kotlin.math.abs(relativeOrder)
     val density = LocalDensity.current
 
-    // 1. 光感透明度階梯 (Vibrant Primary 0.98f -> Secondary 0.50f -> Tertiary 0.28f -> Ambient 0.14f)
+    // 1. 光感透明度階梯 (Apple Music Vibrant 层级：聚焦 1.00f -> 相邻 0.46f -> 次相邻 0.25f -> 远景 0.14f)
     val targetRowAlpha = when {
         isBrowsing -> {
             when (distance) {
                 0 -> 0.98f
-                1 -> if (isDark) 0.65f else 0.60f
-                2 -> if (isDark) 0.40f else 0.35f
-                else -> if (isDark) 0.22f else 0.18f
+                1 -> if (isDark) 0.72f else 0.68f
+                2 -> if (isDark) 0.52f else 0.48f
+                else -> if (isDark) 0.36f else 0.32f
             }
         }
         isVisuallyActive -> 1.0f
         else -> when (distance) {
             0 -> 1.0f
-            1 -> 0.45f
-            2 -> 0.24f
+            1 -> 0.46f
+            2 -> 0.25f
             else -> 0.14f
         }
     }
 
-    // 2. 聚焦微縮放 (聚焦 1.0x，非活躍行僅縮小 2%~3%，徹底消除字體劇烈縮放抖動)
+    // 2. iOS Apple Music 真实聚焦缩放比例 (非活跃行退居 0.88x~0.90x，进入焦点位时以流体弹簧膨胀至 1.00x，视觉主角感鲜明)
     val targetScale = when {
         isBrowsing -> when (distance) {
             0 -> 1.0f
-            1 -> 0.985f
-            else -> 0.97f
+            1 -> 0.96f
+            else -> 0.93f
         }
         isVisuallyActive -> 1.0f
-        distance == 1 -> 0.985f
-        else -> 0.97f
+        distance == 0 -> 1.0f
+        distance == 1 -> 0.90f
+        distance == 2 -> 0.88f
+        else -> 0.86f
     }
 
-    // 3. Apple Music 跨行波浪級聯位移 (Staggered Wave Cascade)
-    // 手動滑動瀏覽時歸零以保證 1:1 跟手性；自動播放時按有符號行序呈波浪梯度展開
-    val targetWaveOffsetDp = if (isBrowsing) {
+    // 3. GPU 景深高斯散焦层级 (Bokeh Depth-of-Field Blur：聚焦与手动浏览 0dp 刀锋锐利 -> 1.8dp -> 3.4dp -> 5.2dp 远景散焦)
+    val targetBlurDp = when {
+        isBrowsing -> 0f
+        isVisuallyActive || distance == 0 -> 0f
+        distance == 1 -> 1.8f
+        distance == 2 -> 3.4f
+        else -> 5.2f
+    }
+
+    // 4. 活跃行呼吸气场推开位移 (Active Breathing Halo：上方已唱行微退 -6dp，下方待唱行微让 +8dp，为当前演唱行撑开专属呼吸空间)
+    val targetBreathingOffsetDp = if (isBrowsing) {
         0f
     } else {
         when {
-            relativeOrder < 0 -> -2.0f
+            relativeOrder < 0 -> -6.0f
             relativeOrder == 0 -> 0.0f
-            relativeOrder == 1 -> 5.0f
-            relativeOrder == 2 -> 9.0f
-            else -> 11.0f
+            relativeOrder == 1 -> 8.0f
+            relativeOrder == 2 -> 12.0f
+            else -> 14.0f
         }
     }
 
-    // Apple 官方狀態過渡動畫曲線 (500ms 經典 iOS Ease-Out，柔和漸變光感交融，消除突兀跳躍)
-    val lyricHighlightAnimationSpec = remember {
-        tween<Float>(
-            durationMillis = 500,
-            easing = CubicBezierEasing(0.25f, 0.1f, 0.25f, 1.0f)
+    val appleFocalSpringSpec = remember {
+        spring<Float>(
+            dampingRatio = 0.80f,
+            stiffness = 210f
         )
     }
 
-    val cascadeSpringSpec = remember {
-        spring<Float>(
-            dampingRatio = 0.84f,
-            stiffness = 260f
+    val appleAlphaBlurSpec = remember {
+        tween<Float>(
+            durationMillis = 460,
+            easing = CubicBezierEasing(0.25f, 0.1f, 0.25f, 1.0f)
         )
     }
 
     val animatedRowAlpha by animateFloatAsState(
         targetValue = targetRowAlpha,
-        animationSpec = lyricHighlightAnimationSpec,
+        animationSpec = appleAlphaBlurSpec,
         label = "rowAlpha"
     )
 
     val animatedScale by animateFloatAsState(
         targetValue = targetScale,
-        animationSpec = lyricHighlightAnimationSpec,
+        animationSpec = appleFocalSpringSpec,
         label = "lineScale"
     )
 
-    val animatedWaveOffsetDp by animateFloatAsState(
-        targetValue = targetWaveOffsetDp,
-        animationSpec = cascadeSpringSpec,
-        label = "waveCascadeY"
+    val animatedBlurDp by animateFloatAsState(
+        targetValue = targetBlurDp,
+        animationSpec = appleAlphaBlurSpec,
+        label = "lineBokehBlur"
     )
+
+    val animatedBreathingOffsetDp by animateFloatAsState(
+        targetValue = targetBreathingOffsetDp,
+        animationSpec = appleFocalSpringSpec,
+        label = "breathingHaloY"
+    )
+
+    // 预缓存量化后的 GPU BlurEffect，避免静止状态下在 graphicsLayer 重复分配对象
+    var cachedBlurStep by remember { mutableIntStateOf(-1) }
+    var cachedBlurEffect by remember { mutableStateOf<BlurEffect?>(null) }
 
     val displayOriginal = remember(line.original, isTraditional) {
         if (isTraditional) ChineseConverter.toTraditional(line.original) else line.original
@@ -706,8 +822,78 @@ fun LyricLineRow(
                 scaleX = animatedScale
                 scaleY = animatedScale
                 alpha = animatedRowAlpha
-                translationY = animatedWaveOffsetDp * density.density
+
+                // 计算 iOS Apple Music 逐行多米诺时间差波浪位移 (Staggered Domino Wave)
+                var dynamicWavePx = 0f
+                val ws = waveState
+                if (!isBrowsing && ws != null) {
+                    val tMs = ws.elapsedMs
+                    val baseDur = ws.baseDurationMs
+                    val scrolledPx = ws.actualScrolledPx
+                    val p0 = ws.baseProgress
+                    val totalDur = baseDur + 6f * 56f + 160f
+
+                    if (tMs < totalDur && (kotlin.math.abs(scrolledPx) > 0.5f || lineIndex in ws.initialOffsetsPx.indices)) {
+                        val delayMs: Float
+                        val rowDurMs: Float
+                        if (scrolledPx >= 0f) {
+                            when {
+                                relativeOrder < 0 -> {
+                                    // 刚唱完的上一行：0ms 率先上移退场，速度比基准快 15%，腾出焦点舞台
+                                    delayMs = 0f
+                                    rowDurMs = baseDur * 0.85f
+                                }
+                                relativeOrder == 0 -> {
+                                    // 新激活的当前行：18ms 紧随其后涌入黄金焦点线
+                                    delayMs = 18f
+                                    rowDurMs = baseDur
+                                }
+                                else -> {
+                                    // 下方待唱行 (r = 1..6)：每隔 56ms 依次起跑追赶，形成清晰可见的丝绸手风琴波浪！
+                                    delayMs = 18f + relativeOrder * 56f
+                                    rowDurMs = baseDur + relativeOrder * 22f
+                                }
+                            }
+                        } else {
+                            // 向上回滚切行时按距离向外扩散波浪
+                            delayMs = distance * 44f
+                            rowDurMs = baseDur + distance * 18f
+                        }
+
+                        val ur = ((tMs - delayMs) / rowDurMs).coerceIn(0f, 1f)
+                        val pr = appleMusicSpringCurve(ur)
+
+                        val initOffset = if (lineIndex in ws.initialOffsetsPx.indices) ws.initialOffsetsPx[lineIndex] else 0f
+                        val residualY = initOffset * (1f - pr)
+
+                        val ratio = if (p0 > 0.0001f) (pr / p0).coerceIn(0f, 1.35f) else 0f
+                        val staggerLagY = scrolledPx * (1f - ratio)
+
+                        dynamicWavePx = residualY + staggerLagY
+                        if (lineIndex in ws.currentOffsetsPx.indices) {
+                            ws.currentOffsetsPx[lineIndex] = dynamicWavePx
+                        }
+                    }
+                }
+
+                translationY = animatedBreathingOffsetDp * density.density + dynamicWavePx
                 transformOrigin = if (isAlignLeft) TransformOrigin(0f, 0.5f) else TransformOrigin(0.5f, 0.5f)
+
+                // Android 12+ (API 31+) RenderNode 硬件级景深高斯散焦
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+                    val blurPx = animatedBlurDp * density.density
+                    val step = (blurPx * 4f).roundToInt()
+                    if (step <= 1) {
+                        renderEffect = null
+                    } else {
+                        if (step != cachedBlurStep || cachedBlurEffect == null) {
+                            val quantizedPx = step / 4f
+                            cachedBlurStep = step
+                            cachedBlurEffect = BlurEffect(quantizedPx, quantizedPx, TileMode.Decal)
+                        }
+                        renderEffect = cachedBlurEffect
+                    }
+                }
             }
             .clip(RoundedCornerShape(16.dp))
             .bouncyPress(
