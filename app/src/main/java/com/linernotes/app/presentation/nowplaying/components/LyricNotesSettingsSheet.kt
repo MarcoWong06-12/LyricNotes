@@ -19,6 +19,7 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.luminance
@@ -39,6 +40,7 @@ import com.linernotes.app.core.preference.AiPreferences
 import com.linernotes.app.core.preference.FloatingLyricsPreferences
 import com.linernotes.app.core.util.SpotifyLauncher
 import com.linernotes.app.presentation.common.*
+import com.linernotes.app.presentation.floating.FloatingLyricColorPickerDialog
 import com.linernotes.app.presentation.nowplaying.FuriganaDisplayMode
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -88,6 +90,9 @@ fun LyricNotesSettingsSheet(
     val context = LocalContext.current
     val strings = LocalStrings.current
     val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
+    val floatingPrefs = remember { FloatingLyricsPreferences.get(context) }
+    val currentTextColor by floatingPrefs.textColorFlow.collectAsState(initial = floatingPrefs.textColor)
+    var showColorPickerDialog by remember { mutableStateOf(false) }
 
     val isDark = MaterialTheme.colorScheme.background.luminance() < 0.5f
     val isPureAmoled = isDark && isAmoledMode
@@ -470,9 +475,7 @@ fun LyricNotesSettingsSheet(
                     lifecycleOwner.lifecycle.removeObserver(observer)
                 }
             }
-            val floatingPrefs = remember { FloatingLyricsPreferences.get(context) }
             val currentBgAlpha by floatingPrefs.backgroundAlphaFlow.collectAsState(initial = floatingPrefs.backgroundAlpha)
-            val currentTextColor by floatingPrefs.textColorFlow.collectAsState(initial = floatingPrefs.textColor)
             val isLocked by floatingPrefs.isLockedFlow.collectAsState(initial = floatingPrefs.isLocked)
             val currentDisplayMode by floatingPrefs.displayModeFlow.collectAsState(initial = floatingPrefs.displayMode)
             val currentCapsuleWidth by floatingPrefs.capsuleWidthDpFlow.collectAsState(initial = floatingPrefs.capsuleWidthDp)
@@ -691,25 +694,72 @@ fun LyricNotesSettingsSheet(
 
                 HorizontalDivider(color = dividerColor, thickness = 0.5.dp)
 
-                // 文字颜色选择
-                Text(
-                    text = strings.floatingTextColorLabel,
-                    color = textPrimary,
-                    fontSize = 14.sp,
-                    fontWeight = FontWeight.Medium
-                )
+                // 文字颜色选择与自定义拾色器
                 Row(
                     modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.SpaceEvenly
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Text(
+                        text = strings.floatingTextColorLabel,
+                        color = textPrimary,
+                        fontSize = 14.sp,
+                        fontWeight = FontWeight.Medium
+                    )
+
+                    // 十六进制颜色代码微胶囊，轻点直接呼出自定义拾色器
+                    val effectiveHex = remember(currentTextColor) {
+                        val argb = if (currentTextColor != -1) currentTextColor else 0xFFFFFFFF.toInt()
+                        "#" + String.format("%06X", 0xFFFFFF and argb)
+                    }
+                    Surface(
+                        color = if (isDark) Color.White.copy(alpha = 0.08f) else Color.Black.copy(alpha = 0.05f),
+                        shape = RoundedCornerShape(8.dp),
+                        border = BorderStroke(0.5.dp, if (isDark) Color.White.copy(alpha = 0.12f) else Color.Black.copy(alpha = 0.08f)),
+                        modifier = Modifier.bouncyClickable(pressedScale = 0.92f) {
+                            showColorPickerDialog = true
+                        }
+                    ) {
+                        Row(
+                            modifier = Modifier.padding(horizontal = 8.dp, vertical = 3.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(5.dp)
+                        ) {
+                            Box(
+                                modifier = Modifier
+                                    .size(8.dp)
+                                    .clip(CircleShape)
+                                    .background(if (currentTextColor != -1) Color(currentTextColor) else Color.White)
+                            )
+                            Text(
+                                text = effectiveHex,
+                                fontSize = 11.5.sp,
+                                fontWeight = FontWeight.Bold,
+                                fontFamily = FontFamily.Monospace,
+                                color = textPrimary
+                            )
+                            Text(
+                                text = strings.floatingCustomColorAction,
+                                fontSize = 11.sp,
+                                fontWeight = FontWeight.Medium,
+                                color = if (isDark) Color(0xFFFFD54F) else Color(0xFFD97706)
+                            )
+                        }
+                    }
+                }
+
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
                 ) {
                     val colorPalette = listOf(
-                        0xFFFFFFFF.toInt(),
-                        0xFFE0E0E0.toInt(),
-                        0xFFB0BEC5.toInt(),
-                        0xFFFFD54F.toInt(),
-                        0xFF81D4FA.toInt(),
-                        0xFFA5D6A7.toInt(),
-                        0xFFF48FB1.toInt()
+                        0xFFFFFFFF.toInt(), // 纯白
+                        0xFFFFD54F.toInt(), // 暖金
+                        0xFF1ED760.toInt(), // 荧光绿 (Spotify)
+                        0xFF00E5FF.toInt(), // 电光青
+                        0xFF81D4FA.toInt(), // 天空蓝
+                        0xFFF48FB1.toInt()  // 樱花粉
                     )
                     colorPalette.forEach { colorVal ->
                         val isSelected = currentTextColor == colorVal
@@ -737,6 +787,53 @@ fun LyricNotesSettingsSheet(
                                     modifier = Modifier.size(16.dp)
                                 )
                             }
+                        }
+                    }
+
+                    // 第 7 项：自定义颜色按钮 (Custom Swatch)
+                    val isCustomActive = currentTextColor != -1 && !colorPalette.contains(currentTextColor)
+                    val rainbowBorder = Brush.sweepGradient(
+                        listOf(
+                            Color(0xFFFF0055),
+                            Color(0xFFFFCC00),
+                            Color(0xFF33FF00),
+                            Color(0xFF00EEFF),
+                            Color(0xFF0066FF),
+                            Color(0xFFFF00CC),
+                            Color(0xFFFF0055)
+                        )
+                    )
+
+                    Box(
+                        contentAlignment = Alignment.Center,
+                        modifier = Modifier
+                            .size(32.dp)
+                            .clip(CircleShape)
+                            .background(if (isCustomActive) Color(currentTextColor) else (if (isDark) Color.White.copy(alpha = 0.12f) else Color.Black.copy(alpha = 0.08f)))
+                            .border(
+                                width = if (isCustomActive) 2.5.dp else 1.5.dp,
+                                brush = rainbowBorder,
+                                shape = CircleShape
+                            )
+                            .bouncyClickable(pressedScale = 0.88f) {
+                                showColorPickerDialog = true
+                            }
+                    ) {
+                        if (isCustomActive) {
+                            val customCompose = Color(currentTextColor)
+                            Icon(
+                                imageVector = Icons.Default.Check,
+                                contentDescription = "Custom Color Selected",
+                                tint = if (customCompose.luminance() > 0.45f) Color.Black else Color.White,
+                                modifier = Modifier.size(16.dp)
+                            )
+                        } else {
+                            Icon(
+                                imageVector = Icons.Default.Palette,
+                                contentDescription = strings.floatingCustomColorTitle,
+                                tint = if (isDark) Color.White.copy(alpha = 0.85f) else Color.Black.copy(alpha = 0.70f),
+                                modifier = Modifier.size(17.dp)
+                            )
                         }
                     }
                 }
@@ -946,6 +1043,20 @@ fun LyricNotesSettingsSheet(
                 }
             }
         }
+    }
+
+    if (showColorPickerDialog) {
+        FloatingLyricColorPickerDialog(
+            currentColor = currentTextColor,
+            isDark = isDark,
+            isPureAmoled = isPureAmoled,
+            isTraditional = isTraditionalChinese,
+            onDismiss = { showColorPickerDialog = false },
+            onColorSelected = { selectedColor ->
+                floatingPrefs.textColor = selectedColor
+                showColorPickerDialog = false
+            }
+        )
     }
 }
 
