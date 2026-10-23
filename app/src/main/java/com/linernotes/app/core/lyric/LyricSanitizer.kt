@@ -424,28 +424,29 @@ object LyricSanitizer {
      * 根据中文翻译行语义线索反推英文星号词
      */
     private fun resolveFromTranslationHint(stageText: String, transHint: String): String {
-        var text = stageText
-        when {
-            transHint.contains("混蛋们") -> {
-                text = text.replace(Regex("""(?i)\b[a-zA-Z]*\*+[a-zA-Z]*|\*{6,}"""), "motherfuckers")
-            }
-            transHint.contains("混蛋") -> {
-                text = text.replace(Regex("""(?i)\b[a-zA-Z]*\*+[a-zA-Z]*|\*{6,}"""), "motherfucker")
-            }
-            transHint.contains("他妈的") -> {
-                text = text.replace(Regex("""(?i)\b[a-zA-Z]*\*+[a-zA-Z]*|\*{4,}"""), "fucking")
-            }
-            transHint.contains("狗屎") -> {
-                text = text.replace(Regex("""(?i)\b[a-zA-Z]*\*+[a-zA-Z]*|\*{4,}"""), "shit")
-            }
-            transHint.contains("婊子") -> {
-                text = text.replace(Regex("""(?i)\b[a-zA-Z]*\*+[a-zA-Z]*|\*{4,}"""), "bitch")
-            }
-            transHint.contains("兄弟") -> {
-                text = text.replace(Regex("""(?i)\b[a-zA-Z]*\*+[a-zA-Z]*|\*{4,}"""), "nigga")
+        val hasPluralMotherfucker = transHint.contains("混蛋们") || transHint.contains("混蛋們") || transHint.contains("雜種們") || transHint.contains("杂种们")
+        val hasMotherfucker = hasPluralMotherfucker || transHint.contains("混蛋") || transHint.contains("混帳") || transHint.contains("混账") || transHint.contains("雜種") || transHint.contains("杂种")
+        val hasFuck = transHint.contains("他妈的") || transHint.contains("他媽的") || transHint.contains("去你的") || transHint.contains("该死") || transHint.contains("該死")
+        val hasShit = transHint.contains("狗屎") || transHint.contains("废话") || transHint.contains("廢話") || transHint.contains("破事")
+        val hasBitch = transHint.contains("婊子") || transHint.contains("贱人") || transHint.contains("賤人")
+        val hasNigga = transHint.contains("兄弟") || transHint.contains("黑鬼")
+
+        return stageText.replace(CENSOR_CHECK_REGEX) { match ->
+            val tok = match.value
+            val len = tok.length
+            when {
+                len >= 11 && hasPluralMotherfucker -> preserveCase(tok, "motherfuckers")
+                len in 9..13 && hasMotherfucker -> preserveCase(tok, "motherfucker")
+                len in 6..8 && hasFuck -> preserveCase(tok, "fucking")
+                len == 5 && hasBitch -> preserveCase(tok, "bitch")
+                len == 5 && hasNigga -> preserveCase(tok, "nigga")
+                len == 6 && hasNigga -> preserveCase(tok, "niggas")
+                len == 4 && hasShit -> preserveCase(tok, "shit")
+                len == 4 && hasFuck -> preserveCase(tok, "fuck")
+                len in 7..8 && hasShit -> preserveCase(tok, "bullshit")
+                else -> tok
             }
         }
-        return text
     }
 
     /**

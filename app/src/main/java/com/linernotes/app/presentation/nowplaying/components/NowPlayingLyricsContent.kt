@@ -22,11 +22,13 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.blur
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.drawWithContent
+import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.BlendMode
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.CompositingStrategy
 import androidx.compose.ui.graphics.TransformOrigin
+import androidx.compose.ui.graphics.drawscope.translate
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.platform.LocalConfiguration
@@ -327,7 +329,34 @@ fun NowPlayingLyricsContent(
                 )
             }
         } else {
-            listState.animateScrollToItem(targetIndex)
+            val firstVisible = listState.firstVisibleItemIndex
+            if (kotlin.math.abs(targetIndex - firstVisible) > 4) {
+                val preJumpIndex = if (targetIndex > firstVisible) {
+                    (targetIndex - 2).coerceAtLeast(0)
+                } else {
+                    (targetIndex + 2).coerceAtMost(lyrics.lastIndex)
+                }
+                listState.scrollToItem(preJumpIndex)
+            }
+            val relayoutItem = listState.layoutInfo.visibleItemsInfo.find { it.index == targetIndex }
+            if (relayoutItem != null) {
+                val thresholdPx = with(density) { 80.dp.toPx() }
+                val capPx = with(density) { 36.dp.toPx() }
+                val itemAnchor = if (relayoutItem.size > thresholdPx) {
+                    relayoutItem.offset.toFloat() + minOf(relayoutItem.size.toFloat() * 0.30f, capPx)
+                } else {
+                    relayoutItem.offset.toFloat() + relayoutItem.size.toFloat() / 2f
+                }
+                val scrollDelta = itemAnchor - focalTargetPx
+                if (kotlin.math.abs(scrollDelta) > 1.5f) {
+                    listState.animateScrollBy(
+                        value = scrollDelta,
+                        animationSpec = lyricFluidScrollSpec
+                    )
+                }
+            } else {
+                listState.animateScrollToItem(targetIndex)
+            }
         }
     }
 
@@ -338,6 +367,25 @@ fun NowPlayingLyricsContent(
         PaddingValues(top = topFocalPadding, bottom = bottomFocalPadding, start = 24.dp, end = 24.dp)
     }
 
+    val topFadeHeightPx = with(density) { 72.dp.toPx() }
+    val bottomFadeHeightPx = with(density) { (if (showPlaybackControls) 130.dp else 60.dp).toPx() }
+    val topMaskBrush = remember(topFadeHeightPx) {
+        Brush.verticalGradient(
+            0f to Color.Transparent,
+            1f to Color.White,
+            startY = 0f,
+            endY = topFadeHeightPx
+        )
+    }
+    val bottomMaskBrush = remember(bottomFadeHeightPx) {
+        Brush.verticalGradient(
+            0f to Color.White,
+            1f to Color.Transparent,
+            startY = 0f,
+            endY = bottomFadeHeightPx
+        )
+    }
+
     Box(
         modifier = Modifier.fillMaxSize()
     ) {
@@ -345,7 +393,31 @@ fun NowPlayingLyricsContent(
             state = listState,
             contentPadding = listPadding,
             verticalArrangement = Arrangement.spacedBy(22.dp),
-            modifier = Modifier.fillMaxSize()
+            modifier = Modifier
+                .fillMaxSize()
+                .then(
+                    if (!isAmoledMode) {
+                        Modifier
+                            .graphicsLayer {
+                                compositingStrategy = CompositingStrategy.Offscreen
+                            }
+                            .drawWithContent {
+                                drawContent()
+                                drawRect(
+                                    brush = topMaskBrush,
+                                    size = Size(size.width, topFadeHeightPx),
+                                    blendMode = BlendMode.DstIn
+                                )
+                                translate(top = (size.height - bottomFadeHeightPx).coerceAtLeast(0f)) {
+                                    drawRect(
+                                        brush = bottomMaskBrush,
+                                        size = Size(size.width, bottomFadeHeightPx),
+                                        blendMode = BlendMode.DstIn
+                                    )
+                                }
+                            }
+                    } else Modifier
+                )
         ) {
             itemsIndexed(
                 items = lyrics,
@@ -353,13 +425,11 @@ fun NowPlayingLyricsContent(
             ) { index, line ->
                 val isActive = (index == currentLineIndex)
                 val isFocal = (index == focalIndex)
-                val distance = kotlin.math.abs(index - focalIndex)
+                val distance = kotlin.math.abs(index - focalIndex).coerceAtMost(3)
                 val annotation = annotatedLines[index]
 
                 LyricLineRow(
                     line = line,
-                    index = index,
-                    focalIndex = focalIndex,
                     isActive = isActive,
                     isFocal = isFocal,
                     distance = distance,
@@ -389,40 +459,36 @@ fun NowPlayingLyricsContent(
             }
         }
 
-        // 頂部與底部優雅漸變遮罩 (直接於窗口緩衝區疊加繪製，0 MB 顯存開銷，120Hz 滿幀保障)
-        val fadeColor = if (isDark) {
-            if (isAmoledMode) Color.Black else Color(0xFF070709)
-        } else {
-            MaterialTheme.colorScheme.background
+        // 頂部與底部優雅漸變遮罩 (AMOLED 模式下直接純黑物理遮罩，極限省電；非 AMOLED 模式已採用 DstIn 邊緣羽化)
+        if (isAmoledMode) {
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(64.dp)
+                    .align(Alignment.TopCenter)
+                    .background(
+                        brush = Brush.verticalGradient(
+                            0.0f to Color.Black.copy(alpha = 0.85f),
+                            0.5f to Color.Black.copy(alpha = 0.40f),
+                            1.0f to Color.Transparent
+                        )
+                    )
+            )
+
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(if (showPlaybackControls) 130.dp else 56.dp)
+                    .align(Alignment.BottomCenter)
+                    .background(
+                        brush = Brush.verticalGradient(
+                            0.0f to Color.Transparent,
+                            0.5f to Color.Black.copy(alpha = 0.50f),
+                            1.0f to Color.Black.copy(alpha = 0.90f)
+                        )
+                    )
+            )
         }
-
-        Box(
-            modifier = Modifier
-                .fillMaxWidth()
-                .height(64.dp)
-                .align(Alignment.TopCenter)
-                .background(
-                    brush = Brush.verticalGradient(
-                        0.0f to fadeColor.copy(alpha = 0.85f),
-                        0.5f to fadeColor.copy(alpha = 0.40f),
-                        1.0f to Color.Transparent
-                    )
-                )
-        )
-
-        Box(
-            modifier = Modifier
-                .fillMaxWidth()
-                .height(if (showPlaybackControls) 130.dp else 56.dp)
-                .align(Alignment.BottomCenter)
-                .background(
-                    brush = Brush.verticalGradient(
-                        0.0f to Color.Transparent,
-                        0.5f to fadeColor.copy(alpha = 0.50f),
-                        1.0f to fadeColor.copy(alpha = 0.90f)
-                    )
-                )
-        )
 
         // 浮動回到正在播放位置微膠囊
         val showReturnPill = userScrolledAway && !isUserDragging && (visibleFocalIndex != currentLineIndex) && currentLineIndex in lyrics.indices && currentLineIndex >= 0
@@ -490,8 +556,6 @@ fun NowPlayingLyricsContent(
 @Composable
 fun LyricLineRow(
     line: BilingualLyricLine,
-    index: Int,
-    focalIndex: Int,
     isActive: Boolean,
     isFocal: Boolean,
     distance: Int,
@@ -807,6 +871,13 @@ fun AppleMusicWordUnit(
     val density = LocalDensity.current
     // Apple Music 官方逆向 lyrics_karaoke_gradient_feather_width: 30dp
     val fadeWidth = remember(density) { with(density) { 30.dp.toPx() } }
+    val featherBrush = remember(fadeWidth) {
+        Brush.horizontalGradient(
+            listOf(Color.White, Color.Transparent),
+            startX = 0f,
+            endX = fadeWidth
+        )
+    }
 
     Box(contentAlignment = Alignment.TopStart) {
         Text(
@@ -848,22 +919,23 @@ fun AppleMusicWordUnit(
 
                     val progress = ((now - start).toFloat() / duration.toFloat()).coerceIn(0f, 1f)
                     val sweepX = size.width * progress
-
-                    val brush = Brush.horizontalGradient(
-                        0f to Color.White,
-                        ((sweepX - fadeWidth * 0.4f) / size.width.coerceAtLeast(1f)).coerceIn(0f, 1f) to Color.White,
-                        ((sweepX + fadeWidth * 0.6f) / size.width.coerceAtLeast(1f)).coerceIn(0f, 1f) to Color.Transparent,
-                        1f to Color.Transparent,
-                        startX = 0f,
-                        endX = size.width
-                    )
+                    val sweepLeft = (sweepX - fadeWidth * 0.4f).coerceAtLeast(0f)
 
                     drawContent()
-                    drawRect(
-                        brush = brush,
-                        size = size,
-                        blendMode = BlendMode.DstIn
-                    )
+                    if (sweepLeft > 0f) {
+                        drawRect(
+                            color = Color.White,
+                            size = Size(sweepLeft, size.height),
+                            blendMode = BlendMode.DstIn
+                        )
+                    }
+                    translate(left = sweepLeft) {
+                        drawRect(
+                            brush = featherBrush,
+                            size = Size(fadeWidth, size.height),
+                            blendMode = BlendMode.DstIn
+                        )
+                    }
                 }
         )
     }

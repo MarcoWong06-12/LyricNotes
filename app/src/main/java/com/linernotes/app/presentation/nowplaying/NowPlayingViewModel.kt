@@ -72,7 +72,8 @@ class NowPlayingViewModel @Inject constructor(
             lyricAlignment = aiPreferences.lyricAlignment,
             lyricTextSize = aiPreferences.lyricTextSize,
             isDynamicAuroraEnabled = aiPreferences.isDynamicAuroraEnabled,
-            isWordByWordEnabled = aiPreferences.isWordByWordEnabled
+            isWordByWordEnabled = aiPreferences.isWordByWordEnabled,
+            isDeCensorEnabled = aiPreferences.isDeCensorEnabled
         )
     )
     val uiState: StateFlow<NowPlayingUiState> = _uiState.asStateFlow()
@@ -147,6 +148,12 @@ class NowPlayingViewModel @Inject constructor(
         viewModelScope.launch {
             aiPreferences.isWordByWordEnabledFlow.collect { wbw ->
                 _uiState.update { it.copy(isWordByWordEnabled = wbw) }
+            }
+        }
+
+        viewModelScope.launch {
+            aiPreferences.isDeCensorEnabledFlow.collect { decensor ->
+                _uiState.update { it.copy(isDeCensorEnabled = decensor) }
             }
         }
     }
@@ -244,7 +251,9 @@ class NowPlayingViewModel @Inject constructor(
     }
 
     fun toggleDeCensor() {
-        _uiState.update { it.copy(isDeCensorEnabled = !it.isDeCensorEnabled) }
+        val newVal = !aiPreferences.isDeCensorEnabled
+        aiPreferences.isDeCensorEnabled = newVal
+        nowPlayingRepository.reloadCurrentSong()
     }
 
     fun setFuriganaMode(mode: FuriganaDisplayMode) {

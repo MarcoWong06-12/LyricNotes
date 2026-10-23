@@ -198,6 +198,12 @@ class NowPlayingRepository @Inject constructor(
         return activeIndex
     }
 
+    fun reloadCurrentSong() {
+        val state = playbackStateManager.playbackState.value
+        val songKey = currentSongKey ?: return
+        forceReloadLyrics(state.title, state.artist, songKey)
+    }
+
     fun forceReloadLyrics(title: String, artist: String, songKey: String) {
         val cached = memoryCache[songKey]
         if (cached != null) {
@@ -384,8 +390,12 @@ class NowPlayingRepository @Inject constructor(
                         }
 
                         // 脏字脱敏反屏蔽处理
-                        val cleanOrig = LyricSanitizer.decensorLyrics(origLyrics, uncensoredRefLyrics = null, translationLyrics = transLyrics)
-                        val cleanTrans = LyricSanitizer.decensorChineseLyrics(transLyrics, cleanOrig)
+                        val cleanOrig = if (aiPreferences.isDeCensorEnabled) {
+                            LyricSanitizer.decensorLyrics(origLyrics, uncensoredRefLyrics = null, translationLyrics = transLyrics)
+                        } else origLyrics
+                        val cleanTrans = if (aiPreferences.isDeCensorEnabled) {
+                            LyricSanitizer.decensorChineseLyrics(transLyrics, cleanOrig)
+                        } else transLyrics
 
                         // 结构化时间轴对齐
                         fetchedLyrics = LyricAligner.align(cleanOrig, cleanTrans)
@@ -730,8 +740,12 @@ class NowPlayingRepository @Inject constructor(
                 }
             }
 
-            val cleanOrig = LyricSanitizer.decensorLyrics(origLyrics, uncensoredRefLyrics = null, translationLyrics = transLyrics)
-            val cleanTrans = LyricSanitizer.decensorChineseLyrics(transLyrics, cleanOrig)
+            val cleanOrig = if (aiPreferences.isDeCensorEnabled) {
+                LyricSanitizer.decensorLyrics(origLyrics, uncensoredRefLyrics = null, translationLyrics = transLyrics)
+            } else origLyrics
+            val cleanTrans = if (aiPreferences.isDeCensorEnabled) {
+                LyricSanitizer.decensorChineseLyrics(transLyrics, cleanOrig)
+            } else transLyrics
             lyrics = LyricAligner.align(cleanOrig, cleanTrans)
         }
 

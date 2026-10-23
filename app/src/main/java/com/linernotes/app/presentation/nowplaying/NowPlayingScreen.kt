@@ -380,7 +380,7 @@ fun NowPlayingScreen(
                             modifier = Modifier.size(16.dp)
                         )
                         Text(
-                            text = if (state.isTraditionalChinese) "退出全屏" else "退出全屏",
+                            text = if (state.isTraditionalChinese) "退出全螢幕" else "退出全屏",
                             color = if (isDarkUi) Color.White else MaterialTheme.colorScheme.onSurface,
                             fontSize = 12.sp,
                             fontWeight = FontWeight.Medium,

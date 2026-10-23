@@ -91,6 +91,19 @@ class AiPreferences @Inject constructor(
             _isWordByWordEnabledFlow.value = value
         }
 
+    // 歌词脏字反审查/反和谐：还原原版英文歌词与自然译文
+    private val _isDeCensorEnabledFlow = kotlinx.coroutines.flow.MutableStateFlow(
+        prefs.getBoolean("is_decensor_enabled", true)
+    )
+    val isDeCensorEnabledFlow: kotlinx.coroutines.flow.StateFlow<Boolean> = _isDeCensorEnabledFlow
+
+    var isDeCensorEnabled: Boolean
+        get() = _isDeCensorEnabledFlow.value
+        set(value) {
+            prefs.edit().putBoolean("is_decensor_enabled", value).apply()
+            _isDeCensorEnabledFlow.value = value
+        }
+
     companion object {
         const val LYRIC_ALIGN_LEFT = 0
         const val LYRIC_ALIGN_CENTER = 1

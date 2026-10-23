@@ -154,4 +154,12 @@ class LyricSanitizerTest {
         val result = LyricSanitizer.decensorLine(censored, radioRef, trans)
         assertEquals("[01:16.166] I beg you, don't embarrass me, motherfucker, oh", result)
     }
+
+    @Test
+    fun `test translation hint with multiple profanities and traditional chinese`() {
+        val censored = "Cut that **** out and stop this ****"
+        val trans = "少搞那套狗屎把戲，別再他媽的胡鬧了"
+        val result = LyricSanitizer.decensorLine(censored, "", trans)
+        assertEquals("Cut that shit out and stop this fuck", result)
+    }
 }
