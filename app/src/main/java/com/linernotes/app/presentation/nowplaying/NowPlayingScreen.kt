@@ -150,40 +150,41 @@ fun NowPlayingScreen(
     Box(
         modifier = Modifier
             .fillMaxSize()
-            .background(
-                if (isDarkUi) {
-                    if (state.isAmoledMode) Color.Black else Color(0xFF070709)
-                } else MaterialTheme.colorScheme.background
-            )
+            .background(if (isDarkUi) Color.Black else Color(0xFF0E0E12))
     ) {
-        // 1. 灵动流体弥散背景 (纯净温润呼吸，AMOLED 模式下纯黑 0-nits 彻底休眠像素)
-        AmbientGlowBackground(
-            coverUrl = trackState.coverUrl,
-            isDark = isDarkUi,
-            isAmoledMode = state.isAmoledMode,
-            isDynamicAurora = state.isDynamicAuroraEnabled,
-            modifier = Modifier.fillMaxSize()
-        )
-
-        // 2. 核心主内容区 (歌词全屏贯通，并在呼出底部抽屉时呈现 iOS / Apple Music 规范的流体视差微下沉)
+        // 核心主内容区 (歌词与弥散极光全屏贯通，并在呼出底部抽屉时整体呈现 iOS 18 / Apple Music 卡片堆栈纵深后退与圆角形态演变)
         val isAnySheetOpen = state.isSettingsSheetOpen || state.isGeniusSheetOpen || state.isSongStorySheetOpen || state.isQueueSheetOpen || state.isManualSearchSheetOpen
         val contentParallaxScale by animateFloatAsState(
             targetValue = when {
-                state.isQueueSheetOpen -> 0.935f
-                isAnySheetOpen -> 0.955f
+                state.isQueueSheetOpen -> 0.925f
+                isAnySheetOpen -> 0.94f
                 else -> 1.0f
             },
-            animationSpec = spring(dampingRatio = 0.86f, stiffness = 380f),
+            animationSpec = spring(dampingRatio = 0.84f, stiffness = 360f),
             label = "sheetParallaxScale"
         )
         val contentParallaxAlpha by animateFloatAsState(
             targetValue = when {
-                state.isQueueSheetOpen -> 0.68f
+                state.isQueueSheetOpen -> 0.72f
                 isAnySheetOpen -> 0.84f
                 else -> 1.0f
             },
-            animationSpec = spring(dampingRatio = 0.86f, stiffness = 380f),
+            animationSpec = spring(dampingRatio = 0.84f, stiffness = 360f),
             label = "sheetParallaxAlpha"
+        )
+        val contentParallaxOffsetY by animateDpAsState(
+            targetValue = when {
+                state.isQueueSheetOpen -> 16.dp
+                isAnySheetOpen -> 12.dp
+                else -> 0.dp
+            },
+            animationSpec = spring(dampingRatio = 0.84f, stiffness = 360f),
+            label = "sheetParallaxOffsetY"
+        )
+        val contentCornerRadius by animateDpAsState(
+            targetValue = if (isAnySheetOpen) 28.dp else 0.dp,
+            animationSpec = spring(dampingRatio = 0.84f, stiffness = 380f),
+            label = "sheetCornerRadius"
         )
 
         val trackSwipeModifier = if (hasTrack && !isAnySheetOpen && !showEnlargedCover) {
@@ -195,14 +196,16 @@ fun NowPlayingScreen(
                     onHorizontalDrag = { change, dragAmount ->
                         change.consume()
                         val current = swipeOffsetX.value
-                        val newOffset = current + dragAmount * 0.85f
+                        // 渐进式橡皮筋阻尼 (Rubber-Band Resistance)：超过切歌阈值后阻力加倍，赋予真实拉力张力
+                        val damping = if (kotlin.math.abs(current) < swipeThresholdPx) 0.85f else 0.42f
+                        val newOffset = current + dragAmount * damping
                         coroutineScope.launch {
                             swipeOffsetX.snapTo(newOffset)
                         }
                         if (!hasTriggeredSwipeHaptic && kotlin.math.abs(newOffset) >= swipeThresholdPx) {
                             hasTriggeredSwipeHaptic = true
                             try {
-                                haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                                haptic.performHapticFeedback(HapticFeedbackType.LongPress)
                             } catch (e: Exception) {}
                         } else if (hasTriggeredSwipeHaptic && kotlin.math.abs(newOffset) < swipeThresholdPx) {
                             hasTriggeredSwipeHaptic = false
@@ -216,22 +219,22 @@ fun NowPlayingScreen(
                                 swipeOffsetX.animateTo(-screenWidthPx * 0.75f, tween(150, easing = FastOutLinearInEasing))
                                 viewModel.skipToNext()
                                 swipeOffsetX.snapTo(screenWidthPx * 0.75f)
-                                swipeOffsetX.animateTo(0f, spring(dampingRatio = 0.86f, stiffness = 380f))
+                                swipeOffsetX.animateTo(0f, spring(dampingRatio = 0.84f, stiffness = 380f))
                             } else if (currentOffset >= swipeThresholdPx) {
                                 // 右滑 -> 切上一首
                                 swipeOffsetX.animateTo(screenWidthPx * 0.75f, tween(150, easing = FastOutLinearInEasing))
                                 viewModel.skipToPrevious()
                                 swipeOffsetX.snapTo(-screenWidthPx * 0.75f)
-                                swipeOffsetX.animateTo(0f, spring(dampingRatio = 0.86f, stiffness = 380f))
+                                swipeOffsetX.animateTo(0f, spring(dampingRatio = 0.84f, stiffness = 380f))
                             } else {
                                 // 未超过阈值 -> 柔性弹簧回正
-                                swipeOffsetX.animateTo(0f, spring(dampingRatio = 0.78f, stiffness = 450f))
+                                swipeOffsetX.animateTo(0f, spring(dampingRatio = 0.76f, stiffness = 460f))
                             }
                         }
                     },
                     onDragCancel = {
                         coroutineScope.launch {
-                            swipeOffsetX.animateTo(0f, spring(dampingRatio = 0.78f, stiffness = 450f))
+                            swipeOffsetX.animateTo(0f, spring(dampingRatio = 0.76f, stiffness = 460f))
                         }
                     }
                 )
@@ -244,10 +247,29 @@ fun NowPlayingScreen(
                 .graphicsLayer {
                     scaleX = contentParallaxScale
                     scaleY = contentParallaxScale
+                    translationY = contentParallaxOffsetY.toPx()
                     alpha = contentParallaxAlpha
-                    transformOrigin = TransformOrigin(0.5f, 0.42f)
+                    transformOrigin = TransformOrigin(0.5f, 0.15f)
+                    if (contentCornerRadius > 0.5.dp) {
+                        shape = RoundedCornerShape(contentCornerRadius)
+                        clip = true
+                    }
                 }
+                .background(
+                    if (isDarkUi) {
+                        if (state.isAmoledMode) Color.Black else Color(0xFF070709)
+                    } else MaterialTheme.colorScheme.background
+                )
         ) {
+            // 1. 灵动流体弥散背景 (随主卡片一起参与 iOS 纵深缩放与圆角裁切)
+            AmbientGlowBackground(
+                coverUrl = trackState.coverUrl,
+                isDark = isDarkUi,
+                isAmoledMode = state.isAmoledMode,
+                isDynamicAurora = state.isDynamicAuroraEnabled,
+                modifier = Modifier.fillMaxSize()
+            )
+
             if (hasTrack) {
                 Box(
                     modifier = Modifier
@@ -282,11 +304,18 @@ fun NowPlayingScreen(
                     )
                 }
 
-                // 左右滑动指示器微徽标 (左滑边缘浮现 "下一首"，右滑边缘浮现 "上一首")
+                // 左右滑动指示器微徽标 (左滑边缘浮现 "下一首"，右滑边缘浮现 "上一首"，达到切歌阈值时触发弹簧激发态蓄力弹跳)
                 val isSwipingLeft = swipeOffsetX.value < -20f
                 val isSwipingRight = swipeOffsetX.value > 20f
                 if (isSwipingLeft || isSwipingRight) {
-                    val indicatorAlpha = (kotlin.math.abs(swipeOffsetX.value) / swipeThresholdPx).coerceIn(0f, 1f)
+                    val absOffset = kotlin.math.abs(swipeOffsetX.value)
+                    val indicatorAlpha = (absOffset / swipeThresholdPx).coerceIn(0f, 1f)
+                    val isThresholdArmed = absOffset >= swipeThresholdPx
+                    val armedBonusScale by animateFloatAsState(
+                        targetValue = if (isThresholdArmed) 1.18f else 1.0f,
+                        animationSpec = spring(dampingRatio = 0.58f, stiffness = 520f),
+                        label = "swipeArmedBonusScale"
+                    )
                     Box(
                         modifier = Modifier
                             .fillMaxSize()
@@ -294,14 +323,24 @@ fun NowPlayingScreen(
                         contentAlignment = if (isSwipingLeft) Alignment.CenterEnd else Alignment.CenterStart
                     ) {
                         Surface(
-                            color = if (isDarkUi) Color.White.copy(alpha = 0.20f * indicatorAlpha) else Color.Black.copy(alpha = 0.16f * indicatorAlpha),
+                            color = if (isThresholdArmed) {
+                                Color.White.copy(alpha = 0.32f)
+                            } else if (isDarkUi) {
+                                Color.White.copy(alpha = 0.20f * indicatorAlpha)
+                            } else {
+                                Color.Black.copy(alpha = 0.16f * indicatorAlpha)
+                            },
                             shape = CircleShape,
-                            border = BorderStroke(0.5.dp, Color.White.copy(alpha = 0.30f * indicatorAlpha)),
+                            border = BorderStroke(
+                                if (isThresholdArmed) 1.dp else 0.5.dp,
+                                Color.White.copy(alpha = if (isThresholdArmed) 0.55f else 0.30f * indicatorAlpha)
+                            ),
                             modifier = Modifier
                                 .size(48.dp)
                                 .graphicsLayer {
-                                    scaleX = 0.72f + 0.28f * indicatorAlpha
-                                    scaleY = 0.72f + 0.28f * indicatorAlpha
+                                    val baseScale = (0.72f + 0.28f * indicatorAlpha) * armedBonusScale
+                                    scaleX = baseScale
+                                    scaleY = baseScale
                                     alpha = indicatorAlpha
                                 }
                         ) {
@@ -309,7 +348,7 @@ fun NowPlayingScreen(
                                 Icon(
                                     imageVector = if (isSwipingLeft) Icons.Default.SkipNext else Icons.Default.SkipPrevious,
                                     contentDescription = null,
-                                    tint = Color.White.copy(alpha = indicatorAlpha),
+                                    tint = Color.White.copy(alpha = if (isThresholdArmed) 1.0f else indicatorAlpha),
                                     modifier = Modifier.size(24.dp)
                                 )
                             }
@@ -390,11 +429,13 @@ fun NowPlayingScreen(
                 }
             }
 
-            // 4. Genius 获取失败/状态提醒微浮标 (iOS Dynamic Island 悬浮微胶囊风格)
+            // 4. Genius 获取失败/状态提醒微浮标 (iOS Dynamic Island 悬浮微胶囊风格，带果冻弹性展开)
             AnimatedVisibility(
                 visible = !isImmersiveMode && (nowData.geniusNoticeMessage != null || nowData.isLoadingGenius) && hasTrack,
-                enter = fadeIn(tween(180)) + slideInVertically(spring(dampingRatio = 0.85f, stiffness = 420f)) { -it / 2 } + scaleIn(initialScale = 0.94f),
-                exit = fadeOut(tween(160)) + slideOutVertically(tween(220)) { -it / 2 } + scaleOut(targetScale = 0.94f),
+                enter = fadeIn(tween(180)) +
+                        slideInVertically(spring(dampingRatio = 0.76f, stiffness = 380f)) { -it / 2 } +
+                        scaleIn(spring(dampingRatio = 0.76f, stiffness = 380f), initialScale = 0.82f),
+                exit = fadeOut(tween(150)) + slideOutVertically(tween(200)) { -it / 2 } + scaleOut(tween(150), targetScale = 0.86f),
                 modifier = Modifier
                     .align(Alignment.TopCenter)
                     .statusBarsPadding()
@@ -512,8 +553,8 @@ fun NowPlayingScreen(
             // 6. 高清专辑封面轻触放大浮层 (iOS / Apple Music 触感流体微弹簧缩放)
             AnimatedVisibility(
                 visible = showEnlargedCover && !trackState.coverUrl.isNullOrBlank(),
-                enter = fadeIn(tween(180)) + scaleIn(spring(dampingRatio = 0.82f, stiffness = 420f), initialScale = 0.85f),
-                exit = fadeOut(tween(140)) + scaleOut(tween(140), targetScale = 0.85f),
+                enter = fadeIn(tween(180)) + scaleIn(spring(dampingRatio = 0.78f, stiffness = 380f), initialScale = 0.80f),
+                exit = fadeOut(tween(140)) + scaleOut(tween(140), targetScale = 0.82f),
                 modifier = Modifier.fillMaxSize()
             ) {
                 Box(
