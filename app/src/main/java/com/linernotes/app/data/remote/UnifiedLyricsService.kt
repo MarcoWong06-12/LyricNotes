@@ -230,11 +230,15 @@ object UnifiedLyricsService {
                 calibrateWithSpotifyTiming(best, spotifyCalibrator)
             } else best
 
-            // 如果胜出源自身缺少封面，但同行候选源具备高清封面，智能补齐封面 URL
+            // 如果胜出源自身缺少封面或缺少中文双语翻译，而同行候选源（如 QQ 音乐 / 网易云）具备，则智能跨源互补
             val resolvedCover = calibratedWinner.coverUrl ?: candidates.firstOrNull { !it.coverUrl.isNullOrBlank() }?.coverUrl
-            val enrichedWinner = if (resolvedCover != null && calibratedWinner.coverUrl == null) {
-                calibratedWinner.copy(coverUrl = resolvedCover)
-            } else calibratedWinner
+            val resolvedTrans = calibratedWinner.translatedLyrics?.takeIf { it.isNotBlank() }
+                ?: candidates.firstOrNull { !it.translatedLyrics.isNullOrBlank() }?.translatedLyrics
+            val enrichedWinner = calibratedWinner.copy(
+                coverUrl = resolvedCover ?: calibratedWinner.coverUrl,
+                translatedLyrics = resolvedTrans ?: calibratedWinner.translatedLyrics,
+                isBilingual = !resolvedTrans.isNullOrBlank() || calibratedWinner.isBilingual
+            )
 
             val reference = lrclibRes?.takeIf { it !== best && it.originalLyrics.isNotBlank() }
                 ?: candidates.firstOrNull { it !== best && !LyricSanitizer.hasCensorship(it.originalLyrics) && it.originalLyrics.isNotBlank() }

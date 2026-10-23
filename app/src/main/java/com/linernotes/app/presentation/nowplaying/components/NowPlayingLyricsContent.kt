@@ -272,11 +272,13 @@ fun NowPlayingLyricsContent(
     val screenHeightDp = configuration.screenHeightDp.dp
     val density = LocalDensity.current
 
-    // Apple Music 官方原生黃金閱讀帶：活躍行聚焦於視口 32%~34% 黃金分割線，自然留出上方已唱行與下方待唱行的平衡視野
-    val focalTargetDp = (screenHeightDp * 0.32f).coerceIn(210.dp, 290.dp)
-    val focalTargetPx = with(density) { focalTargetDp.toPx() }
-    val topFocalPadding = (focalTargetDp - 20.dp).coerceAtLeast(140.dp)
-    val bottomFocalPadding = screenHeightDp * 0.55f + (if (showPlaybackControls) 120.dp else 40.dp)
+    // Apple Music 官方原生黃金閱讀帶：
+    // 注意：LazyColumn 已設置 contentPadding(top = topFocalPadding)，因此 visibleItem.offset == 0 的座標原點
+    // 本身就位於距離頂部 topFocalPadding (視口高度約 21%~22%) 的黃金焦點線上！
+    // 切勿在 scrollDelta 中二次減去 focalTargetPx，否則會造成雙倍向下偏移 (21% + 32% = 53% 偏下)。
+    val focalTargetDp = (screenHeightDp * 0.21f).coerceIn(150.dp, 200.dp)
+    val topFocalPadding = focalTargetDp
+    val bottomFocalPadding = screenHeightDp * 0.65f + (if (showPlaybackControls) 120.dp else 40.dp)
 
     // Apple Music 溫潤視口滾動曲線 (用於遠距離回正)
     val lyricFluidScrollSpec = remember {
@@ -315,21 +317,16 @@ fun NowPlayingLyricsContent(
         }
     }
 
-    // 瀏覽模式下動態計算當前最接近黃金焦點線的行索引
-    val visibleFocalIndex by remember(currentLineIndex, focalTargetPx) {
+    // 瀏覽模式下動態計算當前最接近黃金焦點線 (offset == 0) 的行索引
+    val visibleFocalIndex by remember(currentLineIndex) {
         derivedStateOf {
             val layoutInfo = listState.layoutInfo
             val visibleItems = layoutInfo.visibleItemsInfo
             if (visibleItems.isEmpty()) return@derivedStateOf (if (currentLineIndex in lyrics.indices) currentLineIndex else 0)
-            val thresholdPx = with(density) { 80.dp.toPx() }
-            val capPx = with(density) { 36.dp.toPx() }
+            val capPx = with(density) { 28.dp.toPx() }
             val closest = visibleItems.minByOrNull { item ->
-                val itemAnchor = if (item.size > thresholdPx) {
-                    item.offset.toFloat() + minOf(item.size.toFloat() * 0.30f, capPx)
-                } else {
-                    item.offset.toFloat() + item.size.toFloat() / 2f
-                }
-                kotlin.math.abs(itemAnchor - focalTargetPx)
+                val itemAnchor = item.offset.toFloat() + minOf(item.size.toFloat() * 0.25f, capPx)
+                kotlin.math.abs(itemAnchor)
             }
             closest?.index ?: (if (currentLineIndex in lyrics.indices) currentLineIndex else 0)
         }
@@ -412,14 +409,7 @@ fun NowPlayingLyricsContent(
 
         val visibleItem = listState.layoutInfo.visibleItemsInfo.find { it.index == targetIndex }
         if (visibleItem != null) {
-            val thresholdPx = with(density) { 80.dp.toPx() }
-            val capPx = with(density) { 36.dp.toPx() }
-            val itemAnchor = if (visibleItem.size > thresholdPx) {
-                visibleItem.offset.toFloat() + minOf(visibleItem.size.toFloat() * 0.30f, capPx)
-            } else {
-                visibleItem.offset.toFloat() + visibleItem.size.toFloat() / 2f
-            }
-            val scrollDelta = itemAnchor - focalTargetPx
+            val scrollDelta = visibleItem.offset.toFloat()
             runAppleMusicWaveScroll(scrollDelta)
         } else {
             val firstVisible = listState.firstVisibleItemIndex
@@ -434,14 +424,7 @@ fun NowPlayingLyricsContent(
             }
             val relayoutItem = listState.layoutInfo.visibleItemsInfo.find { it.index == targetIndex }
             if (relayoutItem != null) {
-                val thresholdPx = with(density) { 80.dp.toPx() }
-                val capPx = with(density) { 36.dp.toPx() }
-                val itemAnchor = if (relayoutItem.size > thresholdPx) {
-                    relayoutItem.offset.toFloat() + minOf(relayoutItem.size.toFloat() * 0.30f, capPx)
-                } else {
-                    relayoutItem.offset.toFloat() + relayoutItem.size.toFloat() / 2f
-                }
-                val scrollDelta = itemAnchor - focalTargetPx
+                val scrollDelta = relayoutItem.offset.toFloat()
                 runAppleMusicWaveScroll(scrollDelta)
             } else {
                 listState.animateScrollToItem(targetIndex)
@@ -924,7 +907,9 @@ fun LyricLineRow(
                 horizontalArrangement = if (isAlignLeft) Arrangement.Start else Arrangement.Center,
                 modifier = Modifier.fillMaxWidth()
             )
-        } else if (isVisuallyActive && isWordByWordEnabled && line.words.isNotEmpty()) {
+        } else if (isWordByWordEnabled && line.words.isNotEmpty()) {
+            // 關鍵：無論當前行處於活躍還是非活躍態，統一使用 FlowRow 分詞排版引擎！
+            // 徹底杜絕從活躍態 (FlowRow 帶詞尾空格) 切換到非活躍態 (StaticLayout 折行吞詞尾空格) 時發生單詞換行跳動！
             AppleMusicDualLayerLyricLine(
                 text = displayOriginal,
                 words = line.words,
@@ -932,6 +917,7 @@ fun LyricLineRow(
                 lyricColor = lyricColor,
                 isAlignLeft = isAlignLeft,
                 isTraditional = isTraditional,
+                isActive = isVisuallyActive,
                 fontSize = mainTextSize,
                 lineHeight = mainLineHeight
             )
@@ -993,6 +979,7 @@ fun AppleMusicDualLayerLyricLine(
     lyricColor: Color,
     isAlignLeft: Boolean,
     isTraditional: Boolean = false,
+    isActive: Boolean = true,
     fontSize: TextUnit = 34.sp,
     lineHeight: TextUnit = 44.sp,
     modifier: Modifier = Modifier
@@ -1041,6 +1028,7 @@ fun AppleMusicDualLayerLyricLine(
                 word = word,
                 currentPositionMsProvider = currentPositionMsProvider,
                 lyricColor = lyricColor,
+                isActive = isActive,
                 fontSize = fontSize,
                 lineHeight = lineHeight
             )
@@ -1053,6 +1041,7 @@ fun AppleMusicWordUnit(
     word: LyricWord,
     currentPositionMsProvider: () -> Long,
     lyricColor: Color,
+    isActive: Boolean = true,
     fontSize: TextUnit = 34.sp,
     lineHeight: TextUnit = 44.sp
 ) {
@@ -1067,7 +1056,7 @@ fun AppleMusicWordUnit(
     Box(contentAlignment = Alignment.TopStart) {
         Text(
             text = wordText,
-            color = lyricColor.copy(alpha = 0.45f),
+            color = if (isActive) lyricColor.copy(alpha = 0.45f) else lyricColor,
             fontSize = fontSize,
             fontWeight = FontWeight.Bold,
             fontFamily = FontFamily.SansSerif,
@@ -1075,53 +1064,55 @@ fun AppleMusicWordUnit(
             letterSpacing = (-0.5).sp
         )
 
-        Text(
-            text = wordText,
-            color = lyricColor,
-            fontSize = fontSize,
-            fontWeight = FontWeight.Bold,
-            fontFamily = FontFamily.SansSerif,
-            lineHeight = lineHeight,
-            letterSpacing = (-0.5).sp,
-            modifier = Modifier
-                .graphicsLayer {
-                    val now = currentPositionMsProvider()
-                    compositingStrategy = if (now in start until end) {
-                        CompositingStrategy.Offscreen
-                    } else {
-                        CompositingStrategy.Auto
+        if (isActive) {
+            Text(
+                text = wordText,
+                color = lyricColor,
+                fontSize = fontSize,
+                fontWeight = FontWeight.Bold,
+                fontFamily = FontFamily.SansSerif,
+                lineHeight = lineHeight,
+                letterSpacing = (-0.5).sp,
+                modifier = Modifier
+                    .graphicsLayer {
+                        val now = currentPositionMsProvider()
+                        compositingStrategy = if (now in start until end) {
+                            CompositingStrategy.Offscreen
+                        } else {
+                            CompositingStrategy.Auto
+                        }
                     }
-                }
-                .drawWithContent {
-                    val now = currentPositionMsProvider()
-                    if (now < start) {
-                        return@drawWithContent
-                    }
-                    if (now >= end) {
+                    .drawWithContent {
+                        val now = currentPositionMsProvider()
+                        if (now < start) {
+                            return@drawWithContent
+                        }
+                        if (now >= end) {
+                            drawContent()
+                            return@drawWithContent
+                        }
+
+                        val progress = ((now - start).toFloat() / duration.toFloat()).coerceIn(0f, 1f)
+                        val sweepX = size.width * progress
+
+                        val brush = Brush.horizontalGradient(
+                            0f to Color.White,
+                            ((sweepX - fadeWidth * 0.4f) / size.width.coerceAtLeast(1f)).coerceIn(0f, 1f) to Color.White,
+                            ((sweepX + fadeWidth * 0.6f) / size.width.coerceAtLeast(1f)).coerceIn(0f, 1f) to Color.Transparent,
+                            1f to Color.Transparent,
+                            startX = 0f,
+                            endX = size.width
+                        )
+
                         drawContent()
-                        return@drawWithContent
+                        drawRect(
+                            brush = brush,
+                            size = size,
+                            blendMode = BlendMode.DstIn
+                        )
                     }
-
-                    val progress = ((now - start).toFloat() / duration.toFloat()).coerceIn(0f, 1f)
-                    val sweepX = size.width * progress
-
-                    val brush = Brush.horizontalGradient(
-                        0f to Color.White,
-                        ((sweepX - fadeWidth * 0.4f) / size.width.coerceAtLeast(1f)).coerceIn(0f, 1f) to Color.White,
-                        ((sweepX + fadeWidth * 0.6f) / size.width.coerceAtLeast(1f)).coerceIn(0f, 1f) to Color.Transparent,
-                        1f to Color.Transparent,
-                        startX = 0f,
-                        endX = size.width
-                    )
-
-                    drawContent()
-                    drawRect(
-                        brush = brush,
-                        size = size,
-                        blendMode = BlendMode.DstIn
-                    )
-                }
-        )
+            )
+        }
     }
 }
 

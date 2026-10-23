@@ -289,7 +289,7 @@ class NowPlayingRepository @Inject constructor(
 
         dataLoadJob = repositoryScope.launch {
             val hasCorruptedTranslation = cached?.lyrics?.any { LyricAligner.isInvalidTranslationLine(it.translation) } == true
-            var fetchedLyrics: List<BilingualLyricLine> = if (hasCorruptedTranslation) emptyList() else (cached?.lyrics ?: emptyList())
+            var fetchedLyrics: List<BilingualLyricLine> = if (hasCorruptedTranslation || isCachedTranslationSeverelyIncomplete) emptyList() else (cached?.lyrics ?: emptyList())
             var fetchedStory: SongStoryEntity? = cached?.songStory
             var fetchedAnnotations: List<LyricAnnotationEntity> = emptyList()
 
@@ -359,7 +359,9 @@ class NowPlayingRepository @Inject constructor(
                         if (isOfficialTransLacking) {
                             try {
                                 val officialBilingual = NetEaseLyricsService.fetchLyrics(title, artist, curState.durationMs)
+                                    ?.takeIf { !it.translatedLyrics.isNullOrBlank() }
                                     ?: QQMusicLyricsService.fetchLyrics(title, artist, curState.durationMs)
+                                    ?.takeIf { !it.translatedLyrics.isNullOrBlank() }
                                 if (officialBilingual != null && !officialBilingual.translatedLyrics.isNullOrBlank()) {
                                     if (!origLyrics.contains(LyricAligner.LRC_TIMESTAMP_REGEX)) {
                                         origLyrics = officialBilingual.originalLyrics
@@ -710,7 +712,9 @@ class NowPlayingRepository @Inject constructor(
             if (isOfficialTransLacking) {
                 try {
                     val officialBilingual = NetEaseLyricsService.fetchLyrics(title, artist)
+                        ?.takeIf { !it.translatedLyrics.isNullOrBlank() }
                         ?: QQMusicLyricsService.fetchLyrics(title, artist)
+                        ?.takeIf { !it.translatedLyrics.isNullOrBlank() }
                     if (officialBilingual != null && !officialBilingual.translatedLyrics.isNullOrBlank()) {
                         if (!origLyrics.contains(LyricAligner.LRC_TIMESTAMP_REGEX)) {
                             origLyrics = officialBilingual.originalLyrics
@@ -1048,9 +1052,18 @@ class NowPlayingRepository @Inject constructor(
 
             if (transLyrics.isNullOrBlank() || LyricAligner.isRefusalText(transLyrics)) {
                 try {
-                    val transResult = translationService.translateTrack(trackTitle, origLyrics)
-                    if (transResult != null && transResult.translatedLyrics.isNotBlank() && !LyricAligner.isRefusalText(transResult.translatedLyrics)) {
-                        transLyrics = transResult.translatedLyrics
+                    val curDuration = playbackStateManager.playbackState.value.durationMs
+                    val officialBilingual = NetEaseLyricsService.fetchLyrics(trackTitle, artistName, curDuration)
+                        ?.takeIf { !it.translatedLyrics.isNullOrBlank() }
+                        ?: QQMusicLyricsService.fetchLyrics(trackTitle, artistName, curDuration)
+                        ?.takeIf { !it.translatedLyrics.isNullOrBlank() }
+                    if (officialBilingual != null && !officialBilingual.translatedLyrics.isNullOrBlank()) {
+                        transLyrics = officialBilingual.translatedLyrics
+                    } else {
+                        val transResult = translationService.translateTrack(trackTitle, origLyrics)
+                        if (transResult != null && transResult.translatedLyrics.isNotBlank() && !LyricAligner.isRefusalText(transResult.translatedLyrics)) {
+                            transLyrics = transResult.translatedLyrics
+                        }
                     }
                 } catch (e: Exception) {
                     // ignore
@@ -1059,7 +1072,7 @@ class NowPlayingRepository @Inject constructor(
 
             val aligned = LyricAligner.align(origLyrics, transLyrics)
             if (aligned.isNotEmpty()) {
-                val songKey = "${artistName.trim()}_${trackTitle.trim()}".lowercase()
+                val songKey = "${artistName.trim().lowercase()} - ${trackTitle.trim().lowercase()}"
                 val curData = _nowPlayingData.value
                 val updatedCache = CachedSongData(
                     lyrics = aligned,

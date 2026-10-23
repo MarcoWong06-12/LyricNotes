@@ -2,6 +2,7 @@ package com.linernotes.app.data.remote
 
 import com.linernotes.app.core.i18n.TranslationTargetLanguage
 import com.linernotes.app.core.lyric.LyricAligner
+import com.linernotes.app.core.lyric.LyricWordParser
 import com.linernotes.app.core.preference.AiPreferences
 import com.linernotes.app.core.util.HtmlUtils
 import kotlinx.coroutines.Dispatchers
@@ -45,9 +46,9 @@ class TranslationService(
 
     private val client = OkHttpClient.Builder()
         .connectTimeout(6, TimeUnit.SECONDS)
-        .readTimeout(10, TimeUnit.SECONDS)
+        .readTimeout(12, TimeUnit.SECONDS)
         .writeTimeout(6, TimeUnit.SECONDS)
-        .callTimeout(15, TimeUnit.SECONDS)
+        .callTimeout(22, TimeUnit.SECONDS)
         .build()
 
     companion object {
@@ -144,7 +145,8 @@ class TranslationService(
             TIMESTAMP_REGEX.find(line.trim())?.value
         }
         val cleanLines = rawLines.map { line ->
-            HtmlUtils.cleanPlainText(line.replace(TIMESTAMP_REGEX, "").trim())
+            val withoutTags = LyricWordParser.cleanInlineTimestamps(line.replace(TIMESTAMP_REGEX, ""))
+            HtmlUtils.cleanPlainText(withoutTags.trim())
         }
 
         // 收集非空需要翻译的行及其行索引
@@ -157,15 +159,15 @@ class TranslationService(
         }
 
         val textsToTranslate = nonBlankEntries.map { it.second }
-        // 12 行智能分块，配合并发限制与微延迟，彻底避免触发有道反爬限流与连接重置
-        val chunks = textsToTranslate.chunked(12)
-        val semaphore = Semaphore(2)
+        // 18 行智能分块，配合 4 路并发与微延迟，兼顾长篇说唱曲目 (如 140+ 行) 的极速响应与防限流稳定性
+        val chunks = textsToTranslate.chunked(18)
+        val semaphore = Semaphore(4)
         val translatedTexts = try {
             val translatedChunks = supervisorScope {
                 chunks.mapIndexed { chunkIdx, chunk ->
                     async {
                         semaphore.withPermit {
-                            if (chunkIdx > 0) delay(40L)
+                            if (chunkIdx > 0) delay(25L)
                             val indexedChunkText = chunk.mapIndexed { idx, line -> "${idx + 1}. $line" }.joinToString("\n")
                             var parsed = emptyList<String>()
 
@@ -190,9 +192,10 @@ class TranslationService(
                                 }
                             }
 
-                            // 3. 备选：Google Translate 公共服务
+                            // 3. 备选：Google Translate 公共服务 (双域名自动容灾)
                             if (parsed.isEmpty() || parsed.count { it.isNotBlank() } < (chunk.size + 1) / 2) {
                                 val googleFallback = translateViaGoogle(indexedChunkText, targetIso, "https://translate.googleapis.com/translate_a/single")
+                                    ?: translateViaGoogle(indexedChunkText, targetIso, "https://translate.google.com/translate_a/single")
                                 if (!googleFallback.isNullOrBlank()) {
                                     val candidate = parseIndexedLines(googleFallback.lines().map { HtmlUtils.cleanTranslationOutput(it) }, chunk.size)
                                     if (candidate.isNotEmpty()) {
