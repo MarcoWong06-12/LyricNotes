@@ -227,17 +227,17 @@ fun NowPlayingLyricsContent(
     val screenHeightDp = configuration.screenHeightDp.dp
     val density = LocalDensity.current
 
-    // Apple Music 官方原生黃金閱讀帶：活躍行起始歌唱基準線聚焦於視口偏上部 25% 區域 (避免多行/雙語歌詞整體下沉至底部)
-    val focalTargetDp = (screenHeightDp * 0.25f).coerceIn(160.dp, 230.dp)
+    // Apple Music 官方原生黃金閱讀帶：活躍行聚焦於視口 32%~34% 黃金分割線，自然留出上方已唱行與下方待唱行的平衡視野
+    val focalTargetDp = (screenHeightDp * 0.32f).coerceIn(210.dp, 290.dp)
     val focalTargetPx = with(density) { focalTargetDp.toPx() }
-    val topFocalPadding = (focalTargetDp - 16.dp).coerceAtLeast(120.dp)
+    val topFocalPadding = (focalTargetDp - 20.dp).coerceAtLeast(140.dp)
     val bottomFocalPadding = screenHeightDp * 0.55f + (if (showPlaybackControls) 120.dp else 40.dp)
 
-    // Apple Music 官方原生視口滾動曲線 (620ms 經典 Core Animation Ease-Out 液態溫潤滑動，優雅從容，120Hz 滿幀絲滑)
+    // Apple Music 官方原生視口滾動曲線 (580ms 經典 Core Animation 液態溫潤滑動，提取自 Apple Music 反編譯 PathInterpolator(0.75f, 0.0f, 0.25f, 1.0f))
     val lyricFluidScrollSpec = remember {
         tween<Float>(
-            durationMillis = 620,
-            easing = CubicBezierEasing(0.25f, 0.1f, 0.25f, 1.0f)
+            durationMillis = 580,
+            easing = CubicBezierEasing(0.75f, 0.0f, 0.25f, 1.0f)
         )
     }
 
@@ -621,11 +621,11 @@ fun LyricLineRow(
         }
     }
 
-    // Apple 官方狀態過渡動畫曲線 (500ms 經典 iOS Ease-Out，柔和漸變光感交融，消除突兀跳躍)
+    // Apple 官方文字狀態過渡動畫曲線 (350ms 經典 iOS 狀態切換，提取自 com.apple.android.music.utils.C.j)
     val lyricHighlightAnimationSpec = remember {
         tween<Float>(
-            durationMillis = 500,
-            easing = CubicBezierEasing(0.25f, 0.1f, 0.25f, 1.0f)
+            durationMillis = 350,
+            easing = CubicBezierEasing(0.39f, 0.575f, 0.565f, 1.0f)
         )
     }
 
