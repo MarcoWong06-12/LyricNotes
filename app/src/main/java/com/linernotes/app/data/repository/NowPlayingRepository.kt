@@ -182,22 +182,25 @@ class NowPlayingRepository @Inject constructor(
                         }
                     }
                 }
-                delay(if (state.isPlaying) 32L else 300L) // 播放时32ms低延迟追踪，暂停时300ms大幅节电
+                delay(if (state.isPlaying) 16L else 300L) // 播放时16ms (60Hz帧级) 超低延迟追踪，暂停时300ms大幅节电
             }
         }
     }
 
     /**
-     * 计算当前活跃歌词行索引 (附带 90ms 自然音频延迟补偿，切行节奏与人声换气精准咬合，绝不抢拍过快)
+     * 计算当前活跃歌词行索引 (自适应人声提前量补偿：密集快嘴说唱采用 45ms 严密咬合，常规抒情句采用 75ms 自然呼吸补偿)
      */
-    private fun calculateActiveLineIndex(lyrics: List<BilingualLyricLine>, positionMs: Long, leadTimeMs: Long = 90L): Int {
+    private fun calculateActiveLineIndex(lyrics: List<BilingualLyricLine>, positionMs: Long): Int {
         if (lyrics.isEmpty()) return -1
-        val effectivePos = positionMs + leadTimeMs
         var activeIndex = -1
+        var prevStartTime = 0L
         for (i in lyrics.indices) {
             val startTime = lyrics[i].startTimeMs ?: continue
-            if (startTime <= effectivePos) {
+            val lineGap = if (activeIndex >= 0) (startTime - prevStartTime).coerceAtLeast(0L) else 2000L
+            val adaptiveLeadMs = if (lineGap < 1400L) 45L else 75L
+            if (startTime <= positionMs + adaptiveLeadMs) {
                 activeIndex = i
+                prevStartTime = startTime
             } else {
                 break
             }
@@ -372,7 +375,11 @@ class NowPlayingRepository @Inject constructor(
                                     ?: QQMusicLyricsService.fetchLyrics(title, artist, curState.durationMs)
                                     ?.takeIf { !it.translatedLyrics.isNullOrBlank() }
                                 if (officialBilingual != null && !officialBilingual.translatedLyrics.isNullOrBlank()) {
-                                    if (!origLyrics.contains(LyricAligner.LRC_TIMESTAMP_REGEX)) {
+                                    // 关键同源对齐保护：若官方双语源自带 LRC 时间轴，必须将原文与译文一并切换为同源版本，
+                                    // 严禁将 LRCLIB 的断句原文与网易云/QQ 的译文强行混拼！
+                                    if (officialBilingual.originalLyrics.contains(LyricAligner.LRC_TIMESTAMP_REGEX) ||
+                                        !origLyrics.contains(LyricAligner.LRC_TIMESTAMP_REGEX)
+                                    ) {
                                         origLyrics = officialBilingual.originalLyrics
                                     }
                                     transLyrics = officialBilingual.translatedLyrics
@@ -725,7 +732,9 @@ class NowPlayingRepository @Inject constructor(
                         ?: QQMusicLyricsService.fetchLyrics(title, artist)
                         ?.takeIf { !it.translatedLyrics.isNullOrBlank() }
                     if (officialBilingual != null && !officialBilingual.translatedLyrics.isNullOrBlank()) {
-                        if (!origLyrics.contains(LyricAligner.LRC_TIMESTAMP_REGEX)) {
+                        if (officialBilingual.originalLyrics.contains(LyricAligner.LRC_TIMESTAMP_REGEX) ||
+                            !origLyrics.contains(LyricAligner.LRC_TIMESTAMP_REGEX)
+                        ) {
                             origLyrics = officialBilingual.originalLyrics
                         }
                         transLyrics = officialBilingual.translatedLyrics

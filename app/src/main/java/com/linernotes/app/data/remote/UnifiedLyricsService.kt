@@ -257,8 +257,10 @@ object UnifiedLyricsService {
 
     /**
      * 跨源时间轴交叉校验与 Spotify 原声时间基准校准：
-     * 当主力源（如网易云）具备官方优质翻译，但时间戳受社区上传或音频版本影响发生漂移（> 1.2秒）时，
-     * 自动保留其官方译文，而将原歌词时间轴校准为与 Spotify 音频严格吻合的基准源（如 LRCLIB 或 QQ 音乐）。
+     * 1. 修复重复副歌被 .toMap() 覆盖产生 200s 虚假漂移的缺陷，改用时间邻近窗口 (12s 内最近同名句) 提取有符号偏移量 (cTime - pTime)；
+     * 2. 采用中位数偏移 (Median Offset) 与四分位距一致性检验：
+     *    - 若主力双语源自身具备 LRC 时间轴，则对主力源的原文与译文**同步平移中位数偏移量**，绝不用外源不同行数的文本粗暴覆盖原文，从根源上保证双语 100% 同源对齐；
+     *    - 仅当主力源完全缺失 LRC 时间戳 (primaryLacksLrc) 时，才借用基准源的高精度时间轴。
      */
     private fun calibrateWithSpotifyTiming(
         primary: OnlineLyricsResult,
@@ -268,18 +270,15 @@ object UnifiedLyricsService {
         if (calibrator.originalLyrics.isBlank() || !calibrator.originalLyrics.contains(TIMESTAMP_REGEX)) {
             return primary
         }
-        // 若主力源没有翻译，则无需保留主力源译文直接使用即可（通常评分系统已自动择优）
         if (!primary.isBilingual || primary.translatedLyrics.isNullOrBlank()) {
             return primary
         }
 
-        // 时长校验：若两源声明时长相差超过 15 秒，可能非同一音轨/版本，保守不予替换
         if (primary.durationMs > 0L && calibrator.durationMs > 0L) {
             val durDiff = Math.abs(primary.durationMs - calibrator.durationMs)
             if (durDiff > 15_000L) return primary
         }
 
-        // 正文指纹与相似度校验：确保二者确实唱的是同一首歌
         val pLines = primary.originalLyrics.lines().map { LyricAligner.cleanLine(it) }.filter { it.isNotBlank() }
         val cLines = calibrator.originalLyrics.lines().map { LyricAligner.cleanLine(it) }.filter { it.isNotBlank() }
         if (pLines.isEmpty() || cLines.isEmpty()) return primary
@@ -290,38 +289,50 @@ object UnifiedLyricsService {
         val similarity = commonCount.toFloat() / pNorm.size.coerceAtLeast(1)
         if (similarity < 0.4f) return primary
 
-        // 提取带时间戳的歌词行进行时间戳漂移检测
-        val pWithTime = primary.originalLyrics.lines().mapNotNull { line ->
-            val t = LyricAligner.extractTimestampMs(line) ?: return@mapNotNull null
-            val norm = LyricAligner.cleanLine(line).lowercase().replace(Regex("[^a-zA-Z0-9\u4e00-\u9fa5]"), "")
-            if (norm.isNotBlank()) norm to t else null
-        }
-        val cWithTimeMap = calibrator.originalLyrics.lines().mapNotNull { line ->
-            val t = LyricAligner.extractTimestampMs(line) ?: return@mapNotNull null
-            val norm = LyricAligner.cleanLine(line).lowercase().replace(Regex("[^a-zA-Z0-9\u4e00-\u9fa5]"), "")
-            if (norm.isNotBlank()) norm to t else null
-        }.toMap()
-
-        val textDrifts = pWithTime.mapNotNull { (norm, pTime) ->
-            val cTime = cWithTimeMap[norm] ?: return@mapNotNull null
-            Math.abs(pTime - cTime)
-        }
-
-        val pTimes = primary.originalLyrics.lines().mapNotNull { LyricAligner.extractTimestampMs(it) }
-        val cTimes = calibrator.originalLyrics.lines().mapNotNull { LyricAligner.extractTimestampMs(it) }
-        val indexDrifts = if (pTimes.size == cTimes.size && pTimes.isNotEmpty()) {
-            pTimes.zip(cTimes).map { (pt, ct) -> Math.abs(pt - ct) }
-        } else emptyList()
-
-        val maxDrift = maxOf(textDrifts.maxOrNull() ?: 0L, indexDrifts.maxOrNull() ?: 0L)
-        val hasSignificantDrift = maxDrift > 1200L
         val primaryLacksLrc = !primary.originalLyrics.contains(TIMESTAMP_REGEX)
-
-        if (hasSignificantDrift || primaryLacksLrc) {
+        if (primaryLacksLrc) {
             return primary.copy(
                 originalLyrics = calibrator.originalLyrics,
                 durationMs = if (primary.durationMs <= 0L) calibrator.durationMs else primary.durationMs
             )
+        }
+
+        // 提取带时间戳的歌词行（保留同名重复句的所有时间点列表，杜绝副歌被末次时间覆盖）
+        val pWithTime = primary.originalLyrics.lines().mapNotNull { line ->
+            val t = LyricAligner.extractTimestampMs(line) ?: return@mapNotNull null
+            val norm = LyricAligner.cleanLine(line).lowercase().replace(Regex("[^a-zA-Z0-9\u4e00-\u9fa5]"), "")
+            if (norm.length >= 4) norm to t else null
+        }
+        val cTimeBuckets = mutableMapOf<String, MutableList<Long>>()
+        for (line in calibrator.originalLyrics.lines()) {
+            val t = LyricAligner.extractTimestampMs(line) ?: continue
+            val norm = LyricAligner.cleanLine(line).lowercase().replace(Regex("[^a-zA-Z0-9\u4e00-\u9fa5]"), "")
+            if (norm.length >= 4) {
+                cTimeBuckets.getOrPut(norm) { mutableListOf() }.add(t)
+            }
+        }
+
+        // 计算每句在 ±12s 邻近窗口内最近匹配句的有符号时间差 (delta = cTime - pTime)
+        val signedDeltas = pWithTime.mapNotNull { (norm, pTime) ->
+            val candidates = cTimeBuckets[norm] ?: return@mapNotNull null
+            val closestCTime = candidates.minByOrNull { cTime -> kotlin.math.abs(cTime - pTime) } ?: return@mapNotNull null
+            val diff = closestCTime - pTime
+            if (kotlin.math.abs(diff) <= 12_000L) diff else null
+        }.sorted()
+
+        if (signedDeltas.size >= 4) {
+            val medianDelta = signedDeltas[signedDeltas.size / 2]
+            val q1 = signedDeltas[signedDeltas.size / 4]
+            val q3 = signedDeltas[(signedDeltas.size * 3) / 4]
+            val iqr = q3 - q1
+            // 仅当中位数整体偏移超过 850ms 且全曲偏移方向高度一致 (四分位距 IQR <= 900ms) 时，
+            // 对主力源自身的原文与译文同步平移该偏移量，既修正前奏延迟又 100% 保持原文与译文同源 1:1 对齐！
+            if (kotlin.math.abs(medianDelta) in 850L..12_000L && iqr <= 900L) {
+                return primary.copy(
+                    originalLyrics = LyricAligner.shiftLrcTimestamps(primary.originalLyrics, medianDelta),
+                    translatedLyrics = primary.translatedLyrics?.let { LyricAligner.shiftLrcTimestamps(it, medianDelta) }
+                )
+            }
         }
         return primary
     }

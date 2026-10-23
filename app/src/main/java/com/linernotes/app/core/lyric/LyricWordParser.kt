@@ -105,13 +105,22 @@ object LyricWordParser {
 
         val rawGap = if (endTimeMs != null && endTimeMs > startTimeMs) endTimeMs - startTimeMs else null
         val totalLineDuration = if (rawGap != null) {
-            // 歌唱生理声学启发式算法：
-            // 人声实际演唱通常占据行与行时间间隔的前 65%~75%，剩余为乐器停顿与伴奏留白尾音。
-            // 避免把短句平摊至长达数秒的整段空白，导致逐字扫掠极度拖沓迟缓。
-            // 依据自然演唱速度 (每字/词约 280ms~360ms) 计算人声区间，上限不超过间隔的 72%，且保留至少 200ms 伴奏尾音。
-            val estimatedVocal = (tokens.size * 320L).coerceIn(600L, 6000L)
-            val maxPhrasing = (rawGap * 0.72f).toLong().coerceAtLeast(600L)
-            minOf(estimatedVocal, maxPhrasing).coerceAtMost(maxOf(500L, rawGap - 200L))
+            // 自适应语速与字密度的声学包络算法：
+            // 针对说唱/长句 (tokens >= 8，如 Kendrick Lamar《euphoria》)，人声几乎填满整行区间 (90%)；
+            // 针对中长句 (tokens 5..7)，人声约占 82%；针对短句/抒情慢歌 (tokens <= 4)，保留充足伴奏尾音 (74%)。
+            val coverageRatio = when {
+                tokens.size >= 8 -> 0.90f
+                tokens.size >= 5 -> 0.82f
+                else -> 0.74f
+            }
+            val tailReserveMs = when {
+                tokens.size >= 8 -> 100L
+                tokens.size >= 5 -> 150L
+                else -> 200L
+            }
+            val estimatedVocal = (tokens.size * 340L).coerceIn(600L, 7500L)
+            val maxPhrasing = (rawGap * coverageRatio).toLong().coerceAtLeast(550L)
+            minOf(estimatedVocal, maxPhrasing).coerceAtMost(maxOf(450L, rawGap - tailReserveMs))
         } else {
             // 若为最后一句或下一句未定，按语元总数给一个自然的持续时长 (每字/词约 300ms)
             (tokens.size * 300L).coerceIn(1000L, 4500L)

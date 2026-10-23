@@ -7,16 +7,47 @@ object LyricAligner {
 
     val LRC_TIMESTAMP_REGEX = Regex("""\[\d{1,2}:\d{2}(?:\.\d{1,3})?]""")
     val LRC_METADATA_REGEX = Regex("""^\[(ti|ar|al|by|offset|length|re|ve|encoding):.*?]""", RegexOption.IGNORE_CASE)
+    private val ZERO_WIDTH_REGEX = Regex("""[\u200B-\u200D\uFEFF]""")
+    private val SECTION_HEADER_REGEX = Regex(
+        """^\[?\s*(?:intro|verse(?:\s*\d+)?|chorus|pre-?chorus|post-?chorus|hook|bridge|outro|interlude|instrumental|solo|break|refrain|guitar\s*solo|主歌|副歌|前奏|间奏|尾奏|桥段)\s*(?:[:\-].*?)?\]?$""",
+        RegexOption.IGNORE_CASE
+    )
 
     fun cleanLine(line: String): String {
-        val withoutTime = line.replace(LRC_TIMESTAMP_REGEX, "").trim()
-        if (withoutTime.matches(LRC_METADATA_REGEX)) {
+        val withoutTime = line.replace(LRC_TIMESTAMP_REGEX, "").replace(ZERO_WIDTH_REGEX, "").trim()
+        if (withoutTime.isEmpty() || withoutTime.matches(LRC_METADATA_REGEX) || withoutTime.matches(SECTION_HEADER_REGEX)) {
             return ""
         }
         if (isInvalidTranslationLine(withoutTime)) {
             return ""
         }
         return HtmlUtils.unescapeHtml(withoutTime)
+    }
+
+    /**
+     * 对整篇 LRC 文本中的所有时间戳统一施加毫秒级平移补偿（用于消除 MV 前奏导致的全局恒定偏移，同时保持双语行 100% 同步）
+     */
+    fun shiftLrcTimestamps(lrc: String, offsetMs: Long): String {
+        if (lrc.isBlank() || offsetMs == 0L) return lrc
+        return lrc.lines().joinToString("\n") { rawLine ->
+            if (!TIMESTAMP_PARSER_REGEX.containsMatchIn(rawLine)) {
+                rawLine
+            } else {
+                TIMESTAMP_PARSER_REGEX.replace(rawLine) { match ->
+                    val min = match.groupValues[1].toLongOrNull() ?: 0L
+                    val sec = match.groupValues[2].toLongOrNull() ?: 0L
+                    val msStr = match.groupValues.getOrNull(3) ?: ""
+                    val ms = when (msStr.length) {
+                        1 -> (msStr.toLongOrNull() ?: 0L) * 100
+                        2 -> (msStr.toLongOrNull() ?: 0L) * 10
+                        3 -> msStr.toLongOrNull() ?: 0L
+                        else -> 0L
+                    }
+                    val totalMs = (min * 60_000L + sec * 1000L + ms + offsetMs).coerceAtLeast(0L)
+                    formatTimestamp(totalMs)
+                }
+            }
+        }
     }
 
     fun extractTimestampMs(line: String): Long? {
@@ -198,10 +229,26 @@ object LyricAligner {
         val matchedTrans = MutableList(origLines.size) { "" }
 
         if (nonBlankOrig.isNotEmpty() && nonBlankTrans.isNotEmpty()) {
-            if (nonBlankOrig.size == nonBlankTrans.size) {
+            val timedTransCount = nonBlankTrans.count { it.timeMs != null }
+            val hasReliableTransTimestamps = timedTransCount >= (nonBlankTrans.size + 1) / 2 &&
+                nonBlankOrig.any { it.timeMs != null }
+
+            val anchorMap = if (hasReliableTransTimestamps) {
+                alignByTimestampAnchors(nonBlankOrig, nonBlankTrans)
+            } else {
+                emptyMap()
+            }
+
+            if (anchorMap.size >= (timedTransCount * 0.65f).toInt().coerceAtLeast(1)) {
+                // 毫秒级时间戳锚定通道 (Timestamp-Anchored Alignment)：
+                // 当译文携带有效时间标签时（如双轨 LRC 或带时间戳的 AI 译文），直接按时间戳最近邻 + 前瞻防抢占锁死对应行，
+                // 即使部分语气词/伴奏行没有译文导致行数不等，也绝不会发生跨行错位！
+                for ((origIdx, transText) in anchorMap) {
+                    matchedTrans[origIdx] = transText
+                }
+            } else if (nonBlankOrig.size == nonBlankTrans.size) {
                 // 黄金对齐通道 (1:1 顺序映射)：
-                // 当双方非空唱词行数一致时（绝大多数逐行翻译场景），直接进行 1:1 单调对齐。
-                // 即使译文的时间标签存在在线平台的数秒偏差或延迟，也绝不发生错行错配或跳行！
+                // 当双方非空唱词行数一致时（无时间戳纯文本逐行翻译场景），直接进行 1:1 单调对齐。
                 for (k in nonBlankOrig.indices) {
                     val origIdx = nonBlankOrig[k].index
                     matchedTrans[origIdx] = nonBlankTrans[k].text
@@ -260,6 +307,49 @@ object LyricAligner {
     private data class AlignIndexedLine(val index: Int, val text: String, val timeMs: Long?)
 
     /**
+     * 毫秒级时间戳锚定对齐引擎（附带前瞻防抢占保护 Lookahead Guard）：
+     * 当原歌词与译文均携带时间戳时，优先按时间戳最近邻（<= 650ms）进行精确配对，
+     * 并检查下一句原文是否与候选译文时间戳更接近，彻底杜绝无译文的语气词/伴奏行抢占下一句正文的译文！
+     */
+    private fun alignByTimestampAnchors(
+        origList: List<AlignIndexedLine>,
+        transList: List<AlignIndexedLine>
+    ): Map<Int, String> {
+        val matchedMap = mutableMapOf<Int, String>()
+        var lastUsedTransIdx = -1
+
+        for (i in origList.indices) {
+            val origItem = origList[i]
+            val ot = origItem.timeMs ?: continue
+            val nextOrigTime = origList.getOrNull(i + 1)?.timeMs
+
+            var bestTransIdx = -1
+            var bestDiff = 650L
+
+            for (j in (lastUsedTransIdx + 1) until transList.size) {
+                val tt = transList[j].timeMs ?: continue
+                val diff = kotlin.math.abs(tt - ot)
+                if (diff <= bestDiff) {
+                    // 前瞻防抢占：若候选译文的时间戳距离下一句原文更近，则将其留给下一句原文
+                    if (nextOrigTime != null && kotlin.math.abs(tt - nextOrigTime) < diff) {
+                        break
+                    }
+                    bestDiff = diff
+                    bestTransIdx = j
+                } else if (tt - ot > 1200L) {
+                    break
+                }
+            }
+
+            if (bestTransIdx != -1) {
+                matchedMap[origItem.index] = transList[bestTransIdx].text
+                lastUsedTransIdx = bestTransIdx
+            }
+        }
+        return matchedMap
+    }
+
+    /**
      * 单调递增序列动态规划对齐引擎：
      * 针对原歌词与翻译行数不完全一致的边界场景，在时间戳差值与全篇相对进度双重惩罚约束下，
      * 求解全局代价最小的单调匹配路径，绝不倒退、绝不交错。
@@ -308,7 +398,14 @@ object LyricAligner {
                     val tt = transList[j - 1].timeMs
 
                     val timeCost = if (ot != null && tt != null) {
-                        (kotlin.math.abs(ot - tt) / 10f).coerceAtMost(1000f)
+                        val absDiff = kotlin.math.abs(ot - tt)
+                        // 若双方均有时间戳且偏差超过 650ms，施加 > 2 倍跳过代价 (1100f+) 的重罚，
+                        // 迫使 DP 跳过无译文行而非强行挪用下一句译文！
+                        if (absDiff > 650L) {
+                            1100f + (absDiff / 10f).coerceAtMost(900f)
+                        } else {
+                            absDiff / 5f
+                        }
                     } else 0f
 
                     val posDiff = kotlin.math.abs((i - 1f) / n - (j - 1f) / m) * 800f
@@ -409,8 +506,9 @@ object LyricAligner {
 
     private val TIMESTAMP_PARSER_REGEX = Regex("""\[(\d{1,2}):(\d{2})(?:\.(\d{1,3}))?\]""")
 
+    // 严格要求制作人员标签后紧跟冒号/斜杠分隔符，彻底杜绝把前 3.5 秒含 "op"/"sp"/"sample" 的英文首句歌词（如 open/stop/speak）误删！
     private val CREDIT_FILTER_REGEX = Regex(
-        """(作词|作曲|编曲|制作人|监制|混音|母带|录音|吉他|贝斯|鼓|键盘|和音|弦乐|OP|SP|Producer|Writers|Written\s*by|Lyrics\s*by|Composed\s*by|Arranged\s*by|Mixed\s*by|Mastered\s*by|Sample|by:)""",
+        """(?:^\s*(?:作词|作曲|编曲|制作人?|监制|混音|母带|录音|吉他|贝斯|鼓|键盘|和音|弦乐|词|曲|编|OP|SP|Producer|Writers?|Written\s*by|Lyrics\s*by|Composed\s*by|Arranged\s*by|Mixed\s*by|Mastered\s*by)\s*[:：/])|(?:^\s*by\s*[:：])""",
         RegexOption.IGNORE_CASE
     )
 
@@ -454,6 +552,7 @@ object LyricAligner {
 
         for (i in filteredOrig.indices) {
             val current = filteredOrig[i]
+            val nextOrigMs = filteredOrig.getOrNull(i + 1)?.ms
             if (i > 0) {
                 val prev = filteredOrig[i - 1]
                 // 若两句歌词之间间隔超过 6.5 秒，插入空行分段
@@ -463,7 +562,7 @@ object LyricAligner {
                 }
             }
 
-            // 查找时间戳最匹配且偏差在 600ms 内的对应译文行（单调递增匹配，防止时间跳回）
+            // 查找时间戳最匹配且偏差在 600ms 内的对应译文行（附带前瞻防抢占保护 Lookahead Guard）
             var matchedTrans: TimedLyric? = null
             var matchedIndex = -1
             var bestDiff = 600L
@@ -473,9 +572,15 @@ object LyricAligner {
                 val cand = filteredTrans[j]
                 val diff = kotlin.math.abs(cand.ms - current.ms)
                 if (diff <= bestDiff) {
+                    // 若候选译文距离下一句原歌词的时间戳更近，则绝不让当前行抢占！
+                    if (nextOrigMs != null && kotlin.math.abs(cand.ms - nextOrigMs) < diff) {
+                        break
+                    }
                     bestDiff = diff
                     matchedTrans = cand
                     matchedIndex = j
+                } else if (cand.ms - current.ms > 1200L) {
+                    break
                 }
             }
 
@@ -507,8 +612,8 @@ object LyricAligner {
             val matches = TIMESTAMP_PARSER_REGEX.findAll(trimmed).toList()
             if (matches.isEmpty()) continue
 
-            val cleanText = trimmed.replace(TIMESTAMP_PARSER_REGEX, "").trim()
-            if (cleanText.isEmpty()) continue
+            val cleanText = trimmed.replace(TIMESTAMP_PARSER_REGEX, "").replace(ZERO_WIDTH_REGEX, "").trim()
+            if (cleanText.isEmpty() || cleanText.matches(SECTION_HEADER_REGEX)) continue
 
             for (m in matches) {
                 val min = m.groupValues[1].toLongOrNull() ?: 0L
