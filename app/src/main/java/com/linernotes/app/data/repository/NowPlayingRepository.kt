@@ -65,6 +65,7 @@ class NowPlayingRepository @Inject constructor(
     val nowPlayingData: StateFlow<NowPlayingData> = _nowPlayingData.asStateFlow()
 
     private var currentSongKey: String? = null
+    private var lastAutoRetryTimeMs: Long = 0L
     private var dataLoadJob: Job? = null
     private var positionTrackerJob: Job? = null
     private var noticeDismissJob: Job? = null
@@ -126,6 +127,7 @@ class NowPlayingRepository @Inject constructor(
 
         if (isNewSong) {
             currentSongKey = songKey
+            lastAutoRetryTimeMs = SystemClock.elapsedRealtime()
             val songOffset = floatingPreferences.getSongOffset(songKey)
             lyricOffsetMs = songOffset
             _lyricOffsetMsFlow.value = songOffset
@@ -137,6 +139,7 @@ class NowPlayingRepository @Inject constructor(
             }
             loadSongLyricsAndGenius(state.title, state.artist, songKey)
         } else {
+            val currentSnapshot = _nowPlayingData.value
             _nowPlayingData.update { current ->
                 val activeLine = if (current.lyrics.isNotEmpty()) {
                     val currentPos = (state.getEstimatedPositionMs() + lyricOffsetMs).coerceAtLeast(0L)
@@ -147,6 +150,12 @@ class NowPlayingRepository @Inject constructor(
                     playbackState = state,
                     currentLineIndex = activeLine
                 )
+            }
+            // 自愈重試機制：若切歌瞬間遭遇 5G 基站切換或短暫斷網導致首次抓取落空，在播放狀態下每間隔 4 秒自動無感重試
+            val nowElapsed = SystemClock.elapsedRealtime()
+            if (currentSnapshot.lyrics.isEmpty() && !currentSnapshot.isLoadingLyrics && state.isPlaying && (nowElapsed - lastAutoRetryTimeMs > 4000L)) {
+                lastAutoRetryTimeMs = nowElapsed
+                loadSongLyricsAndGenius(state.title, state.artist, songKey)
             }
         }
 

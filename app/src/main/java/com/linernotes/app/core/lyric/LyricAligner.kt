@@ -58,6 +58,15 @@ object LyricAligner {
 
     fun isRefusalText(text: String?): Boolean {
         if (text.isNullOrBlank()) return false
+        val lines = text.lines().map { it.trim() }.filter { it.isNotEmpty() }
+        // 关键防误杀保护：若文本包含超过 5 行有效内容，或包含 3 行以上标准 LRC 时间戳，
+        // 则必然是真实的多行歌词译文（例如《euphoria》某句歌词注释中提到“受版权保护的材料”），
+        // 绝不可能是 AI 的简短拒识回复！单行级配额告警已由 cleanLine() 中的 isInvalidTranslationLine 逐行过滤。
+        val timedLineCount = lines.count { LRC_TIMESTAMP_REGEX.containsMatchIn(it) }
+        if (lines.size > 5 || timedLineCount >= 3) {
+            return false
+        }
+
         val refusalMarkers = listOf(
             "无法逐行翻译", "無法逐行翻譯",
             "受版权保护", "受版權保護",
@@ -77,7 +86,6 @@ object LyricAligner {
         if (refusalMarkers.any { lower.contains(it) }) {
             return true
         }
-        val lines = text.lines().map { it.trim() }.filter { it.isNotEmpty() }
         if (lines.size in 1..3) {
             val apologyPrefixes = listOf(
                 "抱歉", "對不起", "对不起", "很抱歉", "非常抱歉",

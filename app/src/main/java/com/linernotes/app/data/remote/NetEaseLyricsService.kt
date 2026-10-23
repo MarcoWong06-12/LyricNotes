@@ -15,11 +15,13 @@ import java.net.URLEncoder
 object NetEaseLyricsService {
 
     private const val CLOUD_SEARCH_API = "https://music.163.com/api/cloudsearch/pc"
+    private const val INTERFACE_SEARCH_API = "https://interface.music.163.com/api/cloudsearch/pc"
     private const val WEB_SEARCH_API = "https://music.163.com/api/search/get/web"
     private const val LYRIC_API = "https://music.163.com/api/song/lyric"
 
     private val HEADERS = mapOf(
         "Referer" to "https://music.163.com/",
+        "Cookie" to "os=pc; appver=2.9.7; Miles=1",
         "User-Agent" to "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36"
     )
 
@@ -234,19 +236,18 @@ object NetEaseLyricsService {
     }
 
     private suspend fun searchSongs(query: String, limit: Int = 5): JSONArray? {
-        // 首选 CloudSearch POST
+        val postParams = mapOf(
+            "s" to query,
+            "type" to "1",
+            "offset" to "0",
+            "limit" to limit.toString()
+        )
+        // 1. 首选 CloudSearch POST
         try {
-            val postParams = mapOf(
-                "s" to query,
-                "type" to "1",
-                "offset" to "0",
-                "limit" to limit.toString()
-            )
             val jsonStr = LinerNotesHttpClient.postFormAsync(CLOUD_SEARCH_API, postParams, HEADERS)
             if (!jsonStr.isNullOrBlank()) {
                 val root = JSONObject(jsonStr)
-                val result = root.optJSONObject("result")
-                val songs = result?.optJSONArray("songs")
+                val songs = root.optJSONObject("result")?.optJSONArray("songs")
                 if (songs != null && songs.length() > 0) {
                     return songs
                 }
@@ -255,7 +256,21 @@ object NetEaseLyricsService {
             // 继续回退
         }
 
-        // 回退 WebSearch GET
+        // 2. 次选 Interface 独立网关 POST (5G 移动网络防 -460 拦截)
+        try {
+            val jsonStr = LinerNotesHttpClient.postFormAsync(INTERFACE_SEARCH_API, postParams, HEADERS)
+            if (!jsonStr.isNullOrBlank()) {
+                val root = JSONObject(jsonStr)
+                val songs = root.optJSONObject("result")?.optJSONArray("songs")
+                if (songs != null && songs.length() > 0) {
+                    return songs
+                }
+            }
+        } catch (e: Exception) {
+            // 继续回退
+        }
+
+        // 3. 回退 WebSearch GET
         return try {
             val encQuery = URLEncoder.encode(query, "UTF-8")
             val getUrl = "$WEB_SEARCH_API?s=$encQuery&type=1&limit=$limit"

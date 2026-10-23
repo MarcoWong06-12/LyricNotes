@@ -22,7 +22,7 @@ object UnifiedLyricsService {
     ): OnlineLyricsResult? {
         val pref = AiPreferences.LyricsSourcePreference.fromCode(sourcePref)
 
-        return when (pref) {
+        val primaryResult = when (pref) {
             AiPreferences.LyricsSourcePreference.NETEASE_ONLY -> {
                 val res = NetEaseLyricsService.fetchLyrics(trackTitle, artistName, targetDurationMs)
                 res?.let { sanitizeResult(it, null) }
@@ -45,6 +45,14 @@ object UnifiedLyricsService {
                 fetchAutoAggregated(trackTitle, artistName, targetDurationMs)
             }
         }
+
+        // 关键容灾兜底：若用户曾锁定了单一音源但该音源未收录或当前网络波动，自动平滑降级至全平台并发聚合检索，绝不返回空歌词
+        if (primaryResult != null && primaryResult.originalLyrics.isNotBlank()) {
+            return primaryResult
+        }
+        return if (pref != AiPreferences.LyricsSourcePreference.AUTO_FIRST) {
+            fetchAutoAggregated(trackTitle, artistName, targetDurationMs)
+        } else null
     }
 
     /**
@@ -178,9 +186,9 @@ object UnifiedLyricsService {
                 // 歌词全文并不出现曲名，绝不进行大额扣分惩罚导致误杀
             }
 
-            // 2. 歌曲物理时长对齐验证 (首选歌词末句时间戳，其次候选曲目元数据时长)
+            // 2. 歌曲物理时长对齐验证 (首选候选曲目元数据真实总时长 res.durationMs，避免因片尾伴奏留白导致末句时间戳偏短而误扣分)
             val lyricLastTs = LyricSearchCleaner.extractLastTimestampMs(res.originalLyrics)
-            val effectiveDuration = if (lyricLastTs > 0L) lyricLastTs else res.durationMs
+            val effectiveDuration = if (res.durationMs > 0L) res.durationMs else lyricLastTs
             if (targetDurationMs > 0L && effectiveDuration > 0L) {
                 val diffSec = Math.abs(targetDurationMs - effectiveDuration) / 1000L
                 when {
@@ -353,13 +361,13 @@ object UnifiedLyricsService {
         if (!res.originalLyrics.contains(TIMESTAMP_REGEX)) return false
         // 2. 必须具备双语翻译
         if (!res.isBilingual || res.translatedLyrics.isNullOrBlank()) return false
-        // 3. 歌曲物理时长对齐验证 (误差 <= 6s)
+        // 3. 歌曲物理时长对齐验证 (首选曲目真实元数据总时长 res.durationMs，误差 <= 8s)
         if (targetDurationMs > 0L) {
             val lyricLastTs = LyricSearchCleaner.extractLastTimestampMs(res.originalLyrics)
-            val effectiveDuration = if (lyricLastTs > 0L) lyricLastTs else res.durationMs
+            val effectiveDuration = if (res.durationMs > 0L) res.durationMs else lyricLastTs
             if (effectiveDuration > 0L) {
                 val diffSec = Math.abs(targetDurationMs - effectiveDuration) / 1000L
-                if (diffSec > 6L) return false
+                if (diffSec > 8L) return false
             }
         }
         // 4. 标题实质关键词核验（如果有提取到显著关键词，标题或歌词至少部分命中）

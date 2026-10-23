@@ -68,8 +68,9 @@ import kotlinx.coroutines.launch
  */
 @Stable
 class AppleMusicWaveState(lyricsCount: Int) {
-    var elapsedMs by mutableFloatStateOf(1400f)
-    var baseDurationMs by mutableFloatStateOf(680f)
+    var elapsedMs by mutableFloatStateOf(1600f)
+    var baseDurationMs by mutableFloatStateOf(720f)
+    var targetScrollDeltaPx by mutableFloatStateOf(0f)
     var actualScrolledPx by mutableFloatStateOf(0f)
     var baseProgress by mutableFloatStateOf(1f)
     val currentOffsetsPx = FloatArray(lyricsCount.coerceAtLeast(1))
@@ -82,25 +83,27 @@ class AppleMusicWaveState(lyricsCount: Int) {
     fun clearAll() {
         Arrays.fill(currentOffsetsPx, 0f)
         Arrays.fill(initialOffsetsPx, 0f)
+        targetScrollDeltaPx = 0f
         actualScrolledPx = 0f
         baseProgress = 1f
-        elapsedMs = 1400f
+        elapsedMs = 1600f
     }
 }
 
 /**
- * iOS CASpringAnimation 臨界阻尼質量彈簧曲線 (mass = 1.0, stiffness = 115, damping = 20)：
- * 從靜止平滑加速 (v0 = 0, omega = 4.8)，既無生硬突兀的初速度猛衝，又無遲滯死區，
- * 在 680ms 內呈現如液態雲台般溫潤、有份量感的起步與長尾絲滑收束。
+ * iOS CASpringAnimation C2 二階連續漸近收束質量彈簧曲線：
+ * - 起步階段 (t -> 0)：S(0) = 0, S'(0) = 0, S''(0) > 0，無突兀猛衝亦無卡頓死區；
+ * - 收尾階段 (t -> 1)：乘以二階平滑收束窗 (1 - t^2)^2，確保 S(1) = 1, S'(1) = 0, S''(1) = 0！
+ *   徹底消除傳統截斷彈簧在 t = 1 時殘餘 20% 速度撞牆驟停的「收尾生硬感」，實現羽毛般無感落位。
  */
 private fun appleMusicSpringCurve(u: Float): Float {
     val t = u.coerceIn(0f, 1f)
     if (t <= 0f) return 0f
     if (t >= 1f) return 1f
-    val omega = 4.8f
-    val raw = 1f - (1f + omega * t) * exp(-omega * t)
-    val endNorm = 1f - (1f + omega) * exp(-omega)
-    return (raw / endNorm).coerceIn(0f, 1f)
+    val omega = 4.0f
+    val oneMinusT2 = 1f - t * t
+    val tailWindow = oneMinusT2 * oneMinusT2
+    return (1f - (1f + omega * t) * exp(-omega * t) * tailWindow).coerceIn(0f, 1f)
 }
 
 /**
@@ -362,26 +365,27 @@ fun NowPlayingLyricsContent(
             return@LaunchedEffect
         }
 
-        // 根據相鄰歌詞行時間差自適應調校基礎滾動時長 (580ms ~ 700ms，溫潤從容、如液態雲台般優雅滑動)
+        // 根據相鄰歌詞行時間差自適應調校基礎滾動時長 (580ms ~ 750ms，留出充裕的羽毛級漸近收尾空間)
         val curStart = lyrics.getOrNull(targetIndex)?.startTimeMs ?: 0L
         val nextStart = lyrics.getOrNull(targetIndex + 1)?.startTimeMs ?: (curStart + 3000L)
         val lineDurationMs = (nextStart - curStart).coerceIn(300L, 4000L)
         val dynamicBaseDurationMs = when {
-            lineDurationMs < 650L -> 540f
-            lineDurationMs < 1300L -> 640f
-            else -> 700f
+            lineDurationMs < 650L -> 580f
+            lineDurationMs < 1300L -> 680f
+            else -> 750f
         }
 
         suspend fun runAppleMusicWaveScroll(scrollDelta: Float) {
             if (kotlin.math.abs(scrollDelta) <= 1.5f) return
             waveState.snapshotResiduals()
             waveState.baseDurationMs = dynamicBaseDurationMs
+            waveState.targetScrollDeltaPx = scrollDelta
             waveState.actualScrolledPx = 0f
             waveState.baseProgress = 0f
             waveState.elapsedMs = 0f
 
-            // 42ms 溫潤級聯時差：總時長涵蓋最後一行 (r = 5) 的起跑延遲 + 彈簧長尾收束
-            val totalWaveMs = dynamicBaseDurationMs + 5f * 42f + 160f
+            // 38ms 溫潤級聯時差：總時長涵蓋最後一行 (r = 5) 的起跑延遲 + 彈簧長尾收束
+            val totalWaveMs = dynamicBaseDurationMs + 5f * 38f + 160f
             var prevTargetScrollPx = 0f
             val waveAnim = Animatable(0f)
 
@@ -402,6 +406,10 @@ fun NowPlayingLyricsContent(
                     }
                     waveState.baseProgress = p0
                     waveState.elapsedMs = tMs
+                }
+                val remPx = scrollDelta - waveState.actualScrolledPx
+                if (kotlin.math.abs(remPx) > 0.05f) {
+                    waveState.actualScrolledPx += scrollBy(remPx)
                 }
             }
             waveState.clearAll()
@@ -693,36 +701,40 @@ fun LyricLineRow(
         else -> 4.5f
     }
 
-    // 4. 溫潤阻尼彈簧與 560ms CoreAnimation Ease-Out (從容優雅，消除過快彈跳感)
+    // 4. 亞像素級收尾阻尼彈簧與 620ms CoreAnimation 漸近長尾 (visibilityThreshold = 0.0002f 徹底消除收尾階段 0.01f 默認閾值跳變)
     val appleFocalSpringSpec = remember {
         spring<Float>(
-            dampingRatio = 0.92f,
-            stiffness = 120f
+            dampingRatio = 0.94f,
+            stiffness = 110f,
+            visibilityThreshold = 0.0002f
         )
     }
 
     val appleWarmEaseOutSpec = remember {
         tween<Float>(
-            durationMillis = 560,
-            easing = CubicBezierEasing(0.25f, 0.1f, 0.25f, 1.0f)
+            durationMillis = 620,
+            easing = CubicBezierEasing(0.22f, 0.08f, 0.12f, 1.0f)
         )
     }
 
     val animatedRowAlpha by animateFloatAsState(
         targetValue = targetRowAlpha,
         animationSpec = appleWarmEaseOutSpec,
+        visibilityThreshold = 0.0002f,
         label = "rowAlpha"
     )
 
     val animatedScale by animateFloatAsState(
         targetValue = targetScale,
         animationSpec = appleFocalSpringSpec,
+        visibilityThreshold = 0.0002f,
         label = "lineScale"
     )
 
     val animatedBlurDp by animateFloatAsState(
         targetValue = targetBlurDp,
         animationSpec = appleWarmEaseOutSpec,
+        visibilityThreshold = 0.0002f,
         label = "lineBokehBlur"
     )
 
@@ -783,40 +795,35 @@ fun LyricLineRow(
                 scaleY = animatedScale
                 alpha = animatedRowAlpha
 
-                // 计算 iOS Apple Music 温润多米诺时间差波浪位移 (42ms per row Staggered Domino Wave)
+                // 计算 iOS Apple Music 亚像素级丝滑多米诺时间差波浪位移 (38ms per row Staggered Domino Wave)
                 var dynamicWavePx = 0f
                 val ws = waveState
                 if (!isBrowsing && ws != null) {
                     val tMs = ws.elapsedMs
                     val baseDur = ws.baseDurationMs
+                    val targetDeltaPx = ws.targetScrollDeltaPx
                     val scrolledPx = ws.actualScrolledPx
-                    val p0 = ws.baseProgress
-                    val totalDur = baseDur + 5f * 42f + 160f
+                    val totalDur = baseDur + 5f * 38f + 160f
 
-                    if (tMs < totalDur && (kotlin.math.abs(scrolledPx) > 0.5f || lineIndex in ws.initialOffsetsPx.indices)) {
+                    if (tMs < totalDur && (kotlin.math.abs(targetDeltaPx) > 0.5f || lineIndex in ws.initialOffsetsPx.indices)) {
                         val delayMs: Float
                         val rowDurMs: Float
-                        if (scrolledPx >= 0f) {
+                        if (targetDeltaPx >= 0f) {
                             when {
-                                relativeOrder < 0 -> {
-                                    // 刚唱完的上一行：0ms 率先柔和上移
+                                relativeOrder <= 0 -> {
+                                    // 刚唱完的上一行与当前激活行：0ms 同步起跑，全程严格单调收束，绝不提前停顿或回拉
                                     delayMs = 0f
-                                    rowDurMs = baseDur * 0.92f
-                                }
-                                relativeOrder == 0 -> {
-                                    // 新激活的当前行：12ms 温润跟进滑入黄金焦点线
-                                    delayMs = 12f
                                     rowDurMs = baseDur
                                 }
                                 else -> {
-                                    // 下方待唱行 (r = 1..5)：每隔 42ms 依次从容起跑追赶，呈现丝绸般柔和的波浪跟随
-                                    delayMs = 12f + relativeOrder * 42f
-                                    rowDurMs = baseDur + relativeOrder * 24f
+                                    // 下方待唱行 (r = 1..5)：每隔 38ms 依次从容起跑追赶，呈现丝绸般柔和的波浪跟随
+                                    delayMs = relativeOrder * 38f
+                                    rowDurMs = baseDur + relativeOrder * 22f
                                 }
                             }
                         } else {
-                            delayMs = distance * 36f
-                            rowDurMs = baseDur + distance * 20f
+                            delayMs = distance * 32f
+                            rowDurMs = baseDur + distance * 18f
                         }
 
                         val ur = ((tMs - delayMs) / rowDurMs).coerceIn(0f, 1f)
@@ -825,8 +832,8 @@ fun LyricLineRow(
                         val initOffset = if (lineIndex in ws.initialOffsetsPx.indices) ws.initialOffsetsPx[lineIndex] else 0f
                         val residualY = initOffset * (1f - pr)
 
-                        val ratio = if (p0 > 0.0001f) (pr / p0).coerceIn(0f, 1.25f) else 0f
-                        val staggerLagY = scrolledPx * (1f - ratio)
+                        // 亚像素连续轨迹补偿：抵消 LazyColumn 尾段 1px 整数步进量化，使屏幕绝对位移严格等于 -targetDeltaPx * pr
+                        val staggerLagY = scrolledPx - targetDeltaPx * pr
 
                         dynamicWavePx = residualY + staggerLagY
                         if (lineIndex in ws.currentOffsetsPx.indices) {

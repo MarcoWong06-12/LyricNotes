@@ -14,6 +14,7 @@ import java.net.URLEncoder
 
 object QQMusicLyricsService {
 
+    private const val MUSICU_API = "https://u.y.qq.com/cgi-bin/musicu.fcg"
     private const val SEARCH_API = "https://c.y.qq.com/soso/fcgi-bin/client_search_cp"
     private const val LYRIC_API = "https://c.y.qq.com/lyric/fcgi-bin/fcg_query_lyric_new.fcg"
 
@@ -81,23 +82,19 @@ object QQMusicLyricsService {
 
     suspend fun searchRawCandidates(query: String, limit: Int = 8): List<com.linernotes.app.domain.model.LyricCandidateItem> = withContext(Dispatchers.IO) {
         try {
-            val encodedQuery = URLEncoder.encode(query, "UTF-8")
-            val searchUrl = "$SEARCH_API?p=1&n=$limit&w=$encodedQuery&format=json"
-            val searchJson = LinerNotesHttpClient.getAsync(searchUrl, SEARCH_HEADERS) ?: return@withContext emptyList()
-            val searchRoot = JSONObject(searchJson)
-            val songList = searchRoot.optJSONObject("data")?.optJSONObject("song")?.optJSONArray("list") ?: return@withContext emptyList()
+            val songList = searchSongList(query, limit) ?: return@withContext emptyList()
             val list = mutableListOf<com.linernotes.app.domain.model.LyricCandidateItem>()
             for (i in 0 until songList.length()) {
                 val s = songList.optJSONObject(i) ?: continue
-                val songmid = s.optString("songmid", "")
+                val songmid = s.optString("songmid").ifBlank { s.optString("mid", "") }
                 if (songmid.isBlank()) continue
-                val title = s.optString("songname", "")
+                val title = s.optString("songname").ifBlank { s.optString("name", "") }
                 val singers = s.optJSONArray("singer")
                 val artist = if (singers != null) {
                     (0 until singers.length()).mapNotNull { idx -> singers.optJSONObject(idx)?.optString("name") }.joinToString(", ")
                 } else ""
-                val album = s.optString("albumname", "")
-                val albummid = s.optString("albummid", "")
+                val album = s.optString("albumname").ifBlank { s.optJSONObject("album")?.optString("name", "") ?: "" }
+                val albummid = s.optString("albummid").ifBlank { s.optJSONObject("album")?.optString("mid", "") ?: "" }
                 val cover = if (albummid.isNotBlank()) "https://y.gtimg.cn/music/photo_new/T002R300x300M000${albummid}.jpg" else null
                 val durationMs = s.optLong("interval", 0L) * 1000L
                 list.add(
@@ -148,12 +145,14 @@ object QQMusicLyricsService {
         targetTitle: String,
         targetArtist: String
     ): OnlineLyricsResult? {
-        val songmid = targetSong.optString("songmid", "")
+        val songmid = targetSong.optString("songmid").ifBlank { targetSong.optString("mid", "") }
         if (songmid.isBlank()) return null
 
-        val matchedTitle = targetSong.optString("songname", targetTitle)
+        val matchedTitle = targetSong.optString("songname").ifBlank { targetSong.optString("name", targetTitle) }
         val matchedArtist = targetSong.optJSONArray("singer")?.optJSONObject(0)?.optString("name", targetArtist) ?: targetArtist
-        val albummid = targetSong.optString("albummid", "")
+        val albummid = targetSong.optString("albummid").ifBlank {
+            targetSong.optJSONObject("album")?.optString("mid", "") ?: ""
+        }
         val matchedCover = if (albummid.isNotBlank()) "https://y.gtimg.cn/music/photo_new/T002R300x300M000${albummid}.jpg" else null
         val matchedDuration = targetSong.optLong("interval", 0L) * 1000L
 
@@ -192,6 +191,46 @@ object QQMusicLyricsService {
         }
     }
 
+    private suspend fun searchSongList(query: String, limit: Int = 5): org.json.JSONArray? {
+        // 1. 优先采用 QQ 音乐新一代官方 RPC 网关 (u.y.qq.com/cgi-bin/musicu.fcg，5G 移动网络下 100% 穿透无 403)
+        try {
+            val reqParam = JSONObject()
+                .put("query", query)
+                .put("num_per_page", limit)
+                .put("page_num", 1)
+                .put("search_type", 0)
+            val reqObj = JSONObject()
+                .put("module", "music.search.SearchCgiService")
+                .put("method", "DoSearchForQQMusicDesktop")
+                .put("param", reqParam)
+            val rootReq = JSONObject().put("req", reqObj)
+            val json = LinerNotesHttpClient.postJson(MUSICU_API, rootReq.toString(), SEARCH_HEADERS)
+            if (!json.isNullOrBlank()) {
+                val list = JSONObject(json)
+                    .optJSONObject("req")
+                    ?.optJSONObject("data")
+                    ?.optJSONObject("body")
+                    ?.optJSONObject("song")
+                    ?.optJSONArray("list")
+                if (list != null && list.length() > 0) {
+                    return list
+                }
+            }
+        } catch (e: Exception) {
+            // 继续回退
+        }
+
+        // 2. 兼容回退至旧版 c.y.qq.com 端点
+        return try {
+            val encodedQuery = URLEncoder.encode(query, "UTF-8")
+            val searchUrl = "$SEARCH_API?p=1&n=$limit&w=$encodedQuery&format=json"
+            val searchJson = LinerNotesHttpClient.getAsync(searchUrl, SEARCH_HEADERS) ?: return null
+            JSONObject(searchJson).optJSONObject("data")?.optJSONObject("song")?.optJSONArray("list")
+        } catch (e: Exception) {
+            null
+        }
+    }
+
     private suspend fun searchAndFetch(
         query: String,
         targetTitle: String,
@@ -199,21 +238,14 @@ object QQMusicLyricsService {
         targetDurationMs: Long = 0L
     ): OnlineLyricsResult? {
         return try {
-            val encodedQuery = URLEncoder.encode(query, "UTF-8")
-            val searchUrl = "$SEARCH_API?p=1&n=5&w=$encodedQuery&format=json"
-            val searchJson = LinerNotesHttpClient.getAsync(searchUrl, SEARCH_HEADERS) ?: return null
-
-            val searchRoot = JSONObject(searchJson)
-            val dataObj = searchRoot.optJSONObject("data") ?: return null
-            val songObj = dataObj.optJSONObject("song") ?: return null
-            val songList = songObj.optJSONArray("list") ?: return null
+            val songList = searchSongList(query, limit = 5) ?: return null
             if (songList.length() == 0) return null
 
             val scoredList = mutableListOf<ScoredCandidate>()
 
             for (i in 0 until songList.length()) {
                 val s = songList.optJSONObject(i) ?: continue
-                val candTitle = s.optString("songname", "")
+                val candTitle = s.optString("songname").ifBlank { s.optString("name", "") }
                 val singers = s.optJSONArray("singer")
                 val candArtist = if (singers != null) {
                     (0 until singers.length()).mapNotNull { idx -> singers.optJSONObject(idx)?.optString("name") }.joinToString(", ")
