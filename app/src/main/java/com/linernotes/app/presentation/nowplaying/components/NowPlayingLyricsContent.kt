@@ -901,13 +901,6 @@ fun AppleMusicWordUnit(
     val density = LocalDensity.current
     // Apple Music 官方逆向 lyrics_karaoke_gradient_feather_width: 30dp
     val fadeWidth = remember(density) { with(density) { 30.dp.toPx() } }
-    val featherBrush = remember(fadeWidth) {
-        Brush.horizontalGradient(
-            listOf(Color.White, Color.Transparent),
-            startX = 0f,
-            endX = fadeWidth
-        )
-    }
 
     Box(contentAlignment = Alignment.TopStart) {
         Text(
@@ -949,23 +942,22 @@ fun AppleMusicWordUnit(
 
                     val progress = ((now - start).toFloat() / duration.toFloat()).coerceIn(0f, 1f)
                     val sweepX = size.width * progress
-                    val sweepLeft = (sweepX - fadeWidth * 0.4f).coerceAtLeast(0f)
+
+                    val brush = Brush.horizontalGradient(
+                        0f to Color.White,
+                        ((sweepX - fadeWidth * 0.4f) / size.width.coerceAtLeast(1f)).coerceIn(0f, 1f) to Color.White,
+                        ((sweepX + fadeWidth * 0.6f) / size.width.coerceAtLeast(1f)).coerceIn(0f, 1f) to Color.Transparent,
+                        1f to Color.Transparent,
+                        startX = 0f,
+                        endX = size.width
+                    )
 
                     drawContent()
-                    if (sweepLeft > 0f) {
-                        drawRect(
-                            color = Color.White,
-                            size = Size(sweepLeft, size.height),
-                            blendMode = BlendMode.DstIn
-                        )
-                    }
-                    translate(left = sweepLeft) {
-                        drawRect(
-                            brush = featherBrush,
-                            size = Size(fadeWidth, size.height),
-                            blendMode = BlendMode.DstIn
-                        )
-                    }
+                    drawRect(
+                        brush = brush,
+                        size = size,
+                        blendMode = BlendMode.DstIn
+                    )
                 }
         )
     }
