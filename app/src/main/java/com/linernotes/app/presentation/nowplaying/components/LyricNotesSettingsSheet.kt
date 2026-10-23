@@ -127,6 +127,9 @@ fun LyricNotesSettingsSheet(
             }
         }
     ) {
+        // 锁定 120Hz 高刷新率，消除弹窗滚动微卡顿
+        LockWindowRefreshRateEffect()
+
         Column(
             modifier = Modifier
                 .fillMaxWidth()
@@ -454,7 +457,19 @@ fun LyricNotesSettingsSheet(
 
             // 5. 桌面悬浮歌词设置 (Desktop Floating Lyrics)
             val isFloatingActive by FloatingLyricsService.isRunningFlow.collectAsState()
-            val isOverlayGranted = Settings.canDrawOverlays(context)
+            var isOverlayGranted by remember { mutableStateOf(Settings.canDrawOverlays(context)) }
+            val lifecycleOwner = androidx.lifecycle.compose.LocalLifecycleOwner.current
+            DisposableEffect(lifecycleOwner) {
+                val observer = androidx.lifecycle.LifecycleEventObserver { _, event ->
+                    if (event == androidx.lifecycle.Lifecycle.Event.ON_RESUME) {
+                        isOverlayGranted = Settings.canDrawOverlays(context)
+                    }
+                }
+                lifecycleOwner.lifecycle.addObserver(observer)
+                onDispose {
+                    lifecycleOwner.lifecycle.removeObserver(observer)
+                }
+            }
             val floatingPrefs = remember { FloatingLyricsPreferences.get(context) }
             val currentBgAlpha by floatingPrefs.backgroundAlphaFlow.collectAsState(initial = floatingPrefs.backgroundAlpha)
             val currentTextColor by floatingPrefs.textColorFlow.collectAsState(initial = floatingPrefs.textColor)
@@ -497,7 +512,9 @@ fun LyricNotesSettingsSheet(
                         checked = isFloatingActive,
                         onCheckedChange = { checked ->
                             if (checked) {
-                                if (Settings.canDrawOverlays(context)) {
+                                val granted = Settings.canDrawOverlays(context)
+                                isOverlayGranted = granted
+                                if (granted) {
                                     FloatingLyricsService.start(context)
                                 } else {
                                     FloatingLyricsService.requestOverlayPermission(context)

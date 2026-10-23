@@ -32,7 +32,7 @@ import com.linernotes.app.core.i18n.LocalStrings
 import com.linernotes.app.core.playback.QueueTrackItem
 import com.linernotes.app.core.playback.TrackPlaybackState
 import com.linernotes.app.core.util.SpotifyLauncher
-import com.linernotes.app.presentation.common.bouncyClickable
+import com.linernotes.app.presentation.common.*
 import com.linernotes.app.presentation.common.bouncyIconClickable
 import com.linernotes.app.presentation.common.bouncyItemClickable
 import kotlinx.coroutines.delay
@@ -97,6 +97,8 @@ fun NowPlayingQueueSheet(
             .fillMaxWidth()
             .fillMaxHeight(0.72f) // 核心：严格限制半屏 (72% 黄金高度，露出顶部在播封面)
     ) {
+        LockWindowRefreshRateEffect()
+
         Column(
             modifier = Modifier
                 .fillMaxSize()

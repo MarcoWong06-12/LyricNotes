@@ -36,7 +36,7 @@ import com.linernotes.app.core.i18n.LocalStrings
 import com.linernotes.app.core.util.ChineseConverter
 import com.linernotes.app.domain.model.LyricCandidateItem
 import com.linernotes.app.domain.model.LyricSource
-import com.linernotes.app.presentation.common.bouncyClickable
+import com.linernotes.app.presentation.common.*
 
 /**
  * 手动搜歌词与版本切换器抽屉
@@ -99,6 +99,8 @@ fun ManualLyricSearchSheet(
             }
         }
     ) {
+        LockWindowRefreshRateEffect()
+
         Column(
             modifier = Modifier
                 .fillMaxWidth()

@@ -20,6 +20,7 @@ import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import coil.compose.AsyncImage
@@ -41,10 +42,23 @@ fun NowPlayingSongStorySheet(
 
     val isDark = MaterialTheme.colorScheme.background.luminance() < 0.5f
     val isPureAmoled = isDark && isAmoledMode
-    val sheetBg = if (isPureAmoled) Color(0xFF0C0C0E) else (if (isDark) Color(0xFF13141B) else MaterialTheme.colorScheme.surface)
-    val sheetContent = if (isDark) Color.White else MaterialTheme.colorScheme.onSurface
-    val textSecondary = if (isDark) Color.White.copy(alpha = 0.60f) else MaterialTheme.colorScheme.onSurfaceVariant
-    val handleColor = if (isDark) Color.White.copy(alpha = 0.20f) else Color.Black.copy(alpha = 0.20f)
+
+    // Apple Editorial & Grouped Inset 配色体系
+    val sheetBg = if (isDark) {
+        if (isPureAmoled) Color.Black else Color(0xFF121214)
+    } else Color(0xFFF2F2F7)
+
+    val cardBg = if (isDark) {
+        if (isPureAmoled) Color(0xFF0C0C0E) else Color(0xFF1C1C1E)
+    } else Color.White
+
+    val cardBorder = if (isDark) {
+        if (isPureAmoled) Color(0xFF222226) else Color.White.copy(alpha = 0.08f)
+    } else Color.Black.copy(alpha = 0.05f)
+
+    val sheetContent = if (isDark) Color.White else Color(0xFF1C1C1E)
+    val textSecondary = if (isDark) Color.White.copy(alpha = 0.55f) else Color.Black.copy(alpha = 0.48f)
+    val handleColor = if (isDark) Color.White.copy(alpha = 0.22f) else Color.Black.copy(alpha = 0.18f)
     val strings = LocalStrings.current
 
     val displayTitle = remember(story.title, isTraditional) {
@@ -58,121 +72,180 @@ fun NowPlayingSongStorySheet(
         onDismissRequest = onDismiss,
         containerColor = sheetBg,
         contentColor = sheetContent,
+        tonalElevation = 0.dp,
         dragHandle = {
             Surface(
                 modifier = Modifier.padding(top = 12.dp, bottom = 8.dp),
                 color = handleColor,
                 shape = CircleShape
             ) {
-                Box(modifier = Modifier.size(width = 38.dp, height = 4.5.dp))
+                Box(modifier = Modifier.size(width = 36.dp, height = 4.5.dp))
             }
         },
         shape = RoundedCornerShape(topStart = 28.dp, topEnd = 28.dp)
     ) {
+        // 锁定 120Hz 高刷新率，消除弹窗滚动微卡顿
+        LockWindowRefreshRateEffect()
+
         Column(
             modifier = Modifier
                 .fillMaxWidth()
                 .fillMaxHeight(0.88f)
                 .padding(horizontal = 20.dp)
-                .padding(bottom = 28.dp)
-                .verticalScroll(rememberScrollState())
+                .padding(bottom = 32.dp)
+                .verticalScroll(rememberScrollState()),
+            verticalArrangement = Arrangement.spacedBy(18.dp)
         ) {
+            // 1. 顶部杂志标题区 (Editorial Header)
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically
+                verticalAlignment = Alignment.Top
             ) {
-                Column(modifier = Modifier.weight(1f)) {
-                    Text(
-                        text = "BEHIND THE SONG",
-                        color = Color(0xFF1DB954),
-                        fontSize = 11.5.sp,
-                        fontWeight = FontWeight.Bold,
-                        letterSpacing = 1.2.sp,
-                        fontFamily = FontFamily.SansSerif
-                    )
-                    Spacer(modifier = Modifier.height(2.dp))
+                Column(modifier = Modifier.weight(1f).padding(end = 12.dp)) {
+                    Surface(
+                        color = if (isDark) Color(0xFFFFB300).copy(alpha = 0.15f) else Color(0xFFF59E0B).copy(alpha = 0.12f),
+                        shape = RoundedCornerShape(6.dp)
+                    ) {
+                        Text(
+                            text = "BEHIND THE SONG",
+                            color = if (isDark) Color(0xFFFFCA28) else Color(0xFFD97706),
+                            fontSize = 11.sp,
+                            fontWeight = FontWeight.Bold,
+                            letterSpacing = 1.1.sp,
+                            fontFamily = FontFamily.SansSerif,
+                            modifier = Modifier.padding(horizontal = 7.dp, vertical = 2.5.dp)
+                        )
+                    }
+                    Spacer(modifier = Modifier.height(6.dp))
                     Text(
                         text = displayTitle,
                         color = sheetContent,
-                        fontSize = 18.sp,
+                        fontSize = 20.sp,
                         fontWeight = FontWeight.Bold,
-                        fontFamily = FontFamily.SansSerif
+                        fontFamily = FontFamily.SansSerif,
+                        lineHeight = 26.sp
                     )
+                    Spacer(modifier = Modifier.height(2.dp))
                     Text(
                         text = displayArtist,
                         color = textSecondary,
-                        fontSize = 13.sp,
+                        fontSize = 13.5.sp,
                         fontFamily = FontFamily.SansSerif
                     )
                 }
 
                 Surface(
-                    color = if (isDark) Color.White.copy(alpha = 0.08f) else Color.Black.copy(alpha = 0.06f),
+                    color = if (isDark) Color.White.copy(alpha = 0.10f) else Color.Black.copy(alpha = 0.06f),
                     shape = CircleShape,
                     modifier = Modifier
-                        .size(34.dp)
+                        .size(32.dp)
                         .bouncyIconClickable(onClick = onDismiss)
                 ) {
                     Box(contentAlignment = Alignment.Center) {
                         Icon(
                             imageVector = Icons.Default.Close,
                             contentDescription = strings.closeBtn,
-                            tint = if (isDark) Color.White.copy(alpha = 0.8f) else MaterialTheme.colorScheme.onSurface,
+                            tint = if (isDark) Color.White.copy(alpha = 0.85f) else Color.Black.copy(alpha = 0.75f),
                             modifier = Modifier.size(17.dp)
                         )
                     }
                 }
             }
 
+            // 2. 专辑/单曲封面海报 (Hero Visual)
             if (!story.headerImageUrl.isNullOrBlank()) {
-                Spacer(modifier = Modifier.height(14.dp))
-                AsyncImage(
-                    model = story.headerImageUrl,
-                    contentDescription = null,
-                    contentScale = ContentScale.Crop,
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .height(160.dp)
-                        .clip(RoundedCornerShape(16.dp))
-                        .background(if (isDark) Color.White.copy(alpha = 0.05f) else MaterialTheme.colorScheme.surfaceVariant)
-                )
+                Surface(
+                    shape = RoundedCornerShape(16.dp),
+                    border = BorderStroke(0.5.dp, cardBorder),
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    AsyncImage(
+                        model = story.headerImageUrl,
+                        contentDescription = null,
+                        contentScale = ContentScale.Crop,
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(180.dp)
+                            .clip(RoundedCornerShape(16.dp))
+                            .background(if (isDark) Color.White.copy(alpha = 0.05f) else MaterialTheme.colorScheme.surfaceVariant)
+                    )
+                }
             }
 
-            if (!story.releaseDate.isNullOrBlank() || !story.producerCredits.isNullOrBlank()) {
-                Spacer(modifier = Modifier.height(14.dp))
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.spacedBy(16.dp)
+            // 3. 发行信息与制作人员 (Apple Grouped Inset Metadata Card)
+            val hasReleaseDate = !story.releaseDate.isNullOrBlank()
+            val hasProducer = !story.producerCredits.isNullOrBlank()
+            if (hasReleaseDate || hasProducer) {
+                Surface(
+                    color = cardBg,
+                    shape = RoundedCornerShape(16.dp),
+                    border = BorderStroke(0.5.dp, cardBorder),
+                    modifier = Modifier.fillMaxWidth()
                 ) {
-                    story.releaseDate?.takeIf { it.isNotBlank() }?.let { date ->
-                        Column {
-                            Text(strings.releaseDateLabel, color = textSecondary, fontSize = 11.sp, fontFamily = FontFamily.SansSerif)
-                            Text(date, color = sheetContent, fontSize = 12.5.sp, fontWeight = FontWeight.Medium, fontFamily = FontFamily.SansSerif)
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(horizontal = 16.dp, vertical = 13.dp),
+                        horizontalArrangement = Arrangement.spacedBy(20.dp)
+                    ) {
+                        story.releaseDate?.takeIf { it.isNotBlank() }?.let { date ->
+                            Column(modifier = Modifier.weight(1f, fill = false)) {
+                                Text(
+                                    text = strings.releaseDateLabel.uppercase(),
+                                    color = textSecondary,
+                                    fontSize = 11.sp,
+                                    fontWeight = FontWeight.Medium,
+                                    letterSpacing = 0.6.sp,
+                                    fontFamily = FontFamily.SansSerif
+                                )
+                                Spacer(modifier = Modifier.height(2.5.dp))
+                                Text(
+                                    text = date,
+                                    color = sheetContent,
+                                    fontSize = 13.5.sp,
+                                    fontWeight = FontWeight.SemiBold,
+                                    fontFamily = FontFamily.SansSerif
+                                )
+                            }
                         }
-                    }
-                    story.producerCredits?.takeIf { it.isNotBlank() }?.let { prod ->
-                        val displayProd = if (isTraditional) com.linernotes.app.core.util.ChineseConverter.toTraditional(prod) else prod
-                        Column {
-                            Text(strings.producerLabel, color = textSecondary, fontSize = 11.sp, fontFamily = FontFamily.SansSerif)
-                            Text(displayProd, color = sheetContent, fontSize = 12.5.sp, fontWeight = FontWeight.Medium, fontFamily = FontFamily.SansSerif)
+                        story.producerCredits?.takeIf { it.isNotBlank() }?.let { prod ->
+                            val displayProd = if (isTraditional) com.linernotes.app.core.util.ChineseConverter.toTraditional(prod) else prod
+                            Column(modifier = Modifier.weight(2f, fill = false)) {
+                                Text(
+                                    text = strings.producerLabel.uppercase(),
+                                    color = textSecondary,
+                                    fontSize = 11.sp,
+                                    fontWeight = FontWeight.Medium,
+                                    letterSpacing = 0.6.sp,
+                                    fontFamily = FontFamily.SansSerif
+                                )
+                                Spacer(modifier = Modifier.height(2.5.dp))
+                                Text(
+                                    text = displayProd,
+                                    color = sheetContent,
+                                    fontSize = 13.5.sp,
+                                    fontWeight = FontWeight.SemiBold,
+                                    fontFamily = FontFamily.SansSerif,
+                                    maxLines = 2,
+                                    overflow = TextOverflow.Ellipsis
+                                )
+                            }
                         }
                     }
                 }
             }
 
-            Spacer(modifier = Modifier.height(18.dp))
-
+            // 4. 深度考据内容区 (Editorial In-depth Section)
             Text(
                 text = strings.songStoryDepthAnalysis,
                 color = sheetContent,
-                fontSize = 15.sp,
+                fontSize = 16.sp,
                 fontWeight = FontWeight.Bold,
                 fontFamily = FontFamily.SansSerif
             )
-            Spacer(modifier = Modifier.height(12.dp))
 
-            // 精准句对句/段对段双语对照视图
+            // 精准期刊级段落双语对照视图
             BilingualContentView(
                 originalText = story.descriptionPlain,
                 translatedText = story.descriptionTranslation,

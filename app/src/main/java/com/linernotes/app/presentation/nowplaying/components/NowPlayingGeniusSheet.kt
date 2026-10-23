@@ -66,6 +66,8 @@ fun NowPlayingGeniusSheet(
         },
         shape = RoundedCornerShape(topStart = 28.dp, topEnd = 28.dp)
     ) {
+        LockWindowRefreshRateEffect()
+
         Column(
             modifier = Modifier
                 .fillMaxWidth()
