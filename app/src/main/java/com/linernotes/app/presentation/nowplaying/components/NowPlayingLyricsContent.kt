@@ -501,7 +501,7 @@ fun NowPlayingLyricsContent(
         ) {
             itemsIndexed(
                 items = lyrics,
-                key = { index, line -> line.startTimeMs ?: index.toLong() }
+                key = { index, line -> "${index}_${line.startTimeMs ?: -1L}" }
             ) { index, line ->
                 val isActive = (index == currentLineIndex)
                 val isFocal = (index == focalIndex)

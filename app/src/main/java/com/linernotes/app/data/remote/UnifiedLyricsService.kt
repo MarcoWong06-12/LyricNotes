@@ -147,14 +147,16 @@ object UnifiedLyricsService {
         if (candidates.isEmpty()) {
             // 若首轮并发竞速受冷启动握手或多源并发网络抢占未果，以 3500ms 紧凑超时窗口并发执行补抓，彻底杜绝 28s 串行长延时
             val directFallback = withTimeoutOrNull(3500L) {
-                val fNetease = async { NetEaseLyricsService.fetchLyrics(trackTitle, artistName, targetDurationMs) }
-                val fQq = async { QQMusicLyricsService.fetchLyrics(trackTitle, artistName, targetDurationMs) }
-                val fKugou = async { KugouLyricsService.fetchLyrics(trackTitle, artistName, targetDurationMs) }
-                val fLrclib = async { LrclibLyricsService.fetchLyrics(trackTitle, artistName, targetDurationMs) }
+                supervisorScope {
+                    val fNetease = async { NetEaseLyricsService.fetchLyrics(trackTitle, artistName, targetDurationMs) }
+                    val fQq = async { QQMusicLyricsService.fetchLyrics(trackTitle, artistName, targetDurationMs) }
+                    val fKugou = async { KugouLyricsService.fetchLyrics(trackTitle, artistName, targetDurationMs) }
+                    val fLrclib = async { LrclibLyricsService.fetchLyrics(trackTitle, artistName, targetDurationMs) }
 
-                val fbCandidates = listOf(fNetease, fQq, fKugou, fLrclib)
-                fbCandidates.mapNotNull { runCatching { it.await() }.getOrNull() }
-                    .firstOrNull { it.originalLyrics.isNotBlank() }
+                    val fbCandidates = listOf(fNetease, fQq, fKugou, fLrclib)
+                    fbCandidates.mapNotNull { runCatching { it.await() }.getOrNull() }
+                        .firstOrNull { it.originalLyrics.isNotBlank() }
+                }
             }
 
             if (directFallback != null && directFallback.originalLyrics.isNotBlank()) {

@@ -59,7 +59,11 @@ class NowPlayingRepository @Inject constructor(
     private val floatingPreferences: FloatingLyricsPreferences
 ) {
 
-    private val repositoryScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
+    private val repositoryScope = CoroutineScope(
+        SupervisorJob() + Dispatchers.IO + CoroutineExceptionHandler { _, throwable ->
+            throwable.printStackTrace()
+        }
+    )
 
     private val _nowPlayingData = MutableStateFlow(NowPlayingData())
     val nowPlayingData: StateFlow<NowPlayingData> = _nowPlayingData.asStateFlow()
