@@ -32,27 +32,6 @@ class MainActivity : ComponentActivity() {
             }
         }
         enableEdgeToEdge()
-
-        // 锁定全局 120Hz / 屏幕最高硬件刷新率，彻底消除抽屉与复杂列表的微卡顿
-        try {
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
-                @Suppress("DEPRECATION")
-                val disp = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
-                    display ?: window.windowManager?.defaultDisplay
-                } else {
-                    window.windowManager?.defaultDisplay
-                }
-                val maxMode = disp?.supportedModes?.maxByOrNull { it.refreshRate }
-                window.attributes = window.attributes.apply {
-                    preferredRefreshRate = maxMode?.refreshRate?.takeIf { it > 0f } ?: 120f
-                    if (maxMode != null) {
-                        preferredDisplayModeId = maxMode.modeId
-                    }
-                }
-            }
-        } catch (e: Exception) {
-            // ignore
-        }
         setContent {
             val appLanguageCode by aiPreferences.appLanguageFlow.collectAsState()
             val themeModeCode by aiPreferences.themeModeFlow.collectAsState()
