@@ -60,6 +60,7 @@ import kotlin.math.exp
 import kotlin.math.roundToInt
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 
 private const val MAX_DOMINO_FORWARD_ROWS = 8
