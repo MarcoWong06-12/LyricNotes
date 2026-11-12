@@ -39,20 +39,10 @@ jobs:
               clean=$(echo "$line" | tr -d '\r')
               [ -n "$clean" ] && echo "::error title=FailedTest::$clean"
             done
-            python3 - <<'PY' || true
-import glob, xml.etree.ElementTree as ET
-for path in sorted(glob.glob("app/build/test-results/testDebugUnitTest/TEST-*.xml")):
-    try:
-        root = ET.parse(path).getroot()
-        for tc in root.findall("testcase"):
-            for tag in ("failure", "error"):
-                el = tc.find(tag)
-                if el is not None:
-                    msg = (el.attrib.get("message") or el.text or "").replace("\n", " | ")[:300]
-                    print(f"::error title=UnitTest::{tc.attrib.get('classname')}.{tc.attrib.get('name')} -> {msg}")
-    except Exception as ex:
-        print(f"::warning::Failed parsing {path}: {ex}")
-PY
+            grep -n -B 1 -A 2 -E "<(failure|error)" app/build/test-results/testDebugUnitTest/TEST-*.xml 2>/dev/null | head -n 30 | while IFS= read -r line; do
+              clean=$(echo "$line" | tr -d '\r')
+              [ -n "$clean" ] && echo "::error title=UnitTest::$clean"
+            done
             grep -E "(What went wrong:|Caused by:|WARNING:|Missing class)" build.log | head -n 20 | while IFS= read -r line; do
               clean=$(echo "$line" | tr -d '\r')
               [ -n "$clean" ] && echo "::error title=GradleFailure::$clean"
