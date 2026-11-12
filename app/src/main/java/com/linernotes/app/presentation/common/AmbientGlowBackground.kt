@@ -207,7 +207,7 @@ fun AmbientGlowBackground(
             label = "orb4Y"
         )
 
-        val effectiveDark = isDark || isDynamicAurora
+        val effectiveDark = isDark
         val orb1Colors = remember(animatedPrimary, animatedTertiary, effectiveDark) {
             listOf(
                 animatedPrimary.copy(alpha = if (effectiveDark) 0.68f else 0.45f),

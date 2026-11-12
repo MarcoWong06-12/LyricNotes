@@ -31,9 +31,12 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.linernotes.app.core.playback.PlaybackClockState
 import com.linernotes.app.core.playback.TrackPlaybackState
 import com.linernotes.app.presentation.common.bouncyIconClickable
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 
@@ -46,6 +49,7 @@ import kotlinx.coroutines.launch
 @Composable
 fun NowPlayingFloatingGlassPlayer(
     trackState: TrackPlaybackState,
+    playbackClockFlow: StateFlow<PlaybackClockState>,
     isTraditional: Boolean,
     isDark: Boolean,
     isAmoledMode: Boolean = false,
@@ -68,9 +72,10 @@ fun NowPlayingFloatingGlassPlayer(
             .navigationBarsPadding()
             .padding(horizontal = 24.dp, vertical = 6.dp)
     ) {
-        // 1. 顶部声学进度轨 (全宽极简流线，透明融入背景，左已播放时间 / 右倒计时剩余时间)
-        PlayerProgressSection(
-            trackState = trackState,
+        // 1. 顶部声学进度轨 (隔离收集高频时钟流，进度心跳与 Seek 仅局部重组本进度条)
+        PlayerProgressSlot(
+            baseTrackState = trackState,
+            playbackClockFlow = playbackClockFlow,
             isDark = isDark,
             onPlayerTextSec = onPlayerTextSec,
             onSeekTo = onSeekTo,
@@ -288,6 +293,33 @@ fun NowPlayingFloatingGlassPlayer(
             }
         }
     }
+}
+
+@Composable
+private fun PlayerProgressSlot(
+    baseTrackState: TrackPlaybackState,
+    playbackClockFlow: StateFlow<PlaybackClockState>,
+    isDark: Boolean,
+    onPlayerTextSec: Color,
+    onSeekTo: (Long) -> Unit,
+    modifier: Modifier = Modifier
+) {
+    val clock by playbackClockFlow.collectAsStateWithLifecycle()
+    val progressTrackState = remember(baseTrackState, clock) {
+        baseTrackState.copy(
+            isPlaying = clock.isPlaying,
+            currentPositionMs = clock.currentPositionMs,
+            durationMs = clock.durationMs,
+            lastPositionUpdateTimeMs = clock.lastPositionUpdateTimeMs
+        )
+    }
+    PlayerProgressSection(
+        trackState = progressTrackState,
+        isDark = isDark,
+        onPlayerTextSec = onPlayerTextSec,
+        onSeekTo = onSeekTo,
+        modifier = modifier
+    )
 }
 
 @Composable

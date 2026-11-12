@@ -77,8 +77,13 @@ fun LinerNotesTheme(
             val window = (view.context as? Activity)?.window
             if (window != null) {
                 val insetsController = WindowCompat.getInsetsController(window, view)
-                insetsController.isAppearanceLightStatusBars = !darkTheme
-                insetsController.isAppearanceLightNavigationBars = !darkTheme
+                val expectLight = !darkTheme
+                if (insetsController.isAppearanceLightStatusBars != expectLight) {
+                    insetsController.isAppearanceLightStatusBars = expectLight
+                }
+                if (insetsController.isAppearanceLightNavigationBars != expectLight) {
+                    insetsController.isAppearanceLightNavigationBars = expectLight
+                }
             }
         }
     }

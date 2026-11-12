@@ -4,16 +4,21 @@ import androidx.compose.runtime.Immutable
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.linernotes.app.core.lyric.AiAnnotationCurator
+import com.linernotes.app.core.playback.PlaybackClockState
 import com.linernotes.app.core.playback.QueueTrackItem
+import com.linernotes.app.core.playback.TrackMetadataState
 import com.linernotes.app.core.preference.AiPreferences
 import com.linernotes.app.data.local.entity.LyricAnnotationEntity
 import com.linernotes.app.data.local.entity.SongStoryEntity
-import com.linernotes.app.data.repository.NowPlayingData
+import com.linernotes.app.data.repository.LyricsContentState
 import com.linernotes.app.data.repository.NowPlayingRepository
 import dagger.hilt.android.lifecycle.HiltViewModel
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import javax.inject.Inject
@@ -26,7 +31,9 @@ enum class FuriganaDisplayMode {
 
 @Immutable
 data class NowPlayingUiState(
-    val nowPlayingData: NowPlayingData = NowPlayingData(),
+    val trackMetadata: TrackMetadataState = TrackMetadataState(),
+    val isPlaying: Boolean = false,
+    val lyricsContent: LyricsContentState = LyricsContentState(),
     val selectedAnnotation: LyricAnnotationEntity? = null,
     val isGeniusSheetOpen: Boolean = false,
     val isSongStorySheetOpen: Boolean = false,
@@ -80,19 +87,41 @@ class NowPlayingViewModel @Inject constructor(
     )
     val uiState: StateFlow<NowPlayingUiState> = _uiState.asStateFlow()
 
+    val playbackClockFlow: StateFlow<PlaybackClockState> = nowPlayingRepository.playbackClockFlow
+    val currentLineIndexFlow: StateFlow<Int> = nowPlayingRepository.currentLineIndexFlow
+    val notificationAccessGrantedFlow: StateFlow<Boolean> = nowPlayingRepository.notificationAccessGrantedFlow
+
+    private var annotationTransJob: Job? = null
+    private var songStoryTransJob: Job? = null
+
     init {
         viewModelScope.launch {
-            nowPlayingRepository.nowPlayingData.collect { data ->
+            nowPlayingRepository.trackMetadataFlow.collect { metadata ->
+                _uiState.update { it.copy(trackMetadata = metadata) }
+            }
+        }
+
+        viewModelScope.launch {
+            nowPlayingRepository.playbackClockFlow
+                .map { it.isPlaying }
+                .distinctUntilChanged()
+                .collect { playing ->
+                    _uiState.update { it.copy(isPlaying = playing) }
+                }
+        }
+
+        viewModelScope.launch {
+            nowPlayingRepository.lyricsContentFlow.collect { content ->
                 _uiState.update { current ->
                     val updatedSelected = if (current.selectedAnnotation != null) {
-                        data.annotatedLines.values.find {
+                        content.annotatedLines.values.find {
                             (it.id > 0L && it.id == current.selectedAnnotation.id) ||
                             (it.lyricFragment == current.selectedAnnotation.lyricFragment && it.explanationText == current.selectedAnnotation.explanationText)
                         } ?: current.selectedAnnotation
                     } else null
 
                     current.copy(
-                        nowPlayingData = data,
+                        lyricsContent = content,
                         selectedAnnotation = updatedSelected
                     )
                 }
@@ -296,10 +325,10 @@ class NowPlayingViewModel @Inject constructor(
     }
 
     fun reloadLyrics() {
-        val state = _uiState.value.nowPlayingData.playbackState
+        val state = _uiState.value.trackMetadata
         if (state.hasValidTrack) {
             val songKey = "${state.artist.trim().lowercase()} - ${state.title.trim().lowercase()}"
-            nowPlayingRepository.forceReloadLyrics(state.title, state.artist, songKey)
+            nowPlayingRepository.forceReloadLyrics(state.title, state.artist, songKey, state.trackEpoch)
         }
     }
 
@@ -309,9 +338,9 @@ class NowPlayingViewModel @Inject constructor(
         val cleanOrig = original.trim()
         val cleanTrans = translation.trim()
         if (cleanOrig.equals(cleanTrans, ignoreCase = true)) return true
-        if (!Regex("""[\u4e00-\u9fa5]""").containsMatchIn(cleanTrans)) return true
-        val origParas = cleanOrig.split(Regex("""(?:\r?\n\s*){2,}""")).filter { it.isNotBlank() }
-        val transParas = cleanTrans.split(Regex("""(?:\r?\n\s*){2,}""")).filter { it.isNotBlank() }
+        if (!CJK_REGEX.containsMatchIn(cleanTrans)) return true
+        val origParas = cleanOrig.split(PARA_SPLIT_REGEX).filter { it.isNotBlank() }
+        val transParas = cleanTrans.split(PARA_SPLIT_REGEX).filter { it.isNotBlank() }
         if (origParas.size > 1 && transParas.size < origParas.size) return true
 
         // 检查末尾段落是否疑似被截断吞句 (例如原文长段但译文畸短如“这条线”、“但这并不是全部”)
@@ -325,6 +354,7 @@ class NowPlayingViewModel @Inject constructor(
     }
 
     fun openGeniusAnnotation(annotation: LyricAnnotationEntity) {
+        annotationTransJob?.cancel()
         val needsExplanationTrans = isTranslationNeeded(annotation.explanationText, annotation.explanationTranslation)
         val needsLyricTrans = annotation.lyricTranslation.isNullOrBlank() && !AiAnnotationCurator.isAlreadyChinese(annotation.lyricFragment)
         val needsTrans = needsExplanationTrans || needsLyricTrans
@@ -338,21 +368,31 @@ class NowPlayingViewModel @Inject constructor(
         }
 
         if (needsTrans) {
-            viewModelScope.launch {
+            annotationTransJob = viewModelScope.launch {
                 try {
                     val updated = nowPlayingRepository.translateSingleAnnotation(annotation)
                     _uiState.update { cur ->
-                        if (cur.selectedAnnotation?.lyricFragment == annotation.lyricFragment) {
+                        if (cur.selectedAnnotation?.lyricFragment == annotation.lyricFragment &&
+                            cur.selectedAnnotation.explanationText == annotation.explanationText
+                        ) {
                             cur.copy(
                                 selectedAnnotation = updated,
                                 isAnnotationTranslating = false
                             )
                         } else {
-                            cur.copy(isAnnotationTranslating = false)
+                            cur
                         }
                     }
-                } catch (e: Exception) {
-                    _uiState.update { it.copy(isAnnotationTranslating = false) }
+                } catch (_: Exception) {
+                    _uiState.update { cur ->
+                        if (cur.selectedAnnotation?.lyricFragment == annotation.lyricFragment &&
+                            cur.selectedAnnotation.explanationText == annotation.explanationText
+                        ) {
+                            cur.copy(isAnnotationTranslating = false)
+                        } else {
+                            cur
+                        }
+                    }
                 }
             }
         }
@@ -360,27 +400,39 @@ class NowPlayingViewModel @Inject constructor(
 
     fun retryAnnotationTranslation() {
         val current = _uiState.value.selectedAnnotation ?: return
+        annotationTransJob?.cancel()
         _uiState.update { it.copy(isAnnotationTranslating = true) }
-        viewModelScope.launch {
+        annotationTransJob = viewModelScope.launch {
             try {
                 val updated = nowPlayingRepository.translateSingleAnnotation(current)
                 _uiState.update { cur ->
-                    if (cur.selectedAnnotation?.lyricFragment == current.lyricFragment) {
+                    if (cur.selectedAnnotation?.lyricFragment == current.lyricFragment &&
+                        cur.selectedAnnotation.explanationText == current.explanationText
+                    ) {
                         cur.copy(
                             selectedAnnotation = updated,
                             isAnnotationTranslating = false
                         )
                     } else {
-                        cur.copy(isAnnotationTranslating = false)
+                        cur
                     }
                 }
-            } catch (e: Exception) {
-                _uiState.update { it.copy(isAnnotationTranslating = false) }
+            } catch (_: Exception) {
+                _uiState.update { cur ->
+                    if (cur.selectedAnnotation?.lyricFragment == current.lyricFragment &&
+                        cur.selectedAnnotation.explanationText == current.explanationText
+                    ) {
+                        cur.copy(isAnnotationTranslating = false)
+                    } else {
+                        cur
+                    }
+                }
             }
         }
     }
 
     fun closeGeniusSheet() {
+        annotationTransJob?.cancel()
         _uiState.update {
             it.copy(
                 selectedAnnotation = null,
@@ -391,7 +443,10 @@ class NowPlayingViewModel @Inject constructor(
     }
 
     fun openSongStory() {
-        val story = _uiState.value.nowPlayingData.songStory
+        songStoryTransJob?.cancel()
+        val content = _uiState.value.lyricsContent
+        val story = content.songStory
+        val targetEpoch = content.trackEpoch
         val needsTrans = story != null && isTranslationNeeded(story.descriptionPlain, story.descriptionTranslation)
 
         _uiState.update {
@@ -402,31 +457,45 @@ class NowPlayingViewModel @Inject constructor(
         }
 
         if (needsTrans && story != null) {
-            viewModelScope.launch {
+            songStoryTransJob = viewModelScope.launch {
                 try {
                     nowPlayingRepository.translateCurrentStory(story)
-                    _uiState.update { it.copy(isSongStoryTranslating = false) }
-                } catch (e: Exception) {
-                    _uiState.update { it.copy(isSongStoryTranslating = false) }
+                } finally {
+                    _uiState.update { cur ->
+                        if (cur.lyricsContent.trackEpoch == targetEpoch) {
+                            cur.copy(isSongStoryTranslating = false)
+                        } else {
+                            cur
+                        }
+                    }
                 }
             }
         }
     }
 
     fun retrySongStoryTranslation() {
-        val story = _uiState.value.nowPlayingData.songStory ?: return
+        songStoryTransJob?.cancel()
+        val content = _uiState.value.lyricsContent
+        val story = content.songStory ?: return
+        val targetEpoch = content.trackEpoch
         _uiState.update { it.copy(isSongStoryTranslating = true) }
-        viewModelScope.launch {
+        songStoryTransJob = viewModelScope.launch {
             try {
                 nowPlayingRepository.translateCurrentStory(story)
-                _uiState.update { it.copy(isSongStoryTranslating = false) }
-            } catch (e: Exception) {
-                _uiState.update { it.copy(isSongStoryTranslating = false) }
+            } finally {
+                _uiState.update { cur ->
+                    if (cur.lyricsContent.trackEpoch == targetEpoch) {
+                        cur.copy(isSongStoryTranslating = false)
+                    } else {
+                        cur
+                    }
+                }
             }
         }
     }
 
     fun closeSongStory() {
+        songStoryTransJob?.cancel()
         _uiState.update {
             it.copy(
                 isSongStorySheetOpen = false,
@@ -454,7 +523,7 @@ class NowPlayingViewModel @Inject constructor(
     private var candidateSearchJob: kotlinx.coroutines.Job? = null
 
     fun openManualSearchSheet() {
-        val curTrack = _uiState.value.nowPlayingData.playbackState
+        val curTrack = _uiState.value.trackMetadata
         val defaultQuery = "${curTrack.title} ${curTrack.artist}".trim()
         val hasBinding = nowPlayingRepository.hasManualBinding(curTrack.title, curTrack.artist)
         _uiState.update {
@@ -509,7 +578,8 @@ class NowPlayingViewModel @Inject constructor(
     }
 
     fun selectCandidate(candidate: com.linernotes.app.domain.model.LyricCandidateItem) {
-        val curTrack = _uiState.value.nowPlayingData.playbackState
+        if (_uiState.value.isApplyingCandidate) return
+        val curTrack = _uiState.value.trackMetadata
         _uiState.update { it.copy(isApplyingCandidate = true) }
         viewModelScope.launch {
             val success = nowPlayingRepository.applyManualCandidate(
@@ -521,7 +591,7 @@ class NowPlayingViewModel @Inject constructor(
                 it.copy(
                     isApplyingCandidate = false,
                     isManualSearchSheetOpen = false,
-                    hasManualBinding = true,
+                    hasManualBinding = success || it.hasManualBinding,
                     userMessage = if (success) "已切换并绑定该版本歌词" else "获取该版本歌词失败"
                 )
             }
@@ -529,7 +599,7 @@ class NowPlayingViewModel @Inject constructor(
     }
 
     fun resetToAutoMatch() {
-        val curTrack = _uiState.value.nowPlayingData.playbackState
+        val curTrack = _uiState.value.trackMetadata
         viewModelScope.launch {
             nowPlayingRepository.resetManualLyricBinding(curTrack.title, curTrack.artist)
             _uiState.update {
@@ -542,7 +612,7 @@ class NowPlayingViewModel @Inject constructor(
         }
     }
 
-    private var sleepTimerJob: kotlinx.coroutines.Job? = null
+    private var sleepTimerJob: Job? = null
 
     fun setSleepTimer(minutes: Int) {
         sleepTimerJob?.cancel()
@@ -558,7 +628,7 @@ class NowPlayingViewModel @Inject constructor(
                 remaining--
                 _uiState.update { it.copy(sleepTimerMinutesLeft = remaining) }
             }
-            if (_uiState.value.nowPlayingData.playbackState.isPlaying) {
+            if (nowPlayingRepository.playbackClockFlow.value.isPlaying) {
                 nowPlayingRepository.pause()
             }
             _uiState.update { it.copy(sleepTimerMinutesLeft = 0) }
@@ -569,6 +639,11 @@ class NowPlayingViewModel @Inject constructor(
         sleepTimerJob?.cancel()
         sleepTimerJob = null
         _uiState.update { it.copy(sleepTimerMinutesLeft = 0) }
+    }
+
+    companion object {
+        private val CJK_REGEX = Regex("""[\u4e00-\u9fa5]""")
+        private val PARA_SPLIT_REGEX = Regex("""(?:\r?\n\s*){2,}""")
     }
 }
 

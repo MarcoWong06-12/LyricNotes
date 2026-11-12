@@ -1,15 +1,16 @@
 package com.linernotes.app.core.playback
 
+import android.app.Notification
 import android.content.ComponentName
 import android.content.Context
 import android.content.Intent
-import android.net.Uri
+import android.graphics.Bitmap
+import android.graphics.BitmapFactory
 import android.media.MediaMetadata
 import android.media.session.MediaController
 import android.media.session.MediaSessionManager
 import android.media.session.PlaybackState
-import android.app.Notification
-import android.graphics.Bitmap
+import android.net.Uri
 import android.os.Build
 import android.os.SystemClock
 import android.provider.Settings
@@ -20,6 +21,11 @@ import android.support.v4.media.session.MediaControllerCompat
 import android.support.v4.media.session.MediaSessionCompat
 import android.support.v4.media.session.PlaybackStateCompat
 import androidx.core.app.NotificationManagerCompat
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.cancel
+import kotlinx.coroutines.launch
 import java.io.File
 import java.io.FileOutputStream
 
@@ -33,6 +39,7 @@ class MediaPlaybackSyncService : NotificationListenerService(), MediaControlActi
     private var activeController: MediaController? = null
     private var activeCompatController: MediaControllerCompat? = null
     private val playbackStateManager by lazy { PlaybackStateManager.get(this) }
+    private var ioScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
 
     private val compatCallback = object : MediaControllerCompat.Callback() {
         override fun onShuffleModeChanged(shuffleMode: Int) {
@@ -52,9 +59,14 @@ class MediaPlaybackSyncService : NotificationListenerService(), MediaControlActi
         }
 
         override fun onQueueChanged(queue: MutableList<MediaSessionCompat.QueueItem>?) {
-            val items = queue?.map { mapQueueItem(it) } ?: emptyList()
-            val current = playbackStateManager.playbackState.value
-            playbackStateManager.updateState(current.copy(queueItems = items))
+            val controllerSnapshot = activeController
+            ioScope.launch {
+                val items = queue?.map { mapQueueItem(it) } ?: emptyList()
+                if (activeController === controllerSnapshot) {
+                    val current = playbackStateManager.playbackState.value
+                    playbackStateManager.updateState(current.copy(queueItems = items))
+                }
+            }
         }
     }
 
@@ -82,6 +94,9 @@ class MediaPlaybackSyncService : NotificationListenerService(), MediaControlActi
 
     override fun onListenerConnected() {
         super.onListenerConnected()
+        ioScope.cancel()
+        ioScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
+        playbackStateManager.setNotificationAccessGranted(true)
         playbackStateManager.registerControlHandler(this)
         try {
             mediaSessionManager = getSystemService(Context.MEDIA_SESSION_SERVICE) as? MediaSessionManager
@@ -97,6 +112,8 @@ class MediaPlaybackSyncService : NotificationListenerService(), MediaControlActi
     override fun onListenerDisconnected() {
         super.onListenerDisconnected()
         playbackStateManager.unregisterControlHandler(this)
+        playbackStateManager.refreshNotificationAccess(this)
+        ioScope.cancel()
         try {
             mediaSessionManager?.removeOnActiveSessionsChangedListener(sessionsChangedListener)
             activeController?.unregisterCallback(controllerCallback)
@@ -113,7 +130,6 @@ class MediaPlaybackSyncService : NotificationListenerService(), MediaControlActi
         val pkg = sbn?.packageName ?: return
         val current = playbackStateManager.playbackState.value
 
-        // 当收到来自主流音乐播放器的通知时，尝试确保已绑定
         val isMusicApp = pkg == "com.spotify.music" || pkg == "com.apple.android.music" ||
             pkg == "com.netease.cloudmusic" || pkg == "com.tencent.qqmusic" ||
             pkg == current.packageName || pkg.contains("music") || pkg.contains("audio") || pkg.contains("player")
@@ -122,67 +138,84 @@ class MediaPlaybackSyncService : NotificationListenerService(), MediaControlActi
             findAndAttachActiveController()
         }
 
-        // 尝试从通知栏中抓取大图作为兜底封面
-        if (isMusicApp) {
-            try {
-                val extras = sbn.notification?.extras
-                @Suppress("DEPRECATION")
-                val notifBitmap = (extras?.getParcelable(Notification.EXTRA_PICTURE) as? Bitmap)
-                    ?: (extras?.getParcelable(Notification.EXTRA_LARGE_ICON) as? Bitmap)
-                    ?: run {
-                        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
-                            try {
-                                sbn.notification?.getLargeIcon()?.loadDrawable(this)?.let { drawable ->
-                                    val bmp = Bitmap.createBitmap(
-                                        drawable.intrinsicWidth.coerceAtLeast(1),
-                                        drawable.intrinsicHeight.coerceAtLeast(1),
-                                        Bitmap.Config.ARGB_8888
-                                    )
-                                    val canvas = android.graphics.Canvas(bmp)
-                                    drawable.setBounds(0, 0, canvas.width, canvas.height)
-                                    drawable.draw(canvas)
-                                    bmp
+        if (isMusicApp && current.hasValidTrack) {
+            val expectedTitle = current.title
+            val expectedArtist = current.artist
+            val expectedEpoch = current.trackEpoch
+            val hasValidCover = !current.coverUrl.isNullOrBlank() &&
+                (!current.coverUrl.startsWith("/") || File(current.coverUrl).exists())
+            if (hasValidCover) return
+
+            ioScope.launch {
+                try {
+                    val extras = sbn.notification?.extras
+                    @Suppress("DEPRECATION")
+                    val notifBitmap = (extras?.getParcelable(Notification.EXTRA_PICTURE) as? Bitmap)
+                        ?: (extras?.getParcelable(Notification.EXTRA_LARGE_ICON) as? Bitmap)
+                        ?: run {
+                            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+                                try {
+                                    sbn.notification?.getLargeIcon()?.loadDrawable(this@MediaPlaybackSyncService)?.let { drawable ->
+                                        val bmp = Bitmap.createBitmap(
+                                            drawable.intrinsicWidth.coerceAtLeast(1),
+                                            drawable.intrinsicHeight.coerceAtLeast(1),
+                                            Bitmap.Config.ARGB_8888
+                                        )
+                                        val canvas = android.graphics.Canvas(bmp)
+                                        drawable.setBounds(0, 0, canvas.width, canvas.height)
+                                        drawable.draw(canvas)
+                                        bmp
+                                    }
+                                } catch (_: Exception) {
+                                    null
                                 }
-                            } catch (e: Exception) {
-                                null
-                            }
-                        } else null
-                    }
-                if (notifBitmap != null) {
-                    // 仅当当前未获取到有效封面时，才写入兜底封面；绝不频繁覆盖已有封面，杜绝暂停/播放时由于 URL 变动引起重组闪烁
-                    val hasValidCover = !current.coverUrl.isNullOrBlank() &&
-                        (!current.coverUrl.startsWith("/") || File(current.coverUrl).exists())
-                    if (!hasValidCover && current.hasValidTrack) {
-                        val trackKey = "${current.artist}_${current.title}"
-                        val localCoverPath = saveBitmapToLocalFile(notifBitmap, trackKey)
+                            } else null
+                        }
+                    if (notifBitmap != null) {
+                        val trackKey = "${expectedArtist}_${expectedTitle}"
+                        val localCoverPath = saveBitmapToLocalFile(
+                            bitmap = notifBitmap,
+                            prefix = MEDIA_ART_PREFIX,
+                            maxRetained = 4,
+                            trackKey = trackKey
+                        )
                         if (localCoverPath != null) {
-                            playbackStateManager.updateState(current.copy(coverUrl = localCoverPath))
+                            playbackStateManager.updateCoverIfBetter(
+                                expectedTitle = expectedTitle,
+                                expectedArtist = expectedArtist,
+                                coverUrl = localCoverPath,
+                                quality = CoverQuality.NOTIFICATION_LOCAL,
+                                expectedEpoch = expectedEpoch
+                            )
                         }
                     }
+                } catch (_: Exception) {
                 }
-            } catch (e: Exception) {
-                e.printStackTrace()
             }
         }
     }
 
     private val coverSequence = java.util.concurrent.atomic.AtomicInteger(0)
 
-    private fun saveBitmapToLocalFile(bitmap: Bitmap, trackKey: String = ""): String? {
+    private fun saveBitmapToLocalFile(
+        bitmap: Bitmap,
+        prefix: String,
+        maxRetained: Int,
+        trackKey: String = ""
+    ): String? {
         return try {
             val keyHash = if (trackKey.isNotBlank()) {
                 trackKey.hashCode().toUInt().toString(16)
             } else {
                 coverSequence.incrementAndGet().toString()
             }
-            val artFile = File(cacheDir, "media_art_${keyHash}.png")
-            // 若同一曲目的封面文件已存在且有效，直接返回其稳定路径，杜绝重复 IO 与文件覆盖
+            val artFile = File(cacheDir, "${prefix}${keyHash}.png")
             if (!artFile.exists() || artFile.length() == 0L) {
                 FileOutputStream(artFile).use { out ->
                     bitmap.compress(Bitmap.CompressFormat.PNG, 95, out)
                 }
             }
-            cleanupOldArtFiles(artFile.name)
+            cleanupOldArtFiles(prefix, artFile.name, maxRetained)
             artFile.absolutePath
         } catch (e: Exception) {
             e.printStackTrace()
@@ -190,17 +223,16 @@ class MediaPlaybackSyncService : NotificationListenerService(), MediaControlActi
         }
     }
 
-    private fun cleanupOldArtFiles(currentFileName: String) {
+    private fun cleanupOldArtFiles(prefix: String, currentFileName: String, maxRetained: Int) {
         try {
-            val files = cacheDir.listFiles { _, name -> name.startsWith("media_art_") } ?: return
-            if (files.size > 2) {
+            val files = cacheDir.listFiles { _, name -> name.startsWith(prefix) } ?: return
+            if (files.size > maxRetained) {
                 files.filter { it.name != currentFileName }
                     .sortedByDescending { it.lastModified() }
-                    .drop(1)
+                    .drop((maxRetained - 1).coerceAtLeast(1))
                     .forEach { it.delete() }
             }
-        } catch (e: Exception) {
-            // ignore
+        } catch (_: Exception) {
         }
     }
 
@@ -217,7 +249,6 @@ class MediaPlaybackSyncService : NotificationListenerService(), MediaControlActi
     private fun inspectAndAttachController(controllers: List<MediaController>?) {
         if (controllers.isNullOrEmpty()) return
 
-        // 优先匹配 Spotify，其次挑选正在处于 PLAYING 状态的媒体控制器
         val chosen = controllers.firstOrNull { it.packageName == "com.spotify.music" }
             ?: controllers.firstOrNull { it.playbackState?.state == PlaybackState.STATE_PLAYING }
             ?: controllers.firstOrNull()
@@ -240,16 +271,25 @@ class MediaPlaybackSyncService : NotificationListenerService(), MediaControlActi
                     PlaybackStateCompat.REPEAT_MODE_ONE -> 2
                     else -> 0
                 }
-                val initQueue = compat.queue?.map { mapQueueItem(it) } ?: emptyList()
+                val rawQueue = compat.queue
 
                 val cur = playbackStateManager.playbackState.value
                 playbackStateManager.updateState(
                     cur.copy(
                         isShuffleActive = initShuffle,
-                        repeatMode = initRepeat,
-                        queueItems = initQueue
+                        repeatMode = initRepeat
                     )
                 )
+
+                if (!rawQueue.isNullOrEmpty()) {
+                    ioScope.launch {
+                        val mappedQueue = rawQueue.map { mapQueueItem(it) }
+                        if (activeController === chosen) {
+                            val latest = playbackStateManager.playbackState.value
+                            playbackStateManager.updateState(latest.copy(queueItems = mappedQueue))
+                        }
+                    }
+                }
             } catch (e: Exception) {
                 e.printStackTrace()
             }
@@ -275,66 +315,88 @@ class MediaPlaybackSyncService : NotificationListenerService(), MediaControlActi
         val hasExistingValidCover = isSameTrack && !current.coverUrl.isNullOrBlank() &&
             (!current.coverUrl.startsWith("/") || File(current.coverUrl).exists())
 
-        // 1. 若同曲目已有稳定有效封面，直接复用，杜绝多次写盘与 URL 抖动触发的界面闪烁
-        val coverUri = if (hasExistingValidCover) {
-            current.coverUrl
-        } else {
-            val trackKey = "${artist}_${title}"
-            val rawBitmap = metadata.getBitmap(MediaMetadata.METADATA_KEY_ALBUM_ART)
-                ?: metadata.getBitmap(MediaMetadata.METADATA_KEY_ART)
-                ?: metadata.description?.iconBitmap
-                ?: activeCompatController?.metadata?.getBitmap(MediaMetadataCompat.METADATA_KEY_ALBUM_ART)
-                ?: activeCompatController?.metadata?.getBitmap(MediaMetadataCompat.METADATA_KEY_ART)
-                ?: activeCompatController?.metadata?.description?.iconBitmap
+        val candidateUri = if (hasExistingValidCover) null else {
+            metadata.getString(MediaMetadata.METADATA_KEY_ALBUM_ART_URI)
+                ?: metadata.getString(MediaMetadata.METADATA_KEY_ART_URI)
+                ?: metadata.getString(MediaMetadata.METADATA_KEY_DISPLAY_ICON_URI)
+                ?: metadata.description?.iconUri?.toString()
+        }
 
-            var uri = rawBitmap?.let { saveBitmapToLocalFile(it, trackKey) }
-
-            // 2. 若没有 Bitmap，解析候选 URI (包含跨进程 content:// 协议或 HTTP/HTTPS 远程链接)
-            if (uri == null) {
-                val candidateUri = metadata.getString(MediaMetadata.METADATA_KEY_ALBUM_ART_URI)
-                    ?: metadata.getString(MediaMetadata.METADATA_KEY_ART_URI)
-                    ?: metadata.getString(MediaMetadata.METADATA_KEY_DISPLAY_ICON_URI)
-                    ?: metadata.description?.iconUri?.toString()
-                if (!candidateUri.isNullOrBlank()) {
-                    if (candidateUri.startsWith("content://")) {
-                        try {
-                            val stream = contentResolver.openInputStream(Uri.parse(candidateUri))
-                            val contentBitmap = stream?.use { android.graphics.BitmapFactory.decodeStream(it) }
-                            if (contentBitmap != null) {
-                                uri = saveBitmapToLocalFile(contentBitmap, trackKey)
-                            }
-                        } catch (e: Exception) {
-                            uri = candidateUri
-                        }
-                    } else if (candidateUri.startsWith("http://") || candidateUri.startsWith("https://") || candidateUri.startsWith("file://")) {
-                        uri = candidateUri
-                    }
-                }
-            }
-            uri
+        val immediateUri = when {
+            hasExistingValidCover -> current.coverUrl
+            !candidateUri.isNullOrBlank() && (
+                candidateUri.startsWith("http://") ||
+                    candidateUri.startsWith("https://") ||
+                    candidateUri.startsWith("file://")
+                ) -> candidateUri
+            else -> null
         }
 
         val pkg = activeController?.packageName ?: ""
         val sourceApp = MediaSourceApp.fromPackageName(pkg)
 
         if (title.isNotBlank()) {
-            // 切歌时绝不沿用上一首的旧封面与旧播放进度！若新封面暂未获取，重置为 null 待歌词源、iTunes 或通知栏回填
-            val resolvedCover = if (!coverUri.isNullOrBlank()) coverUri else if (isSameTrack) current.coverUrl else null
+            val resolvedCover = if (!immediateUri.isNullOrBlank()) immediateUri else if (isSameTrack) current.coverUrl else null
             val resolvedPosition = if (isSameTrack) current.currentPositionMs else 0L
+            val resolvedDuration = if (duration > 0) duration else if (isSameTrack) current.durationMs else 0L
 
             playbackStateManager.updateState(
                 current.copy(
                     title = title,
                     artist = artist,
                     album = album,
-                    durationMs = if (duration > 0) duration else current.durationMs,
+                    durationMs = resolvedDuration,
                     currentPositionMs = resolvedPosition,
                     coverUrl = resolvedCover,
                     packageName = pkg,
                     sourceApp = sourceApp,
-                    lastUpdateTimeMs = SystemClock.elapsedRealtime()
+                    lastUpdateTimeMs = if (isSameTrack) current.lastUpdateTimeMs else SystemClock.elapsedRealtime()
                 )
             )
+
+            if (!hasExistingValidCover) {
+                val trackKey = "${artist}_${title}"
+                val rawBitmap = metadata.getBitmap(MediaMetadata.METADATA_KEY_ALBUM_ART)
+                    ?: metadata.getBitmap(MediaMetadata.METADATA_KEY_ART)
+                    ?: metadata.description?.iconBitmap
+                    ?: activeCompatController?.metadata?.getBitmap(MediaMetadataCompat.METADATA_KEY_ALBUM_ART)
+                    ?: activeCompatController?.metadata?.getBitmap(MediaMetadataCompat.METADATA_KEY_ART)
+                    ?: activeCompatController?.metadata?.description?.iconBitmap
+                val bitmapCopy = rawBitmap?.takeIf { !it.isRecycled }?.let { bmp ->
+                    try { bmp.copy(bmp.config ?: Bitmap.Config.ARGB_8888, false) } catch (_: Exception) { bmp }
+                }
+
+                if (bitmapCopy != null || (!candidateUri.isNullOrBlank() && candidateUri.startsWith("content://"))) {
+                    val expectedEpoch = playbackStateManager.playbackState.value.trackEpoch
+                    ioScope.launch {
+                        var savedPath: String? = bitmapCopy?.let {
+                            saveBitmapToLocalFile(it, MEDIA_ART_PREFIX, maxRetained = 4, trackKey = trackKey)
+                        }
+                        if (savedPath == null && !candidateUri.isNullOrBlank() && candidateUri.startsWith("content://")) {
+                            savedPath = try {
+                                val stream = contentResolver.openInputStream(Uri.parse(candidateUri))
+                                val contentBitmap = stream?.use { BitmapFactory.decodeStream(it) }
+                                if (contentBitmap != null) {
+                                    saveBitmapToLocalFile(contentBitmap, MEDIA_ART_PREFIX, maxRetained = 4, trackKey = trackKey)
+                                } else {
+                                    candidateUri
+                                }
+                            } catch (_: Exception) {
+                                candidateUri
+                            }
+                        }
+                        if (!savedPath.isNullOrBlank()) {
+                            playbackStateManager.updateCoverIfBetter(
+                                expectedTitle = title,
+                                expectedArtist = artist,
+                                coverUrl = savedPath,
+                                quality = CoverQuality.NATIVE_METADATA,
+                                expectedEpoch = expectedEpoch
+                            )
+                        }
+                    }
+                }
+            }
         }
     }
 
@@ -354,7 +416,6 @@ class MediaPlaybackSyncService : NotificationListenerService(), MediaControlActi
         )
     }
 
-    // MediaControlActionHandler 实现 (直接远程控制播放器)
     override fun play() {
         activeController?.transportControls?.play()
     }
@@ -365,11 +426,7 @@ class MediaPlaybackSyncService : NotificationListenerService(), MediaControlActi
 
     override fun togglePlayPause() {
         val isPlaying = activeController?.playbackState?.state == PlaybackState.STATE_PLAYING
-        if (isPlaying) {
-            pause()
-        } else {
-            play()
-        }
+        if (isPlaying) pause() else play()
     }
 
     override fun skipToNext() {
@@ -422,12 +479,10 @@ class MediaPlaybackSyncService : NotificationListenerService(), MediaControlActi
         val supportsQueue = (actions and PlaybackStateCompat.ACTION_SKIP_TO_QUEUE_ITEM) != 0L
         val supportsUri = (actions and PlaybackStateCompat.ACTION_PLAY_FROM_URI) != 0L
         val supportsMediaId = (actions and PlaybackStateCompat.ACTION_PLAY_FROM_MEDIA_ID) != 0L
-        val supportsSearch = (actions and PlaybackStateCompat.ACTION_PLAY_FROM_SEARCH) != 0L
 
         val hasValidQueueId = item.id != -1L
         var triggered = false
 
-        // 1. 若宿主播放器声明支持标准 ACTION_SKIP_TO_QUEUE_ITEM
         if (supportsQueue && hasValidQueueId) {
             try {
                 compat?.transportControls?.skipToQueueItem(item.id)
@@ -438,7 +493,6 @@ class MediaPlaybackSyncService : NotificationListenerService(), MediaControlActi
             }
         }
 
-        // 2. 若有 mediaUri (如 spotify:track:xxx)，且支持 ACTION_PLAY_FROM_URI
         if (!triggered && supportsUri && !item.mediaUri.isNullOrBlank()) {
             try {
                 val parsed = Uri.parse(item.mediaUri)
@@ -450,7 +504,6 @@ class MediaPlaybackSyncService : NotificationListenerService(), MediaControlActi
             }
         }
 
-        // 3. 若有 mediaId (如 spotify:track:xxx)，且支持 ACTION_PLAY_FROM_MEDIA_ID
         if (!triggered && supportsMediaId && !item.mediaId.isNullOrBlank()) {
             try {
                 compat?.transportControls?.playFromMediaId(item.mediaId, null)
@@ -461,7 +514,6 @@ class MediaPlaybackSyncService : NotificationListenerService(), MediaControlActi
             }
         }
 
-        // 4. 若未在 actions 中显式声明支持位，但具备有效队列 ID（许多播放器未置位 actions 掩码但已实现 onSkipToQueueItem 回调）
         if (!triggered && hasValidQueueId) {
             try {
                 compat?.transportControls?.skipToQueueItem(item.id)
@@ -472,7 +524,6 @@ class MediaPlaybackSyncService : NotificationListenerService(), MediaControlActi
             }
         }
 
-        // 5. 若有 mediaId（如 spotify:track:xxx）直接兜底尝试 playFromMediaId
         if (!triggered && !item.mediaId.isNullOrBlank()) {
             try {
                 compat?.transportControls?.playFromMediaId(item.mediaId, null)
@@ -483,13 +534,11 @@ class MediaPlaybackSyncService : NotificationListenerService(), MediaControlActi
             }
         }
 
-        // 6. 兜底策略：若上述特定通道均未触发，通过精准搜索词（Title + Artist）点播
         if (!triggered && item.title.isNotBlank()) {
             try {
                 val query = if (item.artist.isNotBlank()) "${item.title} ${item.artist}" else item.title
                 compat?.transportControls?.playFromSearch(query, null)
                     ?: native?.transportControls?.playFromSearch(query, null)
-                triggered = true
             } catch (e: Exception) {
                 e.printStackTrace()
             }
@@ -513,7 +562,14 @@ class MediaPlaybackSyncService : NotificationListenerService(), MediaControlActi
         }
 
         val coverUri = desc.iconUri?.toString()
-            ?: desc.iconBitmap?.let { saveBitmapToLocalFile(it, "queue_${item.queueId}") }
+            ?: desc.iconBitmap?.let {
+                saveBitmapToLocalFile(
+                    bitmap = it,
+                    prefix = QUEUE_ART_PREFIX,
+                    maxRetained = 24,
+                    trackKey = "${item.queueId}_${rawTitle}"
+                )
+            }
 
         return QueueTrackItem(
             id = item.queueId,
@@ -527,6 +583,9 @@ class MediaPlaybackSyncService : NotificationListenerService(), MediaControlActi
     }
 
     companion object {
+        private const val MEDIA_ART_PREFIX = "media_art_"
+        private const val QUEUE_ART_PREFIX = "queue_art_"
+
         fun isNotificationAccessGranted(context: Context): Boolean {
             val enabledListeners = NotificationManagerCompat.getEnabledListenerPackages(context)
             return enabledListeners.contains(context.packageName)

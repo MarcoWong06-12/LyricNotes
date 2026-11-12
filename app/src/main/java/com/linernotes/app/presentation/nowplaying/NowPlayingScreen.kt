@@ -45,6 +45,7 @@ import coil.compose.AsyncImage
 import coil.request.ImageRequest
 import com.linernotes.app.core.i18n.LocalStrings
 import com.linernotes.app.core.playback.MediaPlaybackSyncService
+import com.linernotes.app.core.playback.PlaybackClockState
 import com.linernotes.app.core.playback.QueueTrackItem
 import com.linernotes.app.core.playback.TrackPlaybackState
 import com.linernotes.app.core.preference.AiPreferences
@@ -53,22 +54,27 @@ import com.linernotes.app.data.local.entity.LyricAnnotationEntity
 import com.linernotes.app.domain.model.BilingualLyricLine
 import com.linernotes.app.presentation.common.*
 import com.linernotes.app.presentation.nowplaying.components.*
+import com.linernotes.app.presentation.theme.PaperWhite
 import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import kotlinx.coroutines.flow.StateFlow
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun NowPlayingScreen(
     viewModel: NowPlayingViewModel = hiltViewModel()
 ) {
-    val state by viewModel.uiState.collectAsState()
-    val nowData = state.nowPlayingData
-    val trackState = nowData.playbackState
+    val state by viewModel.uiState.collectAsStateWithLifecycle()
+    val isNotificationGranted by viewModel.notificationAccessGrantedFlow.collectAsStateWithLifecycle()
+    val lyricsContent = state.lyricsContent
+    val trackState = remember(state.trackMetadata, state.isPlaying) {
+        state.trackMetadata.toDisplayPlaybackState(isPlaying = state.isPlaying)
+    }
     val context = LocalContext.current
 
-    val hasTrack = trackState.hasValidTrack
+    val hasTrack = state.trackMetadata.hasValidTrack
     var isImmersiveMode by rememberSaveable { mutableStateOf(false) }
-    var showEnlargedCover by remember { mutableStateOf(false) }
-    val isGranted = remember { mutableStateOf(MediaPlaybackSyncService.isNotificationAccessGranted(context)) }
+    var showEnlargedCover by rememberSaveable { mutableStateOf(false) }
 
     BackHandler(enabled = showEnlargedCover) {
         showEnlargedCover = false
@@ -79,11 +85,6 @@ fun NowPlayingScreen(
 
     LaunchedEffect(hasTrack) {
         if (!hasTrack) isImmersiveMode = false
-    }
-
-    // 检查通知监听权限
-    LaunchedEffect(Unit) {
-        isGranted.value = MediaPlaybackSyncService.isNotificationAccessGranted(context)
     }
 
     // 固化事件闭包引用，防止因匿名函数对象变动引起子组件无谓重组
@@ -144,14 +145,15 @@ fun NowPlayingScreen(
     }
 
     val isDark = MaterialTheme.colorScheme.background.luminance() < 0.5f
-    val isDarkUi = isDark || state.isDynamicAuroraEnabled
+    val isDarkUi = isDark
     val strings = LocalStrings.current
 
     Box(
         modifier = Modifier
             .fillMaxSize()
-            .background(if (isDarkUi) Color.Black else Color(0xFF0E0E12))
+            .background(if (isDarkUi) Color.Black else PaperWhite)
     ) {
+        LockWindowRefreshRateEffect()
         // 核心主内容区 (歌词与弥散极光全屏贯通，并在呼出底部抽屉时整体呈现 iOS 18 / Apple Music 卡片堆栈纵深后退与圆角形态演变)
         val isAnySheetOpen = state.isSettingsSheetOpen || state.isGeniusSheetOpen || state.isSongStorySheetOpen || state.isQueueSheetOpen || state.isManualSearchSheetOpen
         val contentParallaxScale by animateFloatAsState(
@@ -281,16 +283,17 @@ fun NowPlayingScreen(
                             alpha = (1f - dragRatio * 0.50f).coerceIn(0.50f, 1f)
                         }
                 ) {
-                    NowPlayingLyricsContent(
-                        lyrics = nowData.lyrics,
-                        currentLineIndex = nowData.currentLineIndex,
-                        annotatedLines = nowData.annotatedLines,
-                        isPlaying = trackState.isPlaying,
+                    NowPlayingLyricsSlot(
+                        lyrics = lyricsContent.lyrics,
+                        currentLineIndexFlow = viewModel.currentLineIndexFlow,
+                        playbackClockFlow = viewModel.playbackClockFlow,
+                        annotatedLines = lyricsContent.annotatedLines,
+                        isPlaying = state.isPlaying,
                         isTraditional = state.isTraditionalChinese,
-                        isLoadingLyrics = nowData.isLoadingLyrics,
+                        isLoadingLyrics = lyricsContent.isLoadingLyrics,
                         isDark = isDarkUi,
                         isAmoledMode = state.isAmoledMode,
-                        trackState = trackState,
+                        baseTrackState = trackState,
                         lyricOffsetMs = state.lyricOffsetMs,
                         isWordByWordEnabled = state.isWordByWordEnabled,
                         lyricAlignment = state.lyricAlignment,
@@ -358,10 +361,9 @@ fun NowPlayingScreen(
             } else {
                 NowPlayingIdleContent(
                     isDark = isDarkUi,
-                    isNotificationGranted = isGranted.value,
+                    isNotificationGranted = isNotificationGranted,
                     onGrantPermission = {
                         MediaPlaybackSyncService.openNotificationAccessSettings(context)
-                        isGranted.value = MediaPlaybackSyncService.isNotificationAccessGranted(context)
                     },
                     onLaunchSpotify = {
                         SpotifyLauncher.launchSpotify(context)
@@ -378,7 +380,7 @@ fun NowPlayingScreen(
             ) {
                 NowPlayingTopBar(
                     trackState = trackState,
-                    hasSongStory = nowData.songStory != null,
+                    hasSongStory = lyricsContent.songStory != null,
                     isTraditional = state.isTraditionalChinese,
                     isDark = isDarkUi,
                     onCoverClick = { showEnlargedCover = true },
@@ -431,7 +433,7 @@ fun NowPlayingScreen(
 
             // 4. Genius 获取失败/状态提醒微浮标 (iOS Dynamic Island 悬浮微胶囊风格，带果冻弹性展开)
             AnimatedVisibility(
-                visible = !isImmersiveMode && (nowData.geniusNoticeMessage != null || nowData.isLoadingGenius) && hasTrack,
+                visible = !isImmersiveMode && (lyricsContent.geniusNoticeMessage != null || lyricsContent.isLoadingGenius) && hasTrack,
                 enter = fadeIn(tween(180)) +
                         slideInVertically(spring(dampingRatio = 0.76f, stiffness = 380f)) { -it / 2 } +
                         scaleIn(spring(dampingRatio = 0.76f, stiffness = 380f), initialScale = 0.82f),
@@ -463,11 +465,11 @@ fun NowPlayingScreen(
                         verticalAlignment = Alignment.CenterVertically,
                         horizontalArrangement = Arrangement.spacedBy(8.dp)
                     ) {
-                        Text(if (nowData.isLoadingGenius) "⏳" else "💡", fontSize = 12.sp)
-                        val noticeMsg = if (nowData.isLoadingGenius) {
+                        Text(if (lyricsContent.isLoadingGenius) "⏳" else "💡", fontSize = 12.sp)
+                        val noticeMsg = if (lyricsContent.isLoadingGenius) {
                             strings.searchingGeniusStatus
                         } else {
-                            val raw = nowData.geniusNoticeMessage ?: ""
+                            val raw = lyricsContent.geniusNoticeMessage ?: ""
                             if (state.isTraditionalChinese) ChineseConverter.toTraditional(raw) else raw
                         }
                         Text(
@@ -480,7 +482,7 @@ fun NowPlayingScreen(
                             modifier = Modifier.weight(1f, fill = false)
                         )
                         Spacer(modifier = Modifier.width(2.dp))
-                        if (nowData.isLoadingGenius) {
+                        if (lyricsContent.isLoadingGenius) {
                             Row(
                                 verticalAlignment = Alignment.CenterVertically,
                                 horizontalArrangement = Arrangement.spacedBy(4.dp),
@@ -536,6 +538,7 @@ fun NowPlayingScreen(
             ) {
                 NowPlayingFloatingGlassPlayer(
                     trackState = trackState,
+                    playbackClockFlow = viewModel.playbackClockFlow,
                     isTraditional = state.isTraditionalChinese,
                     isDark = isDarkUi,
                     isAmoledMode = state.isAmoledMode,
@@ -612,9 +615,9 @@ fun NowPlayingScreen(
         if (state.isSettingsSheetOpen) {
             LyricNotesSettingsSheet(
                 trackState = trackState,
-                hasSongStory = nowData.songStory != null,
-                geniusNotice = nowData.geniusNoticeMessage,
-                isLoadingGenius = nowData.isLoadingGenius,
+                hasSongStory = lyricsContent.songStory != null,
+                geniusNotice = lyricsContent.geniusNoticeMessage,
+                isLoadingGenius = lyricsContent.isLoadingGenius,
                 furiganaMode = state.furiganaMode,
                 isTraditionalChinese = state.isTraditionalChinese,
                 themeMode = state.themeMode,
@@ -676,14 +679,14 @@ fun NowPlayingScreen(
 
         // Genius Behind The Lyrics 底部抽屉
         if (state.isGeniusSheetOpen) {
-            val matchedLyricTranslation = remember(state.selectedAnnotation, nowData.lyrics) {
+            val matchedLyricTranslation = remember(state.selectedAnnotation, lyricsContent.lyrics) {
                 val annot = state.selectedAnnotation ?: return@remember null
                 if (!annot.lyricTranslation.isNullOrBlank()) {
                     return@remember annot.lyricTranslation
                 }
                 val frag = annot.lyricFragment.trim().lowercase()
                 if (frag.isNotBlank()) {
-                    val matched = nowData.lyrics.filter { line ->
+                    val matched = lyricsContent.lyrics.filter { line ->
                         val orig = line.original.trim().lowercase()
                         orig.isNotBlank() && (frag.contains(orig) || orig.contains(frag)) && line.translation.isNotBlank()
                     }
@@ -707,7 +710,7 @@ fun NowPlayingScreen(
         // 歌曲背景故事抽屉
         if (state.isSongStorySheetOpen) {
             NowPlayingSongStorySheet(
-                story = nowData.songStory,
+                story = lyricsContent.songStory,
                 isTranslating = state.isSongStoryTranslating,
                 isTraditional = state.isTraditionalChinese,
                 isAmoledMode = state.isAmoledMode,
@@ -716,4 +719,60 @@ fun NowPlayingScreen(
             )
         }
     }
+}
+
+@Composable
+private fun NowPlayingLyricsSlot(
+    lyrics: List<BilingualLyricLine>,
+    currentLineIndexFlow: StateFlow<Int>,
+    playbackClockFlow: StateFlow<PlaybackClockState>,
+    annotatedLines: Map<Int, LyricAnnotationEntity>,
+    baseTrackState: TrackPlaybackState,
+    isPlaying: Boolean,
+    isTraditional: Boolean,
+    isLoadingLyrics: Boolean,
+    isDark: Boolean,
+    isAmoledMode: Boolean,
+    lyricOffsetMs: Long,
+    isWordByWordEnabled: Boolean,
+    lyricAlignment: Int,
+    lyricTextSize: Int,
+    showPlaybackControls: Boolean,
+    furiganaMode: FuriganaDisplayMode,
+    onLineClicked: (BilingualLyricLine) -> Unit,
+    onAnnotationClicked: (LyricAnnotationEntity) -> Unit,
+    onRetryLyrics: () -> Unit,
+    onOpenManualSearch: () -> Unit
+) {
+    val currentLineIndex by currentLineIndexFlow.collectAsStateWithLifecycle()
+    val playbackClock by playbackClockFlow.collectAsStateWithLifecycle()
+    val effectiveTrackState = remember(baseTrackState, playbackClock) {
+        baseTrackState.copy(
+            isPlaying = playbackClock.isPlaying,
+            currentPositionMs = playbackClock.currentPositionMs,
+            durationMs = playbackClock.durationMs,
+            lastPositionUpdateTimeMs = playbackClock.lastPositionUpdateTimeMs
+        )
+    }
+    NowPlayingLyricsContent(
+        lyrics = lyrics,
+        currentLineIndex = currentLineIndex,
+        annotatedLines = annotatedLines,
+        isPlaying = isPlaying,
+        isTraditional = isTraditional,
+        isLoadingLyrics = isLoadingLyrics,
+        isDark = isDark,
+        isAmoledMode = isAmoledMode,
+        trackState = effectiveTrackState,
+        lyricOffsetMs = lyricOffsetMs,
+        isWordByWordEnabled = isWordByWordEnabled,
+        lyricAlignment = lyricAlignment,
+        lyricTextSize = lyricTextSize,
+        showPlaybackControls = showPlaybackControls,
+        furiganaMode = furiganaMode,
+        onLineClicked = onLineClicked,
+        onAnnotationClicked = onAnnotationClicked,
+        onRetryLyrics = onRetryLyrics,
+        onOpenManualSearch = onOpenManualSearch
+    )
 }

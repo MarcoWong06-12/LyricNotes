@@ -462,6 +462,7 @@ fun LyricNotesSettingsSheet(
 
             // 5. 桌面悬浮歌词设置 (Desktop Floating Lyrics)
             val isFloatingActive by FloatingLyricsService.isRunningFlow.collectAsState()
+            val launchFloatingLyrics = rememberFloatingLyricsLauncher()
             var isOverlayGranted by remember { mutableStateOf(Settings.canDrawOverlays(context)) }
             val lifecycleOwner = androidx.lifecycle.compose.LocalLifecycleOwner.current
             DisposableEffect(lifecycleOwner) {
@@ -515,13 +516,8 @@ fun LyricNotesSettingsSheet(
                         checked = isFloatingActive,
                         onCheckedChange = { checked ->
                             if (checked) {
-                                val granted = Settings.canDrawOverlays(context)
-                                isOverlayGranted = granted
-                                if (granted) {
-                                    FloatingLyricsService.start(context)
-                                } else {
-                                    FloatingLyricsService.requestOverlayPermission(context)
-                                }
+                                isOverlayGranted = Settings.canDrawOverlays(context)
+                                launchFloatingLyrics()
                             } else {
                                 FloatingLyricsService.stop(context)
                             }

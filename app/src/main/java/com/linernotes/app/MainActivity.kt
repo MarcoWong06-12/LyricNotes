@@ -1,17 +1,22 @@
 package com.linernotes.app
 
-import android.os.Build
+import android.content.res.Configuration
+import android.graphics.Color
 import android.os.Bundle
 import androidx.activity.ComponentActivity
+import androidx.activity.SystemBarStyle
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
-import androidx.compose.animation.*
-import androidx.compose.animation.core.tween
-import androidx.compose.runtime.*
-import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.remember
+import androidx.compose.ui.platform.LocalContext
+import androidx.core.splashscreen.SplashScreen.Companion.installSplashScreen
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.linernotes.app.core.i18n.LocalStrings
 import com.linernotes.app.core.i18n.resolveAppStrings
+import com.linernotes.app.core.playback.PlaybackStateManager
 import com.linernotes.app.core.preference.AiPreferences
 import com.linernotes.app.presentation.nowplaying.NowPlayingScreen
 import com.linernotes.app.presentation.theme.LinerNotesTheme
@@ -24,18 +29,37 @@ class MainActivity : ComponentActivity() {
     @Inject
     lateinit var aiPreferences: AiPreferences
 
+    @Inject
+    lateinit var playbackStateManager: PlaybackStateManager
+
     override fun onCreate(savedInstanceState: Bundle?) {
+        installSplashScreen()
         super.onCreate(savedInstanceState)
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-            if (checkSelfPermission(android.Manifest.permission.POST_NOTIFICATIONS) != android.content.pm.PackageManager.PERMISSION_GRANTED) {
-                requestPermissions(arrayOf(android.Manifest.permission.POST_NOTIFICATIONS), 101)
-            }
+
+        val initialThemeMode = AiPreferences.ThemeMode.fromCode(aiPreferences.themeMode)
+        val isSystemDark = (resources.configuration.uiMode and Configuration.UI_MODE_NIGHT_MASK) ==
+            Configuration.UI_MODE_NIGHT_YES
+        val initialDark = when (initialThemeMode) {
+            AiPreferences.ThemeMode.SYSTEM -> isSystemDark
+            AiPreferences.ThemeMode.LIGHT -> false
+            AiPreferences.ThemeMode.DARK -> true
         }
-        enableEdgeToEdge()
+        val barStyle = if (initialDark) {
+            SystemBarStyle.dark(Color.TRANSPARENT)
+        } else {
+            SystemBarStyle.light(Color.TRANSPARENT, Color.TRANSPARENT)
+        }
+        enableEdgeToEdge(
+            statusBarStyle = barStyle,
+            navigationBarStyle = barStyle
+        )
+
+        playbackStateManager.refreshNotificationAccess(this)
+
         setContent {
-            val appLanguageCode by aiPreferences.appLanguageFlow.collectAsState()
-            val themeModeCode by aiPreferences.themeModeFlow.collectAsState()
-            val isAmoledMode by aiPreferences.isAmoledModeFlow.collectAsState()
+            val appLanguageCode by aiPreferences.appLanguageFlow.collectAsStateWithLifecycle()
+            val themeModeCode by aiPreferences.themeModeFlow.collectAsStateWithLifecycle()
+            val isAmoledMode by aiPreferences.isAmoledModeFlow.collectAsStateWithLifecycle()
             val themeMode = remember(themeModeCode) {
                 AiPreferences.ThemeMode.fromCode(themeModeCode)
             }
@@ -45,9 +69,9 @@ class MainActivity : ComponentActivity() {
 
             CompositionLocalProvider(LocalStrings provides strings) {
                 LinerNotesTheme(themeMode = themeMode, isAmoledMode = isAmoledMode) {
-                    val activity = androidx.compose.ui.platform.LocalContext.current as? ComponentActivity
+                    val activity = LocalContext.current as? ComponentActivity
                     BackHandler {
-                        // 按系统返回键退回桌面，保持音乐与歌词伴侣后台运行
+                        // 按系統返回鍵退回桌面，保持音樂與歌詞伴侶後台運行
                         activity?.moveTaskToBack(true)
                     }
 
@@ -57,13 +81,8 @@ class MainActivity : ComponentActivity() {
         }
     }
 
-    override fun onStart() {
-        super.onStart()
-        com.linernotes.app.core.floating.FloatingLyricsService.setAppInForeground(true)
-    }
-
-    override fun onStop() {
-        super.onStop()
-        com.linernotes.app.core.floating.FloatingLyricsService.setAppInForeground(false)
+    override fun onResume() {
+        super.onResume()
+        playbackStateManager.refreshNotificationAccess(this)
     }
 }

@@ -1,10 +1,13 @@
 package com.linernotes.app.domain.model
 
+import androidx.compose.runtime.Immutable
+
 enum class LyricSource(val displayName: String) {
     NETEASE("网易云音乐"),
     QQ_MUSIC("QQ 音乐")
 }
 
+@Immutable
 data class LyricCandidateItem(
     val source: LyricSource,
     val sourceId: String,          // NetEase: songId, QQ: songmid

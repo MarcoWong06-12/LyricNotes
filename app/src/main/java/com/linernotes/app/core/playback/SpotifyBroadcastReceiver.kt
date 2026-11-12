@@ -18,12 +18,14 @@ class SpotifyBroadcastReceiver : BroadcastReceiver() {
 
         when (action) {
             ACTION_METADATA_CHANGED -> {
-                val trackId = intent.getStringExtra("id") ?: current.trackId
+                val trackId = intent.getStringExtra("id")
                 val artist = intent.getStringExtra("artist") ?: ""
                 val album = intent.getStringExtra("album") ?: ""
                 val track = intent.getStringExtra("track") ?: ""
-                val length = intent.getIntExtra("length", 0).takeIf { it > 0 }?.toLong()
-                    ?: intent.getLongExtra("length", current.durationMs)
+                val isSameTrack = (track == current.title && artist == current.artist)
+                val length = intent.getIntExtra("length", -1).takeIf { it > 0 }?.toLong()
+                    ?: intent.getLongExtra("length", -1L).takeIf { it > 0L }
+                    ?: if (isSameTrack) current.durationMs else 0L
 
                 if (track.isNotBlank()) {
                     manager.updateState(
@@ -32,18 +34,21 @@ class SpotifyBroadcastReceiver : BroadcastReceiver() {
                             artist = artist,
                             album = album,
                             durationMs = length,
-                            trackId = trackId,
+                            currentPositionMs = if (isSameTrack) current.currentPositionMs else 0L,
+                            coverUrl = if (isSameTrack) current.coverUrl else null,
+                            trackId = trackId ?: if (isSameTrack) current.trackId else null,
                             packageName = "com.spotify.music",
                             sourceApp = MediaSourceApp.SPOTIFY,
-                            lastUpdateTimeMs = SystemClock.elapsedRealtime()
+                            lastUpdateTimeMs = if (isSameTrack) current.lastUpdateTimeMs else SystemClock.elapsedRealtime()
                         )
                     )
                 }
             }
             ACTION_PLAYBACK_STATE_CHANGED -> {
                 val playing = intent.getBooleanExtra("playing", false)
-                val position = intent.getIntExtra("playbackPosition", 0).toLong().takeIf { it >= 0 }
-                    ?: intent.getLongExtra("playbackPosition", current.currentPositionMs)
+                val position = intent.getIntExtra("playbackPosition", -1).takeIf { it >= 0 }?.toLong()
+                    ?: intent.getLongExtra("playbackPosition", -1L).takeIf { it >= 0L }
+                    ?: current.currentPositionMs
 
                 manager.updatePositionOnly(position, playing)
             }

@@ -1,14 +1,19 @@
 package com.linernotes.app.data.repository
 
 import android.os.SystemClock
+import com.linernotes.app.LinerNotesApp
+import com.linernotes.app.core.floating.FloatingLyricsService
 import com.linernotes.app.core.i18n.TranslationTargetLanguage
 import com.linernotes.app.core.lyric.AiAnnotationCurator
 import com.linernotes.app.core.lyric.LyricAligner
 import com.linernotes.app.core.lyric.LyricFragmentMatcher
 import com.linernotes.app.core.lyric.LyricSanitizer
 import com.linernotes.app.core.lyric.LyricSearchCleaner
+import com.linernotes.app.core.playback.CoverQuality
+import com.linernotes.app.core.playback.PlaybackClockState
 import com.linernotes.app.core.playback.PlaybackStateManager
 import com.linernotes.app.core.playback.QueueTrackItem
+import com.linernotes.app.core.playback.TrackMetadataState
 import com.linernotes.app.core.playback.TrackPlaybackState
 import com.linernotes.app.core.preference.AiPreferences
 import com.linernotes.app.core.preference.FloatingLyricsPreferences
@@ -33,6 +38,18 @@ import kotlinx.coroutines.sync.withPermit
 import androidx.compose.runtime.Immutable
 import javax.inject.Inject
 import javax.inject.Singleton
+
+@Immutable
+data class LyricsContentState(
+    val trackEpoch: Long = 0L,
+    val lyrics: List<BilingualLyricLine> = emptyList(),
+    val annotatedLines: Map<Int, LyricAnnotationEntity> = emptyMap(),
+    val songStory: SongStoryEntity? = null,
+    val isLoadingLyrics: Boolean = false,
+    val isLoadingGenius: Boolean = false,
+    val geniusNoticeMessage: String? = null,
+    val errorMessage: String? = null
+)
 
 @Immutable
 data class NowPlayingData(
@@ -65,12 +82,26 @@ class NowPlayingRepository @Inject constructor(
         }
     )
 
+    val trackMetadataFlow: StateFlow<TrackMetadataState> = playbackStateManager.trackMetadata
+    val playbackClockFlow: StateFlow<PlaybackClockState> = playbackStateManager.playbackClock
+    val notificationAccessGrantedFlow: StateFlow<Boolean> = playbackStateManager.notificationAccessGranted
+
+    private val _lyricsContentFlow = MutableStateFlow(LyricsContentState())
+    val lyricsContentFlow: StateFlow<LyricsContentState> = _lyricsContentFlow.asStateFlow()
+
+    private val _currentLineIndexFlow = MutableStateFlow(-1)
+    val currentLineIndexFlow: StateFlow<Int> = _currentLineIndexFlow.asStateFlow()
+
     private val _nowPlayingData = MutableStateFlow(NowPlayingData())
     val nowPlayingData: StateFlow<NowPlayingData> = _nowPlayingData.asStateFlow()
 
     private var currentSongKey: String? = null
+    @Volatile
+    private var activeTrackEpoch: Long = 0L
+    private var lastPreloadTriggerKey: String? = null
     private var lastAutoRetryTimeMs: Long = 0L
     private var dataLoadJob: Job? = null
+    private var trackLoadDebounceJob: Job? = null
     private var positionTrackerJob: Job? = null
     private var noticeDismissJob: Job? = null
 
@@ -85,7 +116,8 @@ class NowPlayingRepository @Inject constructor(
         val lyrics: List<BilingualLyricLine>,
         val annotatedLines: Map<Int, LyricAnnotationEntity>,
         val songStory: SongStoryEntity?,
-        val geniusNotice: String? = null
+        val geniusNotice: String? = null,
+        val hasAttemptedGenius: Boolean = false
     )
 
     private var globalOffsetMs: Long = floatingPreferences.globalOffsetMs
@@ -157,81 +189,220 @@ class NowPlayingRepository @Inject constructor(
         updateEffectiveOffset()
     }
 
+    private fun syncNowPlayingAggregate(
+        playbackState: TrackPlaybackState = playbackStateManager.playbackState.value,
+        content: LyricsContentState = _lyricsContentFlow.value,
+        lineIndex: Int = _currentLineIndexFlow.value
+    ) {
+        _nowPlayingData.value = NowPlayingData(
+            playbackState = playbackState,
+            lyrics = content.lyrics,
+            annotatedLines = content.annotatedLines,
+            songStory = content.songStory,
+            isLoadingLyrics = content.isLoadingLyrics,
+            isLoadingGenius = content.isLoadingGenius,
+            geniusNoticeMessage = content.geniusNoticeMessage,
+            currentLineIndex = lineIndex,
+            errorMessage = content.errorMessage
+        )
+    }
+
+    private fun updateLineIndexOnly(lineIndex: Int) {
+        if (_currentLineIndexFlow.value != lineIndex) {
+            _currentLineIndexFlow.value = lineIndex
+            _nowPlayingData.update { current ->
+                if (current.currentLineIndex != lineIndex) current.copy(currentLineIndex = lineIndex) else current
+            }
+        }
+    }
+
     private fun handlePlaybackStateUpdate(state: TrackPlaybackState) {
         if (!state.hasValidTrack) {
-            _nowPlayingData.update { current ->
-                current.copy(
-                    playbackState = state,
-                    currentLineIndex = -1
-                )
-            }
+            currentSongKey = null
+            activeTrackEpoch = state.trackEpoch
+            dataLoadJob?.cancel()
+            trackLoadDebounceJob?.cancel()
+            val emptyContent = LyricsContentState(trackEpoch = state.trackEpoch)
+            _lyricsContentFlow.value = emptyContent
+            _currentLineIndexFlow.value = -1
+            syncNowPlayingAggregate(playbackState = state, content = emptyContent, lineIndex = -1)
             return
         }
 
         val songKey = "${state.artist.trim().lowercase()} - ${state.title.trim().lowercase()}"
-        val isNewSong = songKey != currentSongKey
+        val isNewSong = songKey != currentSongKey || state.trackEpoch != activeTrackEpoch
 
         if (isNewSong) {
             currentSongKey = songKey
+            activeTrackEpoch = state.trackEpoch
             lastAutoRetryTimeMs = SystemClock.elapsedRealtime()
+            dataLoadJob?.cancel()
+            trackLoadDebounceJob?.cancel()
+            noticeDismissJob?.cancel()
+
             val songOffset = floatingPreferences.getSongOffset(songKey)
             currentSongOffsetMs = songOffset
             _songOffsetMsFlow.value = songOffset
             updateEffectiveOffset()
-            _nowPlayingData.update { current ->
-                current.copy(
-                    playbackState = state,
-                    currentLineIndex = -1
-                )
-            }
-            loadSongLyricsAndGenius(state.title, state.artist, songKey)
-        } else {
-            val currentSnapshot = _nowPlayingData.value
-            _nowPlayingData.update { current ->
-                val activeLine = if (current.lyrics.isNotEmpty()) {
-                    val currentPos = (state.getEstimatedPositionMs() + lyricOffsetMs).coerceAtLeast(0L)
-                    calculateActiveLineIndex(current.lyrics, currentPos)
-                } else current.currentLineIndex
 
-                current.copy(
-                    playbackState = state,
-                    currentLineIndex = activeLine
+            // 切歌瞬间原子清空上一曲歌词、典故、故事與失敗提示，徹底消除切歌殘影
+            val cached = memoryCache[songKey]
+            val isCachedIncomplete = isCacheTranslationIncomplete(cached)
+            if (cached != null && !isCachedIncomplete && cached.lyrics.isNotEmpty() && cached.hasAttemptedGenius) {
+                val safeLyrics = cached.lyrics.map { line ->
+                    if (LyricAligner.isInvalidTranslationLine(line.translation)) line.copy(translation = "") else line
+                }
+                val currentPos = (state.getEstimatedPositionMs() + lyricOffsetMs).coerceAtLeast(0L)
+                val lineIndex = calculateActiveLineIndex(safeLyrics, currentPos)
+                val cachedContent = LyricsContentState(
+                    trackEpoch = state.trackEpoch,
+                    lyrics = safeLyrics,
+                    annotatedLines = cached.annotatedLines,
+                    songStory = cached.songStory,
+                    isLoadingLyrics = false,
+                    isLoadingGenius = false,
+                    geniusNoticeMessage = cached.geniusNotice,
+                    errorMessage = null
                 )
+                _lyricsContentFlow.value = cachedContent
+                _currentLineIndexFlow.value = lineIndex
+                syncNowPlayingAggregate(playbackState = state, content = cachedContent, lineIndex = lineIndex)
+            } else {
+                val resetContent = LyricsContentState(
+                    trackEpoch = state.trackEpoch,
+                    lyrics = emptyList(),
+                    annotatedLines = emptyMap(),
+                    songStory = null,
+                    isLoadingLyrics = true,
+                    isLoadingGenius = false,
+                    geniusNoticeMessage = null,
+                    errorMessage = null
+                )
+                _lyricsContentFlow.value = resetContent
+                _currentLineIndexFlow.value = -1
+                syncNowPlayingAggregate(playbackState = state, content = resetContent, lineIndex = -1)
+
+                val targetEpoch = state.trackEpoch
+                trackLoadDebounceJob = repositoryScope.launch {
+                    delay(150L)
+                    if (targetEpoch == activeTrackEpoch) {
+                        loadSongLyricsAndGenius(state.title, state.artist, songKey, targetEpoch)
+                    }
+                }
             }
-            // 自愈重試機制：若切歌瞬間遭遇 5G 基站切換或短暫斷網導致首次抓取落空，在播放狀態下每間隔 4 秒自動無感重試
+        } else {
+            val curContent = _lyricsContentFlow.value
+            val lineIndex = if (curContent.lyrics.isNotEmpty()) {
+                val currentPos = (state.getEstimatedPositionMs() + lyricOffsetMs).coerceAtLeast(0L)
+                calculateActiveLineIndex(curContent.lyrics, currentPos)
+            } else -1
+            _currentLineIndexFlow.value = lineIndex
+            _nowPlayingData.update { current ->
+                current.copy(playbackState = state, currentLineIndex = lineIndex)
+            }
+
+            // 自愈重試機制：若切歌瞬間遭遇斷網導致首次抓取落空，在播放狀態下每間隔 4 秒自動重試
             val nowElapsed = SystemClock.elapsedRealtime()
-            if (currentSnapshot.lyrics.isEmpty() && !currentSnapshot.isLoadingLyrics && state.isPlaying && (nowElapsed - lastAutoRetryTimeMs > 4000L)) {
+            if (curContent.lyrics.isEmpty() && !curContent.isLoadingLyrics && state.isPlaying && (nowElapsed - lastAutoRetryTimeMs > 4000L)) {
                 lastAutoRetryTimeMs = nowElapsed
-                loadSongLyricsAndGenius(state.title, state.artist, songKey)
+                loadSongLyricsAndGenius(state.title, state.artist, songKey, activeTrackEpoch)
             }
         }
 
-        // 待播队列静默预加载：提取队列下首曲目，提前静默拉取歌词与翻译并存入内存缓存
+        // 僅在實質切歌或佇列曲目變更時觸發預加載，杜絕播放/暫停/封面回填重覆風暴
         if (state.queueItems.isNotEmpty()) {
-            preloadNextTracks(state.queueItems)
+            val queueSig = state.queueItems.joinToString("|") { "${it.artist}:${it.title}" }
+            val triggerKey = "$songKey||$queueSig"
+            if (triggerKey != lastPreloadTriggerKey) {
+                lastPreloadTriggerKey = triggerKey
+                preloadNextTracks(state.queueItems)
+            }
         }
     }
 
     private fun startPositionTracker() {
         positionTrackerJob?.cancel()
         positionTrackerJob = repositoryScope.launch {
-            while (isActive) {
-                val current = _nowPlayingData.value
-                val state = current.playbackState
-                if (current.lyrics.isNotEmpty() && state.hasValidTrack && state.isPlaying) {
-                    val currentPos = (state.getEstimatedPositionMs() + lyricOffsetMs).coerceAtLeast(0L)
-                    val lineIndex = calculateActiveLineIndex(current.lyrics, currentPos)
-                    if (lineIndex != current.currentLineIndex) {
-                        _nowPlayingData.update { latest ->
-                            if (latest.lyrics.isNotEmpty() && latest.currentLineIndex != lineIndex) {
-                                latest.copy(currentLineIndex = lineIndex)
-                            } else latest
-                        }
-                    }
+            combine(
+                LinerNotesApp.isForegroundFlow,
+                FloatingLyricsService.isRunningFlow,
+                _lyricsContentFlow.map { it.lyrics }.distinctUntilChanged(),
+                playbackClockFlow,
+                _lyricOffsetMsFlow
+            ) { appInForeground, floatingRunning, lyrics, clock, offsetMs ->
+                TrackerInput(
+                    isObserverActive = appInForeground || floatingRunning,
+                    lyrics = lyrics,
+                    clock = clock,
+                    offsetMs = offsetMs
+                )
+            }.collectLatest { input ->
+                if (input.lyrics.isEmpty()) {
+                    updateLineIndexOnly(-1)
+                    return@collectLatest
                 }
-                delay(if (state.isPlaying) 16L else 300L) // 播放时16ms (60Hz帧级) 超低延迟追踪，暂停时300ms大幅节电
+
+                val initialPos = (input.clock.getEstimatedPositionMs() + input.offsetMs).coerceAtLeast(0L)
+                val initialIndex = calculateActiveLineIndex(input.lyrics, initialPos)
+                updateLineIndexOnly(initialIndex)
+
+                // 暫停中或螢幕退至後台且無懸浮窗時徹底掛起，0 CPU 喚醒
+                if (!input.isObserverActive || !input.clock.isPlaying) {
+                    return@collectLatest
+                }
+
+                val speed = input.clock.playbackSpeed.coerceAtLeast(0.25f)
+                while (isActive) {
+                    val curPos = (input.clock.getEstimatedPositionMs() + input.offsetMs).coerceAtLeast(0L)
+                    val curIdx = calculateActiveLineIndex(input.lyrics, curPos)
+                    updateLineIndexOnly(curIdx)
+
+                    val waitMs = computeWaitUntilNextLineMs(input.lyrics, curIdx, curPos, speed)
+                    delay(waitMs)
+                }
             }
         }
+    }
+
+    private data class TrackerInput(
+        val isObserverActive: Boolean,
+        val lyrics: List<BilingualLyricLine>,
+        val clock: PlaybackClockState,
+        val offsetMs: Long
+    )
+
+    private fun computeWaitUntilNextLineMs(
+        lyrics: List<BilingualLyricLine>,
+        currentIndex: Int,
+        currentPosMs: Long,
+        playbackSpeed: Float
+    ): Long {
+        var nextTriggerMs: Long? = null
+        val startSearch = (currentIndex + 1).coerceAtLeast(0)
+        var prevStart = if (currentIndex in lyrics.indices) lyrics[currentIndex].startTimeMs ?: 0L else 0L
+        for (i in startSearch until lyrics.size) {
+            val st = lyrics[i].startTimeMs ?: continue
+            val gap = if (currentIndex >= 0) (st - prevStart).coerceAtLeast(0L) else 2000L
+            val lead = if (gap < 1400L) 45L else 75L
+            val trigger = (st - lead).coerceAtLeast(0L)
+            if (trigger > currentPosMs) {
+                nextTriggerMs = trigger
+                break
+            }
+            prevStart = st
+        }
+        return if (nextTriggerMs != null) {
+            (((nextTriggerMs - currentPosMs) / playbackSpeed).toLong() + 4L).coerceIn(20L, 450L)
+        } else {
+            500L
+        }
+    }
+
+    private fun isCacheTranslationIncomplete(cached: CachedSongData?): Boolean {
+        if (cached == null) return false
+        return (cached.lyrics.size > 5 &&
+            cached.lyrics.count { it.translation.isNotBlank() && !LyricAligner.isInvalidTranslationLine(it.translation) } <= (cached.lyrics.size * 0.25).toInt()) ||
+            cached.lyrics.any { LyricAligner.isInvalidTranslationLine(it.translation) }
     }
 
     /**
@@ -259,10 +430,15 @@ class NowPlayingRepository @Inject constructor(
     fun reloadCurrentSong() {
         val state = playbackStateManager.playbackState.value
         val songKey = currentSongKey ?: return
-        forceReloadLyrics(state.title, state.artist, songKey)
+        forceReloadLyrics(state.title, state.artist, songKey, activeTrackEpoch)
     }
 
-    fun forceReloadLyrics(title: String, artist: String, songKey: String) {
+    fun forceReloadLyrics(
+        title: String,
+        artist: String,
+        songKey: String,
+        expectedEpoch: Long = activeTrackEpoch
+    ) {
         val cached = memoryCache[songKey]
         if (cached != null) {
             // 清理歌词缓存但保留已抓取的 Genius 背景故事，防止重复拉取 Genius
@@ -270,83 +446,88 @@ class NowPlayingRepository @Inject constructor(
         } else {
             memoryCache.remove(songKey)
         }
-        _nowPlayingData.update {
+        _lyricsContentFlow.update {
             it.copy(
+                trackEpoch = expectedEpoch,
                 isLoadingLyrics = true,
                 errorMessage = null
             )
         }
-        loadSongLyricsAndGenius(title, artist, songKey)
+        syncNowPlayingAggregate(content = _lyricsContentFlow.value)
+        loadSongLyricsAndGenius(title, artist, songKey, expectedEpoch)
     }
 
-    fun loadSongLyricsAndGenius(title: String, artist: String, songKey: String) {
+    fun loadSongLyricsAndGenius(
+        title: String,
+        artist: String,
+        songKey: String,
+        trackEpoch: Long = activeTrackEpoch
+    ) {
         dataLoadJob?.cancel()
         noticeDismissJob?.cancel()
 
-        // 检查内存缓存：只有当歌词具备且（典故已具备 或 失败通知已结算）时，才视为完全命中缓存直接秒开
         val cached = memoryCache[songKey]
-        val isCachedTranslationSeverelyIncomplete = cached != null && (
-            (cached.lyrics.size > 5 && cached.lyrics.count { it.translation.isNotBlank() && !LyricAligner.isInvalidTranslationLine(it.translation) } <= (cached.lyrics.size * 0.25).toInt()) ||
-            cached.lyrics.any { LyricAligner.isInvalidTranslationLine(it.translation) }
-        )
+        val isCachedTranslationSeverelyIncomplete = isCacheTranslationIncomplete(cached)
 
-        if (cached != null && !isCachedTranslationSeverelyIncomplete && cached.lyrics.isNotEmpty() && (cached.annotatedLines.isNotEmpty() || cached.songStory != null || cached.geniusNotice != null)) {
+        if (cached != null && !isCachedTranslationSeverelyIncomplete && cached.lyrics.isNotEmpty() && cached.hasAttemptedGenius) {
             val safeLyrics = cached.lyrics.map { line ->
                 if (LyricAligner.isInvalidTranslationLine(line.translation)) line.copy(translation = "") else line
             }
-            _nowPlayingData.update {
-                val currentPos = (it.playbackState.getEstimatedPositionMs() + lyricOffsetMs).coerceAtLeast(0L)
-                val lineIndex = calculateActiveLineIndex(safeLyrics, currentPos)
-                it.copy(
-                    lyrics = safeLyrics,
-                    annotatedLines = cached.annotatedLines,
-                    songStory = cached.songStory,
-                    isLoadingLyrics = false,
-                    isLoadingGenius = false,
-                    geniusNoticeMessage = cached.geniusNotice,
-                    errorMessage = null,
-                    currentLineIndex = lineIndex
-                )
-            }
+            val currentPos = (playbackClockFlow.value.getEstimatedPositionMs() + lyricOffsetMs).coerceAtLeast(0L)
+            val lineIndex = calculateActiveLineIndex(safeLyrics, currentPos)
+            val content = LyricsContentState(
+                trackEpoch = trackEpoch,
+                lyrics = safeLyrics,
+                annotatedLines = cached.annotatedLines,
+                songStory = cached.songStory,
+                isLoadingLyrics = false,
+                isLoadingGenius = false,
+                geniusNoticeMessage = cached.geniusNotice,
+                errorMessage = null
+            )
+            _lyricsContentFlow.value = content
+            _currentLineIndexFlow.value = lineIndex
+            syncNowPlayingAggregate(content = content, lineIndex = lineIndex)
             return
         }
 
-        // 若歌词已就绪但典故尚未获取，立刻展示歌词，后台并发补全典故
         if (cached != null && !isCachedTranslationSeverelyIncomplete && cached.lyrics.isNotEmpty()) {
             val safeLyrics = cached.lyrics.map { line ->
                 if (LyricAligner.isInvalidTranslationLine(line.translation)) line.copy(translation = "") else line
             }
-            _nowPlayingData.update {
-                val currentPos = (it.playbackState.getEstimatedPositionMs() + lyricOffsetMs).coerceAtLeast(0L)
-                val lineIndex = calculateActiveLineIndex(safeLyrics, currentPos)
-                it.copy(
-                    lyrics = safeLyrics,
-                    annotatedLines = cached.annotatedLines,
-                    songStory = cached.songStory,
-                    isLoadingLyrics = false,
-                    isLoadingGenius = cached.songStory == null && cached.geniusNotice == null,
-                    geniusNoticeMessage = cached.geniusNotice,
-                    errorMessage = null,
-                    currentLineIndex = lineIndex
-                )
-            }
+            val currentPos = (playbackClockFlow.value.getEstimatedPositionMs() + lyricOffsetMs).coerceAtLeast(0L)
+            val lineIndex = calculateActiveLineIndex(safeLyrics, currentPos)
+            val content = LyricsContentState(
+                trackEpoch = trackEpoch,
+                lyrics = safeLyrics,
+                annotatedLines = cached.annotatedLines,
+                songStory = cached.songStory,
+                isLoadingLyrics = false,
+                isLoadingGenius = !cached.hasAttemptedGenius,
+                geniusNoticeMessage = cached.geniusNotice,
+                errorMessage = null
+            )
+            _lyricsContentFlow.value = content
+            _currentLineIndexFlow.value = lineIndex
+            syncNowPlayingAggregate(content = content, lineIndex = lineIndex)
         } else {
-            // 歌词尚未就绪（或上次抓取落空），保留已有故事避免界面跳闪，进入歌词加载态
-            _nowPlayingData.update {
-                it.copy(
-                    lyrics = emptyList(),
-                    annotatedLines = emptyMap(),
-                    songStory = cached?.songStory,
-                    isLoadingLyrics = true,
-                    isLoadingGenius = cached?.songStory == null,
-                    geniusNoticeMessage = cached?.geniusNotice,
-                    errorMessage = null,
-                    currentLineIndex = -1
-                )
-            }
+            val content = LyricsContentState(
+                trackEpoch = trackEpoch,
+                lyrics = emptyList(),
+                annotatedLines = emptyMap(),
+                songStory = cached?.songStory,
+                isLoadingLyrics = true,
+                isLoadingGenius = cached?.songStory == null,
+                geniusNoticeMessage = cached?.geniusNotice,
+                errorMessage = null
+            )
+            _lyricsContentFlow.value = content
+            _currentLineIndexFlow.value = -1
+            syncNowPlayingAggregate(content = content, lineIndex = -1)
         }
 
         dataLoadJob = repositoryScope.launch {
+            if (trackEpoch != activeTrackEpoch) return@launch
             val hasCorruptedTranslation = cached?.lyrics?.any { LyricAligner.isInvalidTranslationLine(it.translation) } == true
             var fetchedLyrics: List<BilingualLyricLine> = if (hasCorruptedTranslation || isCachedTranslationSeverelyIncomplete) emptyList() else (cached?.lyrics ?: emptyList())
             var fetchedStory: SongStoryEntity? = cached?.songStory
@@ -383,7 +564,6 @@ class NowPlayingRepository @Inject constructor(
                             targetDurationMs = curState.durationMs
                         )
 
-                        // 如果首次抓取落空（例如冷启动多源并发争抢导致超时），延时 300ms 进行一次直接直连兜底
                         if (rawResult == null || rawResult.originalLyrics.isBlank()) {
                             kotlinx.coroutines.delay(300)
                             rawResult = NetEaseLyricsService.fetchLyrics(title, artist, curState.durationMs)
@@ -394,13 +574,15 @@ class NowPlayingRepository @Inject constructor(
                     }
 
                     if (rawResult != null && rawResult.originalLyrics.isNotBlank()) {
-                        // 回填从歌词源中获取的高清官方专辑封面
                         val lyricCover = rawResult.coverUrl
                         if (!lyricCover.isNullOrBlank()) {
-                            val cur = playbackStateManager.playbackState.value
-                            if (cur.coverUrl.isNullOrBlank() || cur.coverUrl.startsWith("/")) {
-                                playbackStateManager.updateState(cur.copy(coverUrl = lyricCover))
-                            }
+                            playbackStateManager.updateCoverIfBetter(
+                                expectedTitle = title,
+                                expectedArtist = artist,
+                                coverUrl = lyricCover,
+                                quality = CoverQuality.LYRIC_SOURCE,
+                                expectedEpoch = trackEpoch
+                            )
                         }
 
                         var origLyrics = rawResult.originalLyrics
@@ -481,13 +663,16 @@ class NowPlayingRepository @Inject constructor(
                         val songId = searchResult.id
                         currentSongId = songId
 
-                        // 回填云端超高清专辑封面
+                        // 回填 Genius 封面（低優先級，不覆寫 iTunes / 歌詞源高清封面）
                         val cloudCover = searchResult.coverUrl ?: searchResult.thumbUrl
                         if (!cloudCover.isNullOrBlank()) {
-                            val cur = playbackStateManager.playbackState.value
-                            if (cur.coverUrl.isNullOrBlank() || cur.coverUrl.startsWith("/")) {
-                                playbackStateManager.updateState(cur.copy(coverUrl = cloudCover))
-                            }
+                            playbackStateManager.updateCoverIfBetter(
+                                expectedTitle = title,
+                                expectedArtist = artist,
+                                coverUrl = cloudCover,
+                                quality = CoverQuality.GENIUS,
+                                expectedEpoch = trackEpoch
+                            )
                         }
 
                         // 高并发拉取 Genius 数据 (背景故事与行内典故同时请求，网络耗时直接减半)
@@ -543,35 +728,39 @@ class NowPlayingRepository @Inject constructor(
             // 3. 并发回填超高清官方原版专辑封面（优先 iTunes/Apple Music 600x600/1000x1000 原图，兜底网易云音乐）
             val artworkJob = async {
                 try {
-                    val cur = playbackStateManager.playbackState.value
-                    if (cur.coverUrl.isNullOrBlank() || cur.coverUrl.startsWith("/")) {
-                        val onlineCover = MetadataService.fetchTrackCover(title, artist)
-                        if (!onlineCover.isNullOrBlank()) {
-                            val latest = playbackStateManager.playbackState.value
-                            if (latest.title == title && latest.artist == artist) {
-                                playbackStateManager.updateState(latest.copy(coverUrl = onlineCover))
-                            }
-                        }
+                    val onlineCover = MetadataService.fetchTrackCover(title, artist)
+                    if (!onlineCover.isNullOrBlank()) {
+                        playbackStateManager.updateCoverIfBetter(
+                            expectedTitle = title,
+                            expectedArtist = artist,
+                            coverUrl = onlineCover,
+                            quality = CoverQuality.ITUNES_HD,
+                            expectedEpoch = trackEpoch
+                        )
                     }
-                } catch (e: Exception) {
-                    // ignore
+                } catch (_: Exception) {
                 }
             }
 
             // 等待并发抓取完成
             lyricsJob.await()
-            val curPos = (_nowPlayingData.value.playbackState.getEstimatedPositionMs() + lyricOffsetMs).coerceAtLeast(0L)
+            if (trackEpoch != activeTrackEpoch) return@launch
+
+            val curPos = (playbackClockFlow.value.getEstimatedPositionMs() + lyricOffsetMs).coerceAtLeast(0L)
             val lineIdx = calculateActiveLineIndex(fetchedLyrics, curPos)
-            _nowPlayingData.update {
+            _lyricsContentFlow.update {
                 it.copy(
+                    trackEpoch = trackEpoch,
                     lyrics = fetchedLyrics,
-                    isLoadingLyrics = false,
-                    currentLineIndex = lineIdx
+                    isLoadingLyrics = false
                 )
             }
+            _currentLineIndexFlow.value = lineIdx
+            syncNowPlayingAggregate(content = _lyricsContentFlow.value, lineIndex = lineIdx)
 
             geniusJob.await()
             artworkJob.await()
+            if (trackEpoch != activeTrackEpoch) return@launch
 
             // 阶段一：即刻渲染原生典故徽标与背景故事按钮（1秒级展示，绝不让用户等待逐条翻译完成）
             val initialMatched = if (fetchedLyrics.isNotEmpty() && fetchedAnnotations.isNotEmpty()) {
@@ -581,7 +770,6 @@ class NowPlayingRepository @Inject constructor(
             }
 
             val currentStory = fetchedStory
-            // 获取失败精准提示：当 Genius 典故与背景故事未能获取时，生成清晰诚实的通知提醒用户
             val failureNotice: String? = when {
                 initialMatched.isNotEmpty() || (currentStory != null && currentStory.descriptionPlain.isNotBlank()) -> null
                 !GeniusService.lastRequestConnected -> "Genius 网络连接受阻，无法获取典故"
@@ -590,38 +778,40 @@ class NowPlayingRepository @Inject constructor(
                 else -> "Genius 典故与当前歌词版本未能成功匹配"
             }
 
-            // 写入内存缓存（未翻译版本立即可供点击，仅当歌词有效时才缓存，防止空歌词锁死缓存）
             if (fetchedLyrics.isNotEmpty()) {
                 val preliminaryData = CachedSongData(
                     lyrics = fetchedLyrics,
                     annotatedLines = initialMatched,
                     songStory = fetchedStory,
-                    geniusNotice = failureNotice
+                    geniusNotice = failureNotice,
+                    hasAttemptedGenius = true
                 )
                 memoryCache[songKey] = preliminaryData
             }
 
-            _nowPlayingData.update {
-                val currentPos = (it.playbackState.getEstimatedPositionMs() + lyricOffsetMs).coerceAtLeast(0L)
-                val lineIndex = calculateActiveLineIndex(fetchedLyrics, currentPos)
-                it.copy(
-                    lyrics = fetchedLyrics,
-                    annotatedLines = initialMatched,
-                    songStory = fetchedStory,
-                    isLoadingLyrics = false,
-                    isLoadingGenius = false,
-                    geniusNoticeMessage = failureNotice,
-                    currentLineIndex = lineIndex
-                )
-            }
+            val updatedPos = (playbackClockFlow.value.getEstimatedPositionMs() + lyricOffsetMs).coerceAtLeast(0L)
+            val updatedIdx = calculateActiveLineIndex(fetchedLyrics, updatedPos)
+            val stage1Content = _lyricsContentFlow.value.copy(
+                trackEpoch = trackEpoch,
+                lyrics = fetchedLyrics,
+                annotatedLines = initialMatched,
+                songStory = fetchedStory,
+                isLoadingLyrics = false,
+                isLoadingGenius = false,
+                geniusNoticeMessage = failureNotice
+            )
+            _lyricsContentFlow.value = stage1Content
+            _currentLineIndexFlow.value = updatedIdx
+            syncNowPlayingAggregate(content = stage1Content, lineIndex = updatedIdx)
 
             // 若有失败提醒，7 秒后自动淡化提示，避免持续遮挡歌词
             if (failureNotice != null) {
                 noticeDismissJob?.cancel()
                 noticeDismissJob = repositoryScope.launch {
                     delay(7000)
-                    _nowPlayingData.update {
-                        if (it.geniusNoticeMessage == failureNotice) it.copy(geniusNoticeMessage = null) else it
+                    if (trackEpoch == activeTrackEpoch && _lyricsContentFlow.value.geniusNoticeMessage == failureNotice) {
+                        _lyricsContentFlow.update { it.copy(geniusNoticeMessage = null) }
+                        syncNowPlayingAggregate(content = _lyricsContentFlow.value)
                     }
                 }
             }
@@ -642,12 +832,13 @@ class NowPlayingRepository @Inject constructor(
                             transSemaphore.withPermit {
                                 try {
                                     val tr = translationService.translateText(cStory.descriptionPlain, targetIso)
-                                    if (!tr.isNullOrBlank() && (AiAnnotationCurator.isAlreadyChinese(tr) || Regex("""[\u4e00-\u9fa5]""").containsMatchIn(tr))) {
+                                    if (!tr.isNullOrBlank() && (AiAnnotationCurator.isAlreadyChinese(tr) || CJK_REGEX.containsMatchIn(tr))) {
                                         val cleaned = HtmlUtils.cleanTranslationOutput(tr)
                                         val finalStoryTrans = if (isTraditionalTarget) ChineseConverter.toTraditional(cleaned) else cleaned
                                         fetchedStory = cStory.copy(descriptionTranslation = finalStoryTrans)
                                     }
-                                } catch (e: Exception) { }
+                                } catch (_: Exception) {
+                                }
                             }
                         }
                     }
@@ -660,14 +851,14 @@ class NowPlayingRepository @Inject constructor(
                                 transSemaphore.withPermit {
                                     try {
                                         val tr = translationService.translateText(annot.explanationText, targetIso)
-                                        if (!tr.isNullOrBlank() && (AiAnnotationCurator.isAlreadyChinese(tr) || Regex("""[\u4e00-\u9fa5]""").containsMatchIn(tr))) {
+                                        if (!tr.isNullOrBlank() && (AiAnnotationCurator.isAlreadyChinese(tr) || CJK_REGEX.containsMatchIn(tr))) {
                                             val cleaned = HtmlUtils.cleanTranslationOutput(tr)
                                             val finalTrans = if (isTraditionalTarget) ChineseConverter.toTraditional(cleaned) else cleaned
                                             annot.copy(explanationTranslation = finalTrans)
                                         } else {
                                             annot
                                         }
-                                    } catch (e: Exception) {
+                                    } catch (_: Exception) {
                                         annot
                                     }
                                 }
@@ -681,7 +872,6 @@ class NowPlayingRepository @Inject constructor(
                     fetchedAnnotations = annotTransDeferredList.awaitAll()
                 }
 
-                // 翻译就绪，更新界面与高速内存缓存
                 val finalMatched = if (fetchedLyrics.isNotEmpty() && fetchedAnnotations.isNotEmpty()) {
                     LyricFragmentMatcher.matchAnnotationsToLines(fetchedLyrics, fetchedAnnotations)
                 } else {
@@ -693,15 +883,19 @@ class NowPlayingRepository @Inject constructor(
                         lyrics = fetchedLyrics,
                         annotatedLines = finalMatched,
                         songStory = fetchedStory,
-                        geniusNotice = failureNotice
+                        geniusNotice = failureNotice,
+                        hasAttemptedGenius = true
                     )
                 }
 
-                _nowPlayingData.update {
-                    it.copy(
-                        annotatedLines = finalMatched,
-                        songStory = fetchedStory
-                    )
+                if (trackEpoch == activeTrackEpoch) {
+                    _lyricsContentFlow.update {
+                        it.copy(
+                            annotatedLines = finalMatched,
+                            songStory = fetchedStory
+                        )
+                    }
+                    syncNowPlayingAggregate(content = _lyricsContentFlow.value)
                 }
             }
         }
@@ -721,7 +915,7 @@ class NowPlayingRepository @Inject constructor(
                 if (item.title.isBlank() || item.artist.isBlank()) return@filter false
                 val key = "${item.artist.trim().lowercase()} - ${item.title.trim().lowercase()}"
                 val cached = memoryCache[key]
-                key != currentKey && (cached == null || (cached.annotatedLines.isEmpty() && cached.songStory == null))
+                key != currentKey && (cached == null || (!cached.hasAttemptedGenius && cached.annotatedLines.isEmpty() && cached.songStory == null))
             }.take(3)
 
             for (item in candidates) {
@@ -887,7 +1081,7 @@ class NowPlayingRepository @Inject constructor(
                             transSemaphore.withPermit {
                                 try {
                                     val tr = translationService.translateText(curStory.descriptionPlain, targetIso)
-                                    if (!tr.isNullOrBlank() && (AiAnnotationCurator.isAlreadyChinese(tr) || Regex("""[\u4e00-\u9fa5]""").containsMatchIn(tr))) {
+                                    if (!tr.isNullOrBlank() && (AiAnnotationCurator.isAlreadyChinese(tr) || CJK_REGEX.containsMatchIn(tr))) {
                                         val cleaned = HtmlUtils.cleanTranslationOutput(tr)
                                         val finalTr = if (isTraditionalTarget) ChineseConverter.toTraditional(cleaned) else cleaned
                                         fetchedStory = curStory.copy(descriptionTranslation = finalTr)
@@ -903,7 +1097,7 @@ class NowPlayingRepository @Inject constructor(
                                 transSemaphore.withPermit {
                                     try {
                                         val tr = translationService.translateText(annot.explanationText, targetIso)
-                                        if (!tr.isNullOrBlank() && (AiAnnotationCurator.isAlreadyChinese(tr) || Regex("""[\u4e00-\u9fa5]""").containsMatchIn(tr))) {
+                                        if (!tr.isNullOrBlank() && (AiAnnotationCurator.isAlreadyChinese(tr) || CJK_REGEX.containsMatchIn(tr))) {
                                             val cleaned = HtmlUtils.cleanTranslationOutput(tr)
                                             val finalTr = if (isTraditionalTarget) ChineseConverter.toTraditional(cleaned) else cleaned
                                             annot.copy(explanationTranslation = finalTr)
@@ -940,13 +1134,16 @@ class NowPlayingRepository @Inject constructor(
             lyrics = lyrics,
             annotatedLines = matchedAnnotations,
             songStory = fetchedStory,
-            geniusNotice = null
+            geniusNotice = null,
+            hasAttemptedGenius = true
         )
         memoryCache[songKey] = cached
 
         // 若当前播放中的歌曲恰好是预加载完成的曲目，实时刷新界面
         if (currentSongKey == songKey) {
-            _nowPlayingData.update {
+            val curPos = (playbackClockFlow.value.getEstimatedPositionMs() + lyricOffsetMs).coerceAtLeast(0L)
+            val lineIdx = calculateActiveLineIndex(lyrics, curPos)
+            _lyricsContentFlow.update {
                 it.copy(
                     lyrics = lyrics,
                     annotatedLines = matchedAnnotations,
@@ -955,43 +1152,48 @@ class NowPlayingRepository @Inject constructor(
                     isLoadingGenius = false
                 )
             }
+            _currentLineIndexFlow.value = lineIdx
+            syncNowPlayingAggregate(content = _lyricsContentFlow.value, lineIndex = lineIdx)
         }
     }
 
     fun dismissGeniusNotice() {
         noticeDismissJob?.cancel()
-        _nowPlayingData.update { it.copy(geniusNoticeMessage = null) }
+        _lyricsContentFlow.update { it.copy(geniusNoticeMessage = null) }
+        syncNowPlayingAggregate(content = _lyricsContentFlow.value)
     }
 
     fun reloadGeniusOnly() {
-        val current = _nowPlayingData.value
-        val state = current.playbackState
+        val state = playbackStateManager.trackMetadata.value
+        val content = _lyricsContentFlow.value
         if (!state.hasValidTrack) return
-        if (current.isLoadingGenius) return
+        if (content.isLoadingGenius) return
 
         val songKey = "${state.artist.trim().lowercase()} - ${state.title.trim().lowercase()}"
-        val existingLyrics = memoryCache[songKey]?.lyrics ?: current.lyrics
+        val existingLyrics = memoryCache[songKey]?.lyrics ?: content.lyrics
 
         // 立即进入加载中状态并更新通知，向用户提供即时正反馈
         val loadingNotice = "正在检索 Genius 典故..."
-        _nowPlayingData.update {
+        _lyricsContentFlow.update {
             it.copy(
                 isLoadingGenius = true,
                 geniusNoticeMessage = loadingNotice
             )
         }
+        syncNowPlayingAggregate(content = _lyricsContentFlow.value)
 
         if (existingLyrics.isNotEmpty()) {
             memoryCache[songKey] = CachedSongData(
                 lyrics = existingLyrics,
                 annotatedLines = emptyMap(),
                 songStory = null,
-                geniusNotice = loadingNotice
+                geniusNotice = loadingNotice,
+                hasAttemptedGenius = false
             )
         } else {
             memoryCache.remove(songKey)
         }
-        loadSongLyricsAndGenius(state.title, state.artist, songKey)
+        loadSongLyricsAndGenius(state.title, state.artist, songKey, state.trackEpoch)
     }
 
     suspend fun translateSingleAnnotation(annotation: LyricAnnotationEntity): LyricAnnotationEntity = withContext(Dispatchers.IO) {
@@ -1015,7 +1217,7 @@ class NowPlayingRepository @Inject constructor(
         // 2. 翻译典故解说正文
         if (!AiAnnotationCurator.isAlreadyChinese(updated.explanationText)) {
             val tr = translationService.translateText(updated.explanationText, targetIso)
-            if (!tr.isNullOrBlank() && (AiAnnotationCurator.isAlreadyChinese(tr) || Regex("""[\u4e00-\u9fa5]""").containsMatchIn(tr))) {
+            if (!tr.isNullOrBlank() && (AiAnnotationCurator.isAlreadyChinese(tr) || CJK_REGEX.containsMatchIn(tr))) {
                 val cleaned = HtmlUtils.cleanTranslationOutput(tr)
                 val finalTr = if (isTraditionalTarget) ChineseConverter.toTraditional(cleaned) else cleaned
                 updated = updated.copy(explanationTranslation = finalTr)
@@ -1023,22 +1225,22 @@ class NowPlayingRepository @Inject constructor(
         }
 
         if (updated != annotation) {
-            _nowPlayingData.update { current ->
-                val newAnnotatedLines = current.annotatedLines.mapValues { (_, v) ->
+            val replaceMatchingAnnotation: (Map<Int, LyricAnnotationEntity>) -> Map<Int, LyricAnnotationEntity> = { map ->
+                map.mapValues { (_, v) ->
                     if (v.id == annotation.id || (v.lyricFragment == annotation.lyricFragment && v.explanationText == annotation.explanationText)) updated else v
                 }
-                current.copy(annotatedLines = newAnnotatedLines)
             }
+            _lyricsContentFlow.update { current ->
+                current.copy(annotatedLines = replaceMatchingAnnotation(current.annotatedLines))
+            }
+            syncNowPlayingAggregate(content = _lyricsContentFlow.value)
 
             val curKey = currentSongKey
             if (curKey != null) {
                 memoryCache[curKey]?.let { cached ->
-                    val updatedCache = cached.copy(
-                        annotatedLines = cached.annotatedLines.mapValues { (_, v) ->
-                            if (v.id == annotation.id || (v.lyricFragment == annotation.lyricFragment && v.explanationText == annotation.explanationText)) updated else v
-                        }
+                    memoryCache[curKey] = cached.copy(
+                        annotatedLines = replaceMatchingAnnotation(cached.annotatedLines)
                     )
-                    memoryCache[curKey] = updatedCache
                 }
             }
         }
@@ -1055,14 +1257,13 @@ class NowPlayingRepository @Inject constructor(
             aiPreferences.isTraditionalChinese
 
         val tr = translationService.translateText(story.descriptionPlain, targetIso)
-        if (!tr.isNullOrBlank() && (AiAnnotationCurator.isAlreadyChinese(tr) || Regex("""[\u4e00-\u9fa5]""").containsMatchIn(tr))) {
+        if (!tr.isNullOrBlank() && (AiAnnotationCurator.isAlreadyChinese(tr) || CJK_REGEX.containsMatchIn(tr))) {
             val cleaned = HtmlUtils.cleanTranslationOutput(tr)
             val finalTr = if (isTraditionalTarget) ChineseConverter.toTraditional(cleaned) else cleaned
             val updated = story.copy(descriptionTranslation = finalTr)
 
-            _nowPlayingData.update { current ->
-                current.copy(songStory = updated)
-            }
+            _lyricsContentFlow.update { it.copy(songStory = updated) }
+            syncNowPlayingAggregate(content = _lyricsContentFlow.value)
 
             val curKey = currentSongKey
             if (curKey != null) {
@@ -1138,25 +1339,35 @@ class NowPlayingRepository @Inject constructor(
             val aligned = LyricAligner.align(origLyrics, transLyrics)
             if (aligned.isNotEmpty()) {
                 val songKey = "${artistName.trim().lowercase()} - ${trackTitle.trim().lowercase()}"
-                val curData = _nowPlayingData.value
+                val prevContent = _lyricsContentFlow.value
+                val prevCache = memoryCache[songKey]
                 val updatedCache = CachedSongData(
                     lyrics = aligned,
-                    annotatedLines = curData.annotatedLines,
-                    songStory = curData.songStory,
-                    geniusNotice = curData.geniusNoticeMessage
+                    annotatedLines = prevCache?.annotatedLines ?: prevContent.annotatedLines,
+                    songStory = prevCache?.songStory ?: prevContent.songStory,
+                    geniusNotice = prevCache?.geniusNotice ?: prevContent.geniusNoticeMessage,
+                    hasAttemptedGenius = prevCache?.hasAttemptedGenius ?: false
                 )
                 memoryCache[songKey] = updatedCache
-                _nowPlayingData.update {
-                    it.copy(
-                        lyrics = aligned,
-                        isLoadingLyrics = false
-                    )
+                if (currentSongKey == songKey) {
+                    val curPos = (playbackClockFlow.value.getEstimatedPositionMs() + lyricOffsetMs).coerceAtLeast(0L)
+                    val lineIdx = calculateActiveLineIndex(aligned, curPos)
+                    _lyricsContentFlow.update {
+                        it.copy(
+                            lyrics = aligned,
+                            isLoadingLyrics = false
+                        )
+                    }
+                    _currentLineIndexFlow.value = lineIdx
+                    syncNowPlayingAggregate(content = _lyricsContentFlow.value, lineIndex = lineIdx)
                 }
                 if (!candidate.coverUrl.isNullOrBlank()) {
-                    val cur = playbackStateManager.playbackState.value
-                    if (cur.coverUrl.isNullOrBlank() || cur.coverUrl.startsWith("/")) {
-                        playbackStateManager.updateState(cur.copy(coverUrl = candidate.coverUrl))
-                    }
+                    playbackStateManager.updateCoverIfBetter(
+                        expectedTitle = trackTitle,
+                        expectedArtist = artistName,
+                        coverUrl = candidate.coverUrl,
+                        quality = CoverQuality.LYRIC_SOURCE
+                    )
                 }
                 return@withContext true
             }
@@ -1167,7 +1378,11 @@ class NowPlayingRepository @Inject constructor(
     suspend fun resetManualLyricBinding(trackTitle: String, artistName: String): Unit = withContext(Dispatchers.IO) {
         aiPreferences.clearManualLyricBinding(trackTitle, artistName)
         val songKey = "${artistName.trim().lowercase()} - ${trackTitle.trim().lowercase()}"
-        forceReloadLyrics(trackTitle, artistName, songKey)
+        forceReloadLyrics(trackTitle, artistName, songKey, playbackStateManager.trackMetadata.value.trackEpoch)
+    }
+
+    companion object {
+        private val CJK_REGEX = Regex("""[\u4e00-\u9fa5]""")
     }
 }
 

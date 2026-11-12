@@ -1,7 +1,14 @@
 <resources>
     <style name="Theme.LinerNotes" parent="android:Theme.Material.NoActionBar">
+        <item name="android:windowBackground">#F7F7F9</item>
         <item name="android:statusBarColor">@android:color/transparent</item>
         <item name="android:navigationBarColor">@android:color/transparent</item>
-        <item name="android:windowLightStatusBar">false</item>
+        <item name="android:windowLightStatusBar">true</item>
+    </style>
+
+    <style name="Theme.LinerNotes.Splash" parent="Theme.SplashScreen">
+        <item name="windowSplashScreenBackground">#F7F7F9</item>
+        <item name="windowSplashScreenAnimatedIcon">@mipmap/ic_launcher</item>
+        <item name="postSplashScreenTheme">@style/Theme.LinerNotes</item>
     </style>
 </resources>

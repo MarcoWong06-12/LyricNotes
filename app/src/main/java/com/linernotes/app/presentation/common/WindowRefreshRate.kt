@@ -1,42 +1,70 @@
 package com.linernotes.app.presentation.common
 
 import android.app.Activity
+import android.content.Context
 import android.content.ContextWrapper
+import android.hardware.display.DisplayManager
 import android.os.Build
+import android.view.Display
 import android.view.View
 import android.view.Window
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.SideEffect
+import androidx.compose.runtime.remember
 import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.window.DialogWindowProvider
 
 /**
- * 锁定当前 Composable 所在视窗（Window）的最高可用显示模式（例如 120Hz 高刷）。
- * 支持 Activity 宿主窗口以及 ModalBottomSheet / Dialog 弹窗独立 Window。
- *
- * 全程采用严格防御性安全调用（catch Throwable），避免在特定 OEM 系统（如小米、OPPO、一加等）
- * 上因缺失字段或非 Visual Context 抛出 NoSuchFieldError / UnsupportedOperationException 导致闪退。
+ * 锁定当前 Composable 所在视窗的同分辨率最高可用刷新率。
+ * 每个 Window 仅应用一次，避免 Recompose 期间频繁触发 WindowManager Binder IPC；
+ * 保留 Throwable 捕获以兼容部分 OEM 非 Visual Context 限制。
  */
 @Composable
 fun LockWindowRefreshRateEffect() {
     val view = LocalView.current
+    val appliedWindowRef = remember { arrayOfNulls<Window>(1) }
+    val appliedModeId = remember { intArrayOf(-1) }
+
     SideEffect {
         try {
             val window = findWindow(view) ?: return@SideEffect
+            if (appliedWindowRef[0] === window && appliedModeId[0] != -1) return@SideEffect
+
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
-                @Suppress("DEPRECATION")
-                val display = window.windowManager?.defaultDisplay
-                val maxMode = display?.supportedModes?.maxByOrNull { it.refreshRate }
-                if (maxMode != null) {
-                    window.attributes = window.attributes.apply {
-                        preferredDisplayModeId = maxMode.modeId
+                val display = resolveDisplay(view, window) ?: return@SideEffect
+                val currentMode = display.mode
+                val supportedModes = display.supportedModes
+                val maxMode = supportedModes
+                    .filter { mode ->
+                        currentMode == null || (
+                            mode.physicalWidth == currentMode.physicalWidth &&
+                                mode.physicalHeight == currentMode.physicalHeight
+                            )
                     }
+                    .maxByOrNull { it.refreshRate }
+                    ?: supportedModes.maxByOrNull { it.refreshRate }
+
+                if (maxMode != null) {
+                    val attrs = window.attributes
+                    if (attrs.preferredDisplayModeId != maxMode.modeId) {
+                        attrs.preferredDisplayModeId = maxMode.modeId
+                        window.attributes = attrs
+                    }
+                    appliedModeId[0] = maxMode.modeId
                 }
+                appliedWindowRef[0] = window
             }
         } catch (_: Throwable) {
-            // 捕获所有 Throwable 包括 Error / NoSuchFieldError / UnsupportedOperationException，确保绝对不发生闪退
+            // 防止特定 OEM 在窗口切换过渡态抛出 Error 或 UnsupportedOperationException
         }
     }
+}
+
+private fun resolveDisplay(view: View, window: Window): Display? {
+    view.display?.let { return it }
+    window.decorView.display?.let { return it }
+    val dm = view.context.getSystemService(Context.DISPLAY_SERVICE) as? DisplayManager
+    return dm?.getDisplay(Display.DEFAULT_DISPLAY)
 }
 
 private fun findWindow(view: View): Window? {
@@ -53,6 +81,7 @@ private fun findWindow(view: View): Window? {
             if (ctx is Activity) return ctx.window
             ctx = ctx.baseContext
         }
-    } catch (_: Throwable) {}
+    } catch (_: Throwable) {
+    }
     return null
 }

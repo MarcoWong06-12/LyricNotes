@@ -34,6 +34,7 @@ import com.linernotes.app.core.playback.TrackPlaybackState
 import com.linernotes.app.core.util.ChineseConverter
 import com.linernotes.app.presentation.common.bouncyClickable
 import com.linernotes.app.presentation.common.bouncyIconClickable
+import com.linernotes.app.presentation.common.rememberFloatingLyricsLauncher
 
 /**
  * 现代极简流体顶部导航栏
@@ -62,6 +63,7 @@ fun NowPlayingTopBar(
 
     val context = LocalContext.current
     val isFloatingActive by FloatingLyricsService.isRunningFlow.collectAsState()
+    val launchFloatingLyrics = rememberFloatingLyricsLauncher()
     var showMoreMenu by remember { mutableStateOf(false) }
 
     Row(
@@ -316,11 +318,7 @@ fun NowPlayingTopBar(
                             if (isFloatingActive) {
                                 FloatingLyricsService.stop(context)
                             } else {
-                                if (Settings.canDrawOverlays(context)) {
-                                    FloatingLyricsService.start(context)
-                                } else {
-                                    FloatingLyricsService.requestOverlayPermission(context)
-                                }
+                                launchFloatingLyrics()
                             }
                         },
                         contentPadding = PaddingValues(horizontal = 16.dp, vertical = 10.dp),
