@@ -344,10 +344,6 @@ class NowPlayingViewModel @Inject constructor(
         aiPreferences.geniusToken = token.trim()
     }
 
-    fun clearUserMessage() {
-        _uiState.update { it.copy(userMessage = null) }
-    }
-
     fun toggleDeCensor() {
         val newVal = !aiPreferences.isDeCensorEnabled
         aiPreferences.isDeCensorEnabled = newVal

@@ -191,7 +191,10 @@ fun NowPlayingScreen(
 
     LaunchedEffect(state.userMessage, strings) {
         val rawMsg = state.userMessage ?: return@LaunchedEffect
-        snackbarHostState.showSnackbar(resolveAppMessage(rawMsg, strings))
+        val resolved = resolveAppMessage(rawMsg, strings)
+        if (!resolved.isNullOrBlank()) {
+            snackbarHostState.showSnackbar(resolved)
+        }
         viewModel.clearUserMessage()
     }
 

@@ -308,7 +308,7 @@ fun ManualLyricSearchSheet(
                         ) {
                             Text(text = "🔍", fontSize = 28.sp)
                             Text(
-                                text = tr(resolveAppMessage(errorMessage, strings)),
+                                text = tr(resolveAppMessage(errorMessage, strings) ?: ""),
                                 fontSize = 14.sp,
                                 color = textSecondary
                             )
