@@ -1,23 +1,49 @@
 package com.linernotes.app.core.preference
 
 import android.content.Context
+import com.linernotes.app.core.i18n.AppLanguage
+import com.linernotes.app.core.i18n.TranslationTargetLanguage
+import dagger.hilt.EntryPoint
+import dagger.hilt.InstallIn
 import dagger.hilt.android.qualifiers.ApplicationContext
+import dagger.hilt.components.SingletonComponent
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.launch
 import javax.inject.Inject
 import javax.inject.Singleton
 
+@EntryPoint
+@InstallIn(SingletonComponent::class)
+interface AiPreferencesEntryPoint {
+    fun aiPreferences(): AiPreferences
+}
+
 /**
- * 应用全局配置偏好（界面多语言、目标翻译语种、在线歌词源）
+ * 应用全局配置偏好（界面多语言、目标翻译语种、在线歌词源与视觉排版偏好）
  */
 @Singleton
 class AiPreferences @Inject constructor(
     @ApplicationContext context: Context
 ) {
     private val prefs = context.getSharedPreferences("app_settings", Context.MODE_PRIVATE)
+    private val preloadScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
 
-    private val _themeModeFlow = kotlinx.coroutines.flow.MutableStateFlow(
+    init {
+        // 异步预热磁盘 XML 缓存，避免后续 UI 线程读取阻塞
+        preloadScope.launch {
+            runCatching { prefs.all }
+        }
+    }
+
+    private val _themeModeFlow = MutableStateFlow(
         prefs.getString("theme_mode", ThemeMode.SYSTEM.code) ?: ThemeMode.SYSTEM.code
     )
-    val themeModeFlow: kotlinx.coroutines.flow.StateFlow<String> = _themeModeFlow
+    val themeModeFlow: StateFlow<String> = _themeModeFlow.asStateFlow()
 
     var themeMode: String
         get() = _themeModeFlow.value
@@ -26,11 +52,11 @@ class AiPreferences @Inject constructor(
             _themeModeFlow.value = value
         }
 
-    // 纯黑 OLED 极暗模式 (AMOLED Pure Black)：在深色主题下关闭像素点，实现纯黑高对比度与极致省电
-    private val _isAmoledModeFlow = kotlinx.coroutines.flow.MutableStateFlow(
+    // 纯黑 OLED 极暗模式 (AMOLED Pure Black)
+    private val _isAmoledModeFlow = MutableStateFlow(
         prefs.getBoolean("is_amoled_mode", false)
     )
-    val isAmoledModeFlow: kotlinx.coroutines.flow.StateFlow<Boolean> = _isAmoledModeFlow
+    val isAmoledModeFlow: StateFlow<Boolean> = _isAmoledModeFlow.asStateFlow()
 
     var isAmoledMode: Boolean
         get() = _isAmoledModeFlow.value
@@ -40,10 +66,10 @@ class AiPreferences @Inject constructor(
         }
 
     // 全屏歌词对齐方式：0 = 靠左对齐 (默认)，1 = 居中对齐
-    private val _lyricAlignmentFlow = kotlinx.coroutines.flow.MutableStateFlow(
+    private val _lyricAlignmentFlow = MutableStateFlow(
         prefs.getInt("lyric_alignment", LYRIC_ALIGN_LEFT)
     )
-    val lyricAlignmentFlow: kotlinx.coroutines.flow.StateFlow<Int> = _lyricAlignmentFlow
+    val lyricAlignmentFlow: StateFlow<Int> = _lyricAlignmentFlow.asStateFlow()
 
     var lyricAlignment: Int
         get() = _lyricAlignmentFlow.value
@@ -53,10 +79,10 @@ class AiPreferences @Inject constructor(
         }
 
     // 全屏歌词字体字号大小：0 = 紧凑 (26sp), 1 = 标准 (34sp, 默认), 2 = 大号 (38sp), 3 = 特大 (44sp)
-    private val _lyricTextSizeFlow = kotlinx.coroutines.flow.MutableStateFlow(
+    private val _lyricTextSizeFlow = MutableStateFlow(
         prefs.getInt("lyric_text_size", LYRIC_TEXT_SIZE_STANDARD)
     )
-    val lyricTextSizeFlow: kotlinx.coroutines.flow.StateFlow<Int> = _lyricTextSizeFlow
+    val lyricTextSizeFlow: StateFlow<Int> = _lyricTextSizeFlow.asStateFlow()
 
     var lyricTextSize: Int
         get() = _lyricTextSizeFlow.value
@@ -65,11 +91,11 @@ class AiPreferences @Inject constructor(
             _lyricTextSizeFlow.value = value
         }
 
-    // 动态流体极光背景 (Dynamic Fluid Aurora Canvas)：基于专辑封面色彩自适应流动，营造舞台光场
-    private val _isDynamicAuroraEnabledFlow = kotlinx.coroutines.flow.MutableStateFlow(
+    // 动态流体极光背景
+    private val _isDynamicAuroraEnabledFlow = MutableStateFlow(
         prefs.getBoolean("is_dynamic_aurora_enabled", true)
     )
-    val isDynamicAuroraEnabledFlow: kotlinx.coroutines.flow.StateFlow<Boolean> = _isDynamicAuroraEnabledFlow
+    val isDynamicAuroraEnabledFlow: StateFlow<Boolean> = _isDynamicAuroraEnabledFlow.asStateFlow()
 
     var isDynamicAuroraEnabled: Boolean
         get() = _isDynamicAuroraEnabledFlow.value
@@ -78,11 +104,11 @@ class AiPreferences @Inject constructor(
             _isDynamicAuroraEnabledFlow.value = value
         }
 
-    // 逐字流光歌词动效 (Word-by-word Karaoke Sweep)：Apple Music 风格逐字光效高亮与律动扫光
-    private val _isWordByWordEnabledFlow = kotlinx.coroutines.flow.MutableStateFlow(
+    // 逐字流光歌词动效
+    private val _isWordByWordEnabledFlow = MutableStateFlow(
         prefs.getBoolean("is_word_by_word_enabled", true)
     )
-    val isWordByWordEnabledFlow: kotlinx.coroutines.flow.StateFlow<Boolean> = _isWordByWordEnabledFlow
+    val isWordByWordEnabledFlow: StateFlow<Boolean> = _isWordByWordEnabledFlow.asStateFlow()
 
     var isWordByWordEnabled: Boolean
         get() = _isWordByWordEnabledFlow.value
@@ -91,11 +117,11 @@ class AiPreferences @Inject constructor(
             _isWordByWordEnabledFlow.value = value
         }
 
-    // 歌词脏字反审查/反和谐：还原原版英文歌词与自然译文
-    private val _isDeCensorEnabledFlow = kotlinx.coroutines.flow.MutableStateFlow(
+    // 歌词脏字反审查/反和谐
+    private val _isDeCensorEnabledFlow = MutableStateFlow(
         prefs.getBoolean("is_decensor_enabled", true)
     )
-    val isDeCensorEnabledFlow: kotlinx.coroutines.flow.StateFlow<Boolean> = _isDeCensorEnabledFlow
+    val isDeCensorEnabledFlow: StateFlow<Boolean> = _isDeCensorEnabledFlow.asStateFlow()
 
     var isDeCensorEnabled: Boolean
         get() = _isDeCensorEnabledFlow.value
@@ -111,86 +137,100 @@ class AiPreferences @Inject constructor(
         const val LYRIC_TEXT_SIZE_STANDARD = 1
         const val LYRIC_TEXT_SIZE_LARGE = 2
         const val LYRIC_TEXT_SIZE_EXTRA_LARGE = 3
+
+        private const val KEY_APP_LANGUAGE = "app_language"
+        private const val KEY_IS_TRADITIONAL_CHINESE = "is_traditional_chinese"
+        private const val KEY_TARGET_LANGUAGE = "target_language"
+
+        private val NORMALIZE_KEY_REGEX = Regex("[^a-zA-Z0-9\u4e00-\u9fa5]")
+    }
+
+    private fun isTraditionalSystemLocale(): Boolean {
+        val locale = java.util.Locale.getDefault()
+        val country = locale.country.uppercase()
+        return locale.language.lowercase() == "zh" && (country == "TW" || country == "HK" || country == "MO")
     }
 
     private fun computeDefaultTraditional(lang: String): Boolean {
-        if (prefs.contains("is_traditional_chinese")) {
-            return prefs.getBoolean("is_traditional_chinese", false)
-        }
-        if (lang == com.linernotes.app.core.i18n.AppLanguage.ZH_TW.code) return true
-        if (lang == com.linernotes.app.core.i18n.AppLanguage.SYSTEM.code) {
-            val locale = java.util.Locale.getDefault()
-            val country = locale.country.uppercase()
-            return locale.language.lowercase() == "zh" && (country == "TW" || country == "HK" || country == "MO")
-        }
+        if (lang == AppLanguage.ZH_TW.code) return true
+        if (lang == AppLanguage.SYSTEM.code) return isTraditionalSystemLocale()
         return false
     }
 
-    private val _appLanguageFlow = kotlinx.coroutines.flow.MutableStateFlow(
-        prefs.getString("app_language", com.linernotes.app.core.i18n.AppLanguage.SYSTEM.code) ?: com.linernotes.app.core.i18n.AppLanguage.SYSTEM.code
-    )
-    val appLanguageFlow: kotlinx.coroutines.flow.StateFlow<String> = _appLanguageFlow
+    private fun computeDefaultTargetLanguage(): String =
+        if (isTraditionalSystemLocale()) TranslationTargetLanguage.ZH_TW.code else TranslationTargetLanguage.ZH_CN.code
 
-    private val _isTraditionalChineseFlow = kotlinx.coroutines.flow.MutableStateFlow(
-        prefs.getBoolean("is_traditional_chinese", computeDefaultTraditional(_appLanguageFlow.value))
+    private val _appLanguageFlow = MutableStateFlow(
+        prefs.getString(KEY_APP_LANGUAGE, AppLanguage.SYSTEM.code) ?: AppLanguage.SYSTEM.code
     )
-    val isTraditionalChineseFlow: kotlinx.coroutines.flow.StateFlow<Boolean> = _isTraditionalChineseFlow
+    val appLanguageFlow: StateFlow<String> = _appLanguageFlow.asStateFlow()
+
+    // 仅在尚未显式保存过繁简偏好时按当前语言/系统区域推算默认值；之后各选项完全解耦互不覆盖
+    private val _isTraditionalChineseFlow = MutableStateFlow(
+        if (prefs.contains(KEY_IS_TRADITIONAL_CHINESE)) {
+            prefs.getBoolean(KEY_IS_TRADITIONAL_CHINESE, false)
+        } else {
+            computeDefaultTraditional(_appLanguageFlow.value)
+        }
+    )
+    val isTraditionalChineseFlow: StateFlow<Boolean> = _isTraditionalChineseFlow.asStateFlow()
 
     var isTraditionalChinese: Boolean
         get() = _isTraditionalChineseFlow.value
         set(value) {
-            prefs.edit().putBoolean("is_traditional_chinese", value).apply()
+            prefs.edit().putBoolean(KEY_IS_TRADITIONAL_CHINESE, value).apply()
             _isTraditionalChineseFlow.value = value
-            if (value && targetLanguage == com.linernotes.app.core.i18n.TranslationTargetLanguage.ZH_CN.code) {
-                targetLanguage = com.linernotes.app.core.i18n.TranslationTargetLanguage.ZH_TW.code
-            } else if (!value && targetLanguage == com.linernotes.app.core.i18n.TranslationTargetLanguage.ZH_TW.code) {
-                targetLanguage = com.linernotes.app.core.i18n.TranslationTargetLanguage.ZH_CN.code
-            }
         }
 
     var appLanguage: String
         get() = _appLanguageFlow.value
         set(value) {
-            prefs.edit().putString("app_language", value).apply()
+            prefs.edit().putString(KEY_APP_LANGUAGE, value).apply()
             _appLanguageFlow.value = value
-            when (value) {
-                com.linernotes.app.core.i18n.AppLanguage.ZH_TW.code -> {
-                    isTraditionalChinese = true
-                }
-                com.linernotes.app.core.i18n.AppLanguage.ZH_CN.code -> {
-                    isTraditionalChinese = false
-                }
-                com.linernotes.app.core.i18n.AppLanguage.SYSTEM.code -> {
-                    val locale = java.util.Locale.getDefault()
-                    val country = locale.country.uppercase()
-                    if (locale.language.lowercase() == "zh" && (country == "TW" || country == "HK" || country == "MO")) {
-                        isTraditionalChinese = true
-                    } else {
-                        isTraditionalChinese = false
-                    }
-                }
-            }
         }
 
+    private val _targetLanguageFlow = MutableStateFlow(
+        if (prefs.contains(KEY_TARGET_LANGUAGE)) {
+            prefs.getString(KEY_TARGET_LANGUAGE, TranslationTargetLanguage.ZH_CN.code)
+                ?: TranslationTargetLanguage.ZH_CN.code
+        } else {
+            computeDefaultTargetLanguage()
+        }
+    )
+    val targetLanguageFlow: StateFlow<String> = _targetLanguageFlow.asStateFlow()
+
     var targetLanguage: String
-        get() = prefs.getString("target_language", com.linernotes.app.core.i18n.TranslationTargetLanguage.ZH_CN.code) ?: com.linernotes.app.core.i18n.TranslationTargetLanguage.ZH_CN.code
-        set(value) = prefs.edit().putString("target_language", value).apply()
+        get() = _targetLanguageFlow.value
+        set(value) {
+            prefs.edit().putString(KEY_TARGET_LANGUAGE, value).apply()
+            _targetLanguageFlow.value = value
+        }
 
-    var musixmatchToken: String
-        get() = prefs.getString("musixmatch_token", "") ?: ""
-        set(value) = prefs.edit().putString("musixmatch_token", value.trim()).apply()
-
-    var discogsToken: String
-        get() = prefs.getString("discogs_token", "") ?: ""
-        set(value) = prefs.edit().putString("discogs_token", value.trim()).apply()
+    private val _geniusTokenFlow = MutableStateFlow(
+        prefs.getString("genius_token", "") ?: ""
+    )
+    val geniusTokenFlow: StateFlow<String> = _geniusTokenFlow.asStateFlow()
 
     var geniusToken: String
-        get() = prefs.getString("genius_token", "") ?: ""
-        set(value) = prefs.edit().putString("genius_token", value.trim()).apply()
+        get() = _geniusTokenFlow.value
+        set(value) {
+            val trimmed = value.trim()
+            prefs.edit().putString("genius_token", trimmed).apply()
+            _geniusTokenFlow.value = trimmed
+        }
+
+    private val _lyricsSourceFlow = MutableStateFlow(
+        prefs.getString("lyrics_source", LyricsSourcePreference.AUTO_FIRST.code)
+            ?: LyricsSourcePreference.AUTO_FIRST.code
+    )
+    val lyricsSourceFlow: StateFlow<String> = _lyricsSourceFlow.asStateFlow()
 
     var lyricsSource: String
-        get() = prefs.getString("lyrics_source", LyricsSourcePreference.AUTO_FIRST.code) ?: LyricsSourcePreference.AUTO_FIRST.code
-        set(value) = prefs.edit().putString("lyrics_source", value).apply()
+        get() = _lyricsSourceFlow.value
+        set(value) {
+            prefs.edit().putString("lyrics_source", value).apply()
+            _lyricsSourceFlow.value = value
+        }
 
     enum class LyricsSourcePreference(val code: String, val displayNameZh: String, val displayNameEn: String) {
         AUTO_FIRST("auto_first", "智能多源聚合 (推荐：网易云+QQ+酷狗+Musixmatch+LRCLIB)", "Smart Multi-Source (NetEase + QQ + Kugou + Musixmatch + LRCLIB)"),
@@ -253,7 +293,7 @@ class AiPreferences @Inject constructor(
     }
 
     private fun normalizeKey(title: String, artist: String): String {
-        return "${artist.trim().lowercase()}_${title.trim().lowercase()}".replace(Regex("[^a-zA-Z0-9\u4e00-\u9fa5]"), "")
+        return "${artist.trim().lowercase()}_${title.trim().lowercase()}".replace(NORMALIZE_KEY_REGEX, "")
     }
 }
 

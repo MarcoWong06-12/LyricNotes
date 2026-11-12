@@ -28,14 +28,14 @@ jobs:
         with:
           gradle-version: '8.9'
 
-      - name: Build Debug APK
+      - name: Build Debug & Release APKs + Run Unit Tests
         run: |
-          gradle :app:assembleDebug --stacktrace > build.log 2>&1 || {
+          gradle :app:assembleDebug :app:testDebugUnitTest :app:assembleRelease --stacktrace > build.log 2>&1 || {
             grep -E "e: " build.log | head -n 30 | while IFS= read -r line; do
               clean=$(echo "$line" | tr -d '\r')
               [ -n "$clean" ] && echo "::error title=KotlinError::$clean"
             done
-            grep -E "(What went wrong:|Caused by:)" build.log | head -n 10 | while IFS= read -r line; do
+            grep -E "(What went wrong:|Caused by:|WARNING:|Missing class)" build.log | head -n 20 | while IFS= read -r line; do
               clean=$(echo "$line" | tr -d '\r')
               [ -n "$clean" ] && echo "::error title=GradleFailure::$clean"
             done
@@ -48,6 +48,14 @@ jobs:
         with:
           name: LyricNotes-Debug-APK
           path: app/build/outputs/apk/debug/app-debug.apk
+          retention-days: 7
+
+      - name: Upload Release APK to Artifacts
+        uses: actions/upload-artifact@v4
+        if: success()
+        with:
+          name: LyricNotes-Release-APK
+          path: app/build/outputs/apk/release/app-release.apk
           retention-days: 7
 
       - name: Upload Failure Log

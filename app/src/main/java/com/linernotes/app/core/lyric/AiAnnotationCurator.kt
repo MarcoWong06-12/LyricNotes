@@ -6,6 +6,17 @@ import com.linernotes.app.data.local.entity.TrackEntity
 
 object AiAnnotationCurator {
 
+    private val TITLE_PARENS_REGEX = Regex(
+        """\s*[\(\[\{](?:feat|ft|radio\s*mix|club\s*mix|extended\s*mix|original\s*mix|mix|remix|edit|radio\s*edit|single\s*version|album\s*version|acoustic|live|remaster(?:ed)?|version|deluxe|bonus|mono|stereo|anniversary|ost|soundtrack|explicit|clean).*?[\)\]\}]""",
+        RegexOption.IGNORE_CASE
+    )
+    private val TITLE_DASH_REGEX = Regex(
+        """\s*-\s*(?:feat|radio\s*mix|club\s*mix|mix|remix|edit|radio\s*edit|single\s*version|live|remaster(?:ed)?|version|deluxe|bonus|explicit|clean).*$""",
+        RegexOption.IGNORE_CASE
+    )
+    private val BRACKET_TAG_REGEX = Regex("""\[.*?\]""")
+    private val PUNCT_CLEAN_REGEX = Regex("""[,\.\?!\-\'\"“”‘’\(\)\[\]{}，。？！、“”‘’…—~：；:;·]+""")
+
     /**
      * 判断文本是否已经是以中文为主。
      * 若中文字符数量 >= 6 或中文字符占比超过 25%，则判定已是中文，避免将中文重复调用翻译。
@@ -40,8 +51,8 @@ object AiAnnotationCurator {
 
     fun cleanSongTitle(title: String): String {
         return title
-            .replace(Regex("""\s*[\(\[\{](?:feat|ft|radio\s*mix|club\s*mix|extended\s*mix|original\s*mix|mix|remix|edit|radio\s*edit|single\s*version|album\s*version|acoustic|live|remaster(?:ed)?|version|deluxe|bonus|mono|stereo|anniversary|ost|soundtrack|explicit|clean).*?[\)\]\}]""", RegexOption.IGNORE_CASE), "")
-            .replace(Regex("""\s*-\s*(?:feat|radio\s*mix|club\s*mix|mix|remix|edit|radio\s*edit|single\s*version|live|remaster(?:ed)?|version|deluxe|bonus|explicit|clean).*$""", RegexOption.IGNORE_CASE), "")
+            .replace(TITLE_PARENS_REGEX, "")
+            .replace(TITLE_DASH_REGEX, "")
             .trim()
     }
 
@@ -244,7 +255,7 @@ object AiAnnotationCurator {
 
         for ((idx, reason) in candidateIndices) {
             val lineText = alignedLines.getOrNull(idx) ?: continue
-            val cleanSnippet = lineText.replace(Regex("""\[.*?\]"""), "").trim()
+            val cleanSnippet = lineText.replace(BRACKET_TAG_REGEX, "").trim()
             val explanation = when (reason) {
                 LineType.HOOK -> "“$cleanSnippet” —— 此句作为曲目的记忆锚点与情感核心，词作者在旋律高潮推进中将情绪彻底释放，以极具穿透力的词句完成了整首作品的主题升华。"
                 LineType.INTRO_SETTING -> "“$cleanSnippet” —— 曲目开篇以极具画面感的生活细节与心理描摹破题，巧妙勾勒出主人公此时此刻的心理处境，为整首故事的发展奠定了基调。"
@@ -257,7 +268,7 @@ object AiAnnotationCurator {
                     trackId = trackId,
                     lyricFragment = lineText,
                     explanationText = explanation,
-                    authorName = "LinerNotes 唱片学者",
+                    authorName = "LyricNotes 唱片学者",
                     isVerified = (reason == LineType.HOOK),
                     votesTotal = (15..35).random(),
                     source = "AI_CURATED"
@@ -277,7 +288,7 @@ object AiAnnotationCurator {
 
     private fun selectRepresentativeLines(lines: List<String>): List<Pair<Int, LineType>> {
         val nonBlank = lines.mapIndexedNotNull { i, s ->
-            val clean = s.replace(Regex("""\[.*?\]"""), "").trim()
+            val clean = s.replace(BRACKET_TAG_REGEX, "").trim()
             if (clean.length in 5..90) i to clean else null
         }
         if (nonBlank.isEmpty()) return emptyList()
@@ -316,11 +327,10 @@ object AiAnnotationCurator {
     }
 
     private fun findMatchingLine(lines: List<String>, keywords: List<String>): String? {
-        val punctRegex = Regex("""[,\.\?!\-\'\"“”‘’\(\)\[\]{}，。？！、“”‘’…—~：；:;·]+""")
         for (line in lines) {
-            val cleanLine = line.replace(punctRegex, " ").lowercase()
+            val cleanLine = line.replace(PUNCT_CLEAN_REGEX, " ").lowercase()
             for (kw in keywords) {
-                val cleanKw = kw.replace(punctRegex, " ").lowercase().trim()
+                val cleanKw = kw.replace(PUNCT_CLEAN_REGEX, " ").lowercase().trim()
                 if (cleanLine.contains(cleanKw)) {
                     return line.trim()
                 }

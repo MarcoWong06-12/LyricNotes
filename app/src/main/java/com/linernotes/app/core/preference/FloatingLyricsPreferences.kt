@@ -104,19 +104,12 @@ class FloatingLyricsPreferences @Inject constructor(
     // 7. 时间轴延迟/提前补偿 (全局基准 0ms，单曲独立微调)
     private val _globalOffsetMsFlow = MutableStateFlow(prefs.getLong(KEY_OFFSET_MS, 0L))
     val globalOffsetMsFlow: StateFlow<Long> = _globalOffsetMsFlow.asStateFlow()
-    val lyricOffsetMsFlow: StateFlow<Long> = _globalOffsetMsFlow.asStateFlow()
 
     var globalOffsetMs: Long
         get() = _globalOffsetMsFlow.value
         set(value) {
             prefs.edit().putLong(KEY_OFFSET_MS, value).apply()
             _globalOffsetMsFlow.value = value
-        }
-
-    var lyricOffsetMs: Long
-        get() = globalOffsetMs
-        set(value) {
-            globalOffsetMs = value
         }
 
     fun getSongOffset(songKey: String): Long {
@@ -132,14 +125,6 @@ class FloatingLyricsPreferences @Inject constructor(
     }
 
     // 8. 记忆屏幕坐标 X / Y（区分横竖屏独立记忆，-1 表示初次由系统计算安全居中与下移避让挖孔）
-    var lastPositionX: Int
-        get() = prefs.getInt(KEY_POS_PORTRAIT_X, prefs.getInt(KEY_POS_X, -1))
-        set(value) = setLastPosition(value, lastPositionY, isLandscape = false)
-
-    var lastPositionY: Int
-        get() = prefs.getInt(KEY_POS_PORTRAIT_Y, prefs.getInt(KEY_POS_Y, -1))
-        set(value) = setLastPosition(lastPositionX, value, isLandscape = false)
-
     fun getLastPositionX(isLandscape: Boolean): Int {
         return if (isLandscape) {
             prefs.getInt(KEY_POS_LANDSCAPE_X, -1)

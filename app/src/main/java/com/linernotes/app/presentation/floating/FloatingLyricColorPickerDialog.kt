@@ -3,6 +3,8 @@ package com.linernotes.app.presentation.floating
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
@@ -27,11 +29,14 @@ import androidx.compose.ui.graphics.Shadow
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.platform.LocalFocusManager
+import androidx.compose.ui.text.TextRange
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.KeyboardCapitalization
+import androidx.compose.ui.text.input.KeyboardType
+import androidx.compose.ui.text.input.TextFieldValue
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -68,7 +73,7 @@ fun FloatingLyricColorPickerDialog(
 
     var hue by remember { mutableFloatStateOf(initialHsv[0]) } // 0..360
     var saturation by remember { mutableFloatStateOf(initialHsv[1]) } // 0..1
-    var value by remember { mutableFloatStateOf(initialHsv[2].coerceAtLeast(0.20f)) } // 0.20..1
+    var value by remember { mutableFloatStateOf(initialHsv[2]) } // 0..1 保留真实明度以免覆盖手输深色 Hex
 
     // 当前计算得到的 Color Int 与 Compose Color
     val calculatedColorInt = remember(hue, saturation, value) {
@@ -78,9 +83,19 @@ fun FloatingLyricColorPickerDialog(
         Color(calculatedColorInt)
     }
 
-    // Hex 文本输入同步
-    var hexInput by remember(calculatedColorInt) {
-        mutableStateOf(String.format("%06X", 0xFFFFFF and calculatedColorInt))
+    // 分离编辑器草稿状态，避免用户输入深色或中间态时跳光标或被强行改写
+    val initialHex = remember(initialColorInt) {
+        String.format("%06X", 0xFFFFFF and initialColorInt)
+    }
+    var hexDraft by remember {
+        mutableStateOf(TextFieldValue(text = initialHex, selection = TextRange(initialHex.length)))
+    }
+    val isHexIncomplete = hexDraft.text.length in 1..5
+
+    fun syncDraftFromHsv(h: Float, s: Float, v: Float) {
+        val colorInt = android.graphics.Color.HSVToColor(floatArrayOf(h, s, v))
+        val formatted = String.format("%06X", 0xFFFFFF and colorInt)
+        hexDraft = TextFieldValue(text = formatted, selection = TextRange(formatted.length))
     }
 
     // 预览壁纸模式：0-深色桌面, 1-浅色桌面, 2-极光炫彩桌面
@@ -100,20 +115,40 @@ fun FloatingLyricColorPickerDialog(
 
     Dialog(
         onDismissRequest = onDismiss,
-        properties = DialogProperties(usePlatformDefaultWidth = false)
+        properties = DialogProperties(
+            usePlatformDefaultWidth = false,
+            decorFitsSystemWindows = false
+        )
     ) {
         LockWindowRefreshRateEffect()
 
-        Surface(
-            color = dialogBg,
-            shape = RoundedCornerShape(24.dp),
-            border = BorderStroke(0.5.dp, dialogBorder),
-            shadowElevation = 16.dp,
+        Box(
             modifier = Modifier
-                .fillMaxWidth(0.92f)
-                .wrapContentHeight()
-                .padding(vertical = 16.dp)
+                .fillMaxSize()
+                .systemBarsPadding()
+                .imePadding()
+                .clickable(
+                    interactionSource = remember { MutableInteractionSource() },
+                    indication = null,
+                    onClick = onDismiss
+                ),
+            contentAlignment = Alignment.Center
         ) {
+            Surface(
+                color = dialogBg,
+                shape = RoundedCornerShape(24.dp),
+                border = BorderStroke(0.5.dp, dialogBorder),
+                shadowElevation = 16.dp,
+                modifier = Modifier
+                    .fillMaxWidth(0.92f)
+                    .wrapContentHeight()
+                    .padding(vertical = 16.dp)
+                    .clickable(
+                        interactionSource = remember { MutableInteractionSource() },
+                        indication = null,
+                        onClick = { focusManager.clearFocus() }
+                    )
+            ) {
             Column(
                 modifier = Modifier
                     .fillMaxWidth()
@@ -173,9 +208,9 @@ fun FloatingLyricColorPickerDialog(
                             verticalAlignment = Alignment.CenterVertically
                         ) {
                             val bgOptions = listOf(
-                                0 to (if (isTraditional) "深色" else "深色"),
-                                1 to (if (isTraditional) "淺色" else "浅色"),
-                                2 to (if (isTraditional) "極光" else "极光")
+                                0 to strings.colorPreviewDark,
+                                1 to strings.colorPreviewLight,
+                                2 to strings.colorPreviewAurora
                             )
                             bgOptions.forEach { (mode, label) ->
                                 val isSelected = previewBgMode == mode
@@ -252,7 +287,7 @@ fun FloatingLyricColorPickerDialog(
                                 )
                                 Spacer(modifier = Modifier.height(2.5.dp))
                                 Text(
-                                    text = if (isTraditional) "我說，噢，我被這璀璨的燈光晃花了雙眼" else "我说，噢，我被这璀璨的灯光晃花了双眼",
+                                    text = strings.colorPreviewTranslation,
                                     color = currentComposeColor.copy(alpha = if (isLightPreviewColor) 0.95f else 0.90f),
                                     fontSize = 12.sp,
                                     fontWeight = FontWeight.SemiBold,
@@ -304,19 +339,26 @@ fun FloatingLyricColorPickerDialog(
                                 )
                                 Spacer(modifier = Modifier.width(3.dp))
                                 BasicTextField(
-                                    value = hexInput,
-                                    onValueChange = { input ->
-                                        val clean = input.filter { it.isLetterOrDigit() }.take(6).uppercase()
-                                        hexInput = clean
+                                    value = hexDraft,
+                                    onValueChange = { incoming ->
+                                        val clean = incoming.text
+                                            .filter { it in '0'..'9' || it in 'A'..'F' || it in 'a'..'f' }
+                                            .take(6)
+                                            .uppercase()
+                                        val clampedEnd = incoming.selection.end.coerceIn(0, clean.length)
+                                        hexDraft = TextFieldValue(
+                                            text = clean,
+                                            selection = TextRange(clampedEnd)
+                                        )
                                         if (clean.length == 6) {
-                                            try {
-                                                val parsedInt = (0xFF000000.toLong() or clean.toLong(16)).toInt()
+                                            runCatching {
+                                                val parsedInt = (0xFF000000L or clean.toLong(16)).toInt()
                                                 val hsvArr = FloatArray(3)
                                                 android.graphics.Color.colorToHSV(parsedInt, hsvArr)
                                                 hue = hsvArr[0]
                                                 saturation = hsvArr[1]
-                                                value = hsvArr[2].coerceAtLeast(0.20f)
-                                            } catch (_: Exception) {}
+                                                value = hsvArr[2]
+                                            }
                                         }
                                     },
                                     textStyle = TextStyle(
@@ -328,11 +370,21 @@ fun FloatingLyricColorPickerDialog(
                                     cursorBrush = SolidColor(if (isDark) Color(0xFFFFD54F) else Color(0xFFD97706)),
                                     keyboardOptions = KeyboardOptions(
                                         capitalization = KeyboardCapitalization.Characters,
+                                        keyboardType = KeyboardType.Ascii,
+                                        autoCorrectEnabled = false,
                                         imeAction = ImeAction.Done
                                     ),
                                     keyboardActions = KeyboardActions(onDone = { focusManager.clearFocus() }),
                                     singleLine = true,
                                     modifier = Modifier.fillMaxWidth()
+                                )
+                            }
+                            if (isHexIncomplete) {
+                                Spacer(modifier = Modifier.height(2.dp))
+                                Text(
+                                    text = strings.floatingCustomColorInvalidHex,
+                                    fontSize = 10.5.sp,
+                                    color = if (isDark) Color(0xFFFFB74D) else Color(0xFFD97706)
                                 )
                             }
                         }
@@ -363,6 +415,7 @@ fun FloatingLyricColorPickerDialog(
                         trackGradient = rainbowGradient,
                         onValueChange = {
                             hue = it
+                            syncDraftFromHsv(hue, saturation, value)
                             focusManager.clearFocus()
                         }
                     )
@@ -370,8 +423,8 @@ fun FloatingLyricColorPickerDialog(
                     // 4.2 饱和度滑块 (Saturation 0% ~ 100%)
                     val satGradient = Brush.horizontalGradient(
                         listOf(
-                            Color(android.graphics.Color.HSVToColor(floatArrayOf(hue, 0f, value))),
-                            Color(android.graphics.Color.HSVToColor(floatArrayOf(hue, 1f, value)))
+                            Color(android.graphics.Color.HSVToColor(floatArrayOf(hue, 0f, value.coerceAtLeast(0.20f)))),
+                            Color(android.graphics.Color.HSVToColor(floatArrayOf(hue, 1f, value.coerceAtLeast(0.20f))))
                         )
                     )
                     ColorSliderRow(
@@ -384,11 +437,12 @@ fun FloatingLyricColorPickerDialog(
                         trackGradient = satGradient,
                         onValueChange = {
                             saturation = it
+                            syncDraftFromHsv(hue, saturation, value)
                             focusManager.clearFocus()
                         }
                     )
 
-                    // 4.3 明度滑块 (Brightness 20% ~ 100%)
+                    // 4.3 明度滑块 (滑杆下限 20% 保障可视度；手动输入的更暗 Hex 值保留完整亮度)
                     val valGradient = Brush.horizontalGradient(
                         listOf(
                             Color(android.graphics.Color.HSVToColor(floatArrayOf(hue, saturation, 0.20f))),
@@ -400,11 +454,12 @@ fun FloatingLyricColorPickerDialog(
                         valueLabel = "${(value * 100).toInt()}%",
                         textPrimary = textPrimary,
                         textSecondary = textSecondary,
-                        sliderValue = value,
+                        sliderValue = value.coerceIn(0.20f, 1.0f),
                         valueRange = 0.20f..1.0f,
                         trackGradient = valGradient,
                         onValueChange = {
                             value = it
+                            syncDraftFromHsv(hue, saturation, value)
                             focusManager.clearFocus()
                         }
                     )
@@ -455,7 +510,8 @@ fun FloatingLyricColorPickerDialog(
                                         android.graphics.Color.colorToHSV(swatchColorInt, hsvArr)
                                         hue = hsvArr[0]
                                         saturation = hsvArr[1]
-                                        value = hsvArr[2].coerceAtLeast(0.20f)
+                                        value = hsvArr[2]
+                                        syncDraftFromHsv(hue, saturation, value)
                                         focusManager.clearFocus()
                                     }
                             ) {
@@ -489,6 +545,7 @@ fun FloatingLyricColorPickerDialog(
                             hue = 0f
                             saturation = 0f
                             value = 1f
+                            syncDraftFromHsv(hue, saturation, value)
                             focusManager.clearFocus()
                         },
                         contentPadding = PaddingValues(horizontal = 6.dp)
@@ -545,6 +602,7 @@ fun FloatingLyricColorPickerDialog(
                     }
                 }
             }
+        }
         }
     }
 }

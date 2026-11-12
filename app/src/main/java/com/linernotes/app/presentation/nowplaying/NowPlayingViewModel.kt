@@ -3,6 +3,9 @@ package com.linernotes.app.presentation.nowplaying
 import androidx.compose.runtime.Immutable
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.linernotes.app.core.i18n.AppLanguage
+import com.linernotes.app.core.i18n.NowPlayingMessageKeys
+import com.linernotes.app.core.i18n.TranslationTargetLanguage
 import com.linernotes.app.core.lyric.AiAnnotationCurator
 import com.linernotes.app.core.playback.PlaybackClockState
 import com.linernotes.app.core.playback.QueueTrackItem
@@ -43,7 +46,10 @@ data class NowPlayingUiState(
     val furiganaMode: FuriganaDisplayMode = FuriganaDisplayMode.OFF,
     val isTraditionalChinese: Boolean = false,
     val themeMode: String = AiPreferences.ThemeMode.SYSTEM.code,
-    val appLanguage: String = com.linernotes.app.core.i18n.AppLanguage.SYSTEM.code,
+    val appLanguage: String = AppLanguage.SYSTEM.code,
+    val targetLanguage: String = TranslationTargetLanguage.ZH_CN.code,
+    val lyricsSource: String = AiPreferences.LyricsSourcePreference.AUTO_FIRST.code,
+    val geniusToken: String = "",
     val isAmoledMode: Boolean = false,
     val lyricAlignment: Int = AiPreferences.LYRIC_ALIGN_LEFT,
     val lyricTextSize: Int = AiPreferences.LYRIC_TEXT_SIZE_STANDARD,
@@ -77,6 +83,9 @@ class NowPlayingViewModel @Inject constructor(
             isTraditionalChinese = aiPreferences.isTraditionalChinese,
             themeMode = aiPreferences.themeMode,
             appLanguage = aiPreferences.appLanguage,
+            targetLanguage = aiPreferences.targetLanguage,
+            lyricsSource = aiPreferences.lyricsSource,
+            geniusToken = aiPreferences.geniusToken,
             isAmoledMode = aiPreferences.isAmoledMode,
             lyricAlignment = aiPreferences.lyricAlignment,
             lyricTextSize = aiPreferences.lyricTextSize,
@@ -161,6 +170,24 @@ class NowPlayingViewModel @Inject constructor(
         viewModelScope.launch {
             aiPreferences.appLanguageFlow.collect { lang ->
                 _uiState.update { it.copy(appLanguage = lang) }
+            }
+        }
+
+        viewModelScope.launch {
+            aiPreferences.targetLanguageFlow.collect { targetLang ->
+                _uiState.update { it.copy(targetLanguage = targetLang) }
+            }
+        }
+
+        viewModelScope.launch {
+            aiPreferences.lyricsSourceFlow.collect { source ->
+                _uiState.update { it.copy(lyricsSource = source) }
+            }
+        }
+
+        viewModelScope.launch {
+            aiPreferences.geniusTokenFlow.collect { token ->
+                _uiState.update { it.copy(geniusToken = token) }
             }
         }
 
@@ -303,6 +330,22 @@ class NowPlayingViewModel @Inject constructor(
 
     fun setAppLanguage(langCode: String) {
         aiPreferences.appLanguage = langCode
+    }
+
+    fun setTargetLanguage(langCode: String) {
+        aiPreferences.targetLanguage = langCode
+    }
+
+    fun setLyricsSource(sourceCode: String) {
+        aiPreferences.lyricsSource = sourceCode
+    }
+
+    fun setGeniusToken(token: String) {
+        aiPreferences.geniusToken = token.trim()
+    }
+
+    fun clearUserMessage() {
+        _uiState.update { it.copy(userMessage = null) }
     }
 
     fun toggleDeCensor() {
@@ -563,14 +606,14 @@ class NowPlayingViewModel @Inject constructor(
                     it.copy(
                         manualCandidates = results,
                         isSearchingCandidates = false,
-                        candidateSearchError = if (results.isEmpty()) "未找到相关歌词版本" else null
+                        candidateSearchError = if (results.isEmpty()) NowPlayingMessageKeys.CANDIDATE_NOT_FOUND else null
                     )
                 }
             } catch (e: Exception) {
                 _uiState.update {
                     it.copy(
                         isSearchingCandidates = false,
-                        candidateSearchError = "搜索失败，请稍后重试"
+                        candidateSearchError = NowPlayingMessageKeys.CANDIDATE_SEARCH_FAILED
                     )
                 }
             }
@@ -592,7 +635,7 @@ class NowPlayingViewModel @Inject constructor(
                     isApplyingCandidate = false,
                     isManualSearchSheetOpen = false,
                     hasManualBinding = success || it.hasManualBinding,
-                    userMessage = if (success) "已切换并绑定该版本歌词" else "获取该版本歌词失败"
+                    userMessage = if (success) NowPlayingMessageKeys.MSG_CANDIDATE_APPLIED else NowPlayingMessageKeys.MSG_CANDIDATE_FAILED
                 )
             }
         }
@@ -606,7 +649,7 @@ class NowPlayingViewModel @Inject constructor(
                 it.copy(
                     isManualSearchSheetOpen = false,
                     hasManualBinding = false,
-                    userMessage = "已恢复为智能自动匹配"
+                    userMessage = NowPlayingMessageKeys.MSG_AUTO_MATCH_RESTORED
                 )
             }
         }

@@ -3,6 +3,7 @@ package com.linernotes.app.data.repository
 import android.os.SystemClock
 import com.linernotes.app.LinerNotesApp
 import com.linernotes.app.core.floating.FloatingLyricsService
+import com.linernotes.app.core.i18n.NowPlayingMessageKeys
 import com.linernotes.app.core.i18n.TranslationTargetLanguage
 import com.linernotes.app.core.lyric.AiAnnotationCurator
 import com.linernotes.app.core.lyric.LyricAligner
@@ -132,6 +133,8 @@ class NowPlayingRepository @Inject constructor(
 
     private val _globalOffsetMsFlow = MutableStateFlow(globalOffsetMs)
     val globalOffsetMsFlow: StateFlow<Long> = _globalOffsetMsFlow.asStateFlow()
+
+    val isWordByWordEnabledFlow: StateFlow<Boolean> = aiPreferences.isWordByWordEnabledFlow
 
     fun adjustSongOffset(deltaMs: Long) {
         setSongOffset(currentSongOffsetMs + deltaMs)
@@ -772,10 +775,10 @@ class NowPlayingRepository @Inject constructor(
             val currentStory = fetchedStory
             val failureNotice: String? = when {
                 initialMatched.isNotEmpty() || (currentStory != null && currentStory.descriptionPlain.isNotBlank()) -> null
-                !GeniusService.lastRequestConnected -> "Genius 网络连接受阻，无法获取典故"
-                !geniusSongFound -> "未在 Genius 检索到本曲收录"
-                fetchedAnnotations.isEmpty() -> "Genius 尚未收录本曲歌词典故"
-                else -> "Genius 典故与当前歌词版本未能成功匹配"
+                !GeniusService.lastRequestConnected -> NowPlayingMessageKeys.GENIUS_NETWORK_ERROR
+                !geniusSongFound -> NowPlayingMessageKeys.GENIUS_NOT_FOUND
+                fetchedAnnotations.isEmpty() -> NowPlayingMessageKeys.GENIUS_NO_ANNOTATIONS
+                else -> NowPlayingMessageKeys.GENIUS_MISMATCH
             }
 
             if (fetchedLyrics.isNotEmpty()) {
@@ -1173,7 +1176,7 @@ class NowPlayingRepository @Inject constructor(
         val existingLyrics = memoryCache[songKey]?.lyrics ?: content.lyrics
 
         // 立即进入加载中状态并更新通知，向用户提供即时正反馈
-        val loadingNotice = "正在检索 Genius 典故..."
+        val loadingNotice = NowPlayingMessageKeys.GENIUS_SEARCHING
         _lyricsContentFlow.update {
             it.copy(
                 isLoadingGenius = true,

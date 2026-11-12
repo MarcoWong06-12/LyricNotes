@@ -45,6 +45,7 @@ import kotlinx.coroutines.launch
 import coil.compose.AsyncImage
 import coil.request.ImageRequest
 import com.linernotes.app.core.i18n.LocalStrings
+import com.linernotes.app.core.i18n.resolveAppMessage
 import com.linernotes.app.core.playback.MediaPlaybackSyncService
 import com.linernotes.app.core.playback.PlaybackClockState
 import com.linernotes.app.core.playback.QueueTrackItem
@@ -186,6 +187,13 @@ fun NowPlayingScreen(
     val isDark = MaterialTheme.colorScheme.background.luminance() < 0.5f
     val isDarkUi = isDark
     val strings = LocalStrings.current
+    val snackbarHostState = remember { SnackbarHostState() }
+
+    LaunchedEffect(state.userMessage, strings) {
+        val rawMsg = state.userMessage ?: return@LaunchedEffect
+        snackbarHostState.showSnackbar(resolveAppMessage(rawMsg, strings))
+        viewModel.clearUserMessage()
+    }
 
     Box(
         modifier = Modifier
@@ -533,8 +541,7 @@ fun NowPlayingScreen(
                         val noticeMsg = if (lyricsContent.isLoadingGenius) {
                             strings.searchingGeniusStatus
                         } else {
-                            val raw = lyricsContent.geniusNoticeMessage ?: ""
-                            if (state.isTraditionalChinese) ChineseConverter.toTraditional(raw) else raw
+                            lyricsContent.geniusNoticeMessage?.let { resolveAppMessage(it, strings) } ?: ""
                         }
                         Text(
                             text = noticeMsg,
@@ -686,6 +693,9 @@ fun NowPlayingScreen(
                 isTraditionalChinese = state.isTraditionalChinese,
                 themeMode = state.themeMode,
                 appLanguage = state.appLanguage,
+                targetLanguage = state.targetLanguage,
+                lyricsSource = state.lyricsSource,
+                geniusToken = state.geniusToken,
                 isAmoledMode = state.isAmoledMode,
                 lyricAlignment = state.lyricAlignment,
                 lyricTextSize = state.lyricTextSize,
@@ -708,6 +718,9 @@ fun NowPlayingScreen(
                 onToggleTraditionalChinese = { viewModel.toggleTraditionalChinese() },
                 onSetThemeMode = { viewModel.setThemeMode(it) },
                 onSetAppLanguage = { viewModel.setAppLanguage(it) },
+                onSetTargetLanguage = { viewModel.setTargetLanguage(it) },
+                onSetLyricsSource = { viewModel.setLyricsSource(it) },
+                onSetGeniusToken = { viewModel.setGeniusToken(it) },
                 onSetAmoledMode = { viewModel.setAmoledMode(it) },
                 onSetLyricAlignment = { viewModel.setLyricAlignment(it) },
                 onSetLyricTextSize = { viewModel.setLyricTextSize(it) },
@@ -782,6 +795,17 @@ fun NowPlayingScreen(
                 onDismiss = { viewModel.closeSongStory() }
             )
         }
+
+        SnackbarHost(
+            hostState = snackbarHostState,
+            modifier = Modifier
+                .align(Alignment.BottomCenter)
+                .navigationBarsPadding()
+                .padding(
+                    horizontal = 16.dp,
+                    vertical = if (hasTrack && state.showPlaybackControls && !isImmersiveMode) 96.dp else 20.dp
+                )
+        )
     }
 }
 

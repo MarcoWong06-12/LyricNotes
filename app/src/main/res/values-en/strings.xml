@@ -1,0 +1,5 @@
+<resources>
+    <string name="app_name">LyricNotes</string>
+    <string name="notification_listener_service_label">LyricNotes Media Session Listener</string>
+    <string name="tile_floating_lyrics">Floating Lyrics</string>
+</resources>

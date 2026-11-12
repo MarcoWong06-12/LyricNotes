@@ -1,0 +1,5 @@
+<resources>
+    <string name="app_name">LyricNotes</string>
+    <string name="notification_listener_service_label">LyricNotes メディアセッション連携サービス</string>
+    <string name="tile_floating_lyrics">デスクトップ歌詞</string>
+</resources>

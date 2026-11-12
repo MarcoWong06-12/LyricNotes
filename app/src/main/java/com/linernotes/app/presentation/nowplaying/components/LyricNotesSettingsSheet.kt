@@ -18,6 +18,7 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
@@ -25,8 +26,11 @@ import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.input.PasswordVisualTransformation
+import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
@@ -35,6 +39,8 @@ import coil.compose.AsyncImage
 import com.linernotes.app.core.floating.FloatingLyricsService
 import com.linernotes.app.core.i18n.AppLanguage
 import com.linernotes.app.core.i18n.LocalStrings
+import com.linernotes.app.core.i18n.TranslationTargetLanguage
+import com.linernotes.app.core.i18n.resolveAppMessage
 import com.linernotes.app.core.playback.TrackPlaybackState
 import com.linernotes.app.core.preference.AiPreferences
 import com.linernotes.app.core.preference.FloatingLyricsPreferences
@@ -43,7 +49,7 @@ import com.linernotes.app.presentation.common.*
 import com.linernotes.app.presentation.floating.FloatingLyricColorPickerDialog
 import com.linernotes.app.presentation.nowplaying.FuriganaDisplayMode
 
-@OptIn(ExperimentalMaterial3Api::class)
+@OptIn(ExperimentalMaterial3Api::class, ExperimentalLayoutApi::class)
 @Composable
 fun LyricNotesSettingsSheet(
     trackState: TrackPlaybackState,
@@ -54,6 +60,9 @@ fun LyricNotesSettingsSheet(
     isTraditionalChinese: Boolean,
     themeMode: String = AiPreferences.ThemeMode.SYSTEM.code,
     appLanguage: String = AppLanguage.SYSTEM.code,
+    targetLanguage: String = TranslationTargetLanguage.ZH_CN.code,
+    lyricsSource: String = AiPreferences.LyricsSourcePreference.AUTO_FIRST.code,
+    geniusToken: String = "",
     isAmoledMode: Boolean = false,
     lyricAlignment: Int = AiPreferences.LYRIC_ALIGN_LEFT,
     lyricTextSize: Int = AiPreferences.LYRIC_TEXT_SIZE_STANDARD,
@@ -76,6 +85,9 @@ fun LyricNotesSettingsSheet(
     onToggleTraditionalChinese: () -> Unit,
     onSetThemeMode: (String) -> Unit = {},
     onSetAppLanguage: (String) -> Unit = {},
+    onSetTargetLanguage: (String) -> Unit = {},
+    onSetLyricsSource: (String) -> Unit = {},
+    onSetGeniusToken: (String) -> Unit = {},
     onSetAmoledMode: (Boolean) -> Unit = {},
     onSetLyricAlignment: (Int) -> Unit = {},
     onSetLyricTextSize: (Int) -> Unit = {},
@@ -211,7 +223,7 @@ fun LyricNotesSettingsSheet(
                         }
                     ) {
                         Text(
-                            text = trackState.sourceApp.displayName,
+                            text = trackState.sourceApp.localizedName(strings),
                             color = if (trackState.isSpotify) Color(0xFF1DB954) else textPrimary,
                             fontSize = 11.5.sp,
                             fontWeight = FontWeight.SemiBold,
@@ -249,8 +261,9 @@ fun LyricNotesSettingsSheet(
 
                 SettingsSwitchRow(
                     title = strings.amoledModeLabel,
-                    subtitle = strings.amoledModeDesc,
+                    subtitle = if (isDark) strings.amoledModeDesc else strings.amoledDarkOnlyHint,
                     checked = isAmoledMode,
+                    enabled = isDark,
                     isDark = isDark,
                     onCheckedChange = { onSetAmoledMode(!isAmoledMode) }
                 )
@@ -331,18 +344,81 @@ fun LyricNotesSettingsSheet(
                 isDark = isDark,
                 isPureAmoled = isPureAmoled
             ) {
+                val systemLanguageLabel = when (strings.themeModeSystem) {
+                    "System Default" -> "Auto"
+                    "システム設定" -> "自動"
+                    else -> strings.themeModeSystem
+                }
                 // 介面语言分段选择器
                 AppleSegmentedControl(
                     items = listOf(
-                        AppLanguage.SYSTEM.code to strings.themeModeSystem,
+                        AppLanguage.SYSTEM.code to systemLanguageLabel,
                         AppLanguage.ZH_CN.code to "简体中文",
                         AppLanguage.ZH_TW.code to "繁體中文",
-                        AppLanguage.EN.code to "English"
+                        AppLanguage.EN.code to "English",
+                        AppLanguage.JA.code to "日本語"
                     ),
                     selectedItem = appLanguage,
                     onItemSelected = onSetAppLanguage,
-                    isDark = isDark
+                    isDark = isDark,
+                    fontSize = 11.sp
                 )
+
+                HorizontalDivider(color = dividerColor, thickness = 0.5.dp)
+
+                // 歌词翻译目标语言
+                Text(
+                    text = strings.targetLanguageLabel,
+                    color = textPrimary,
+                    fontSize = 14.5.sp,
+                    fontWeight = FontWeight.SemiBold
+                )
+                FlowRow(
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    verticalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    TranslationTargetLanguage.entries.forEach { lang ->
+                        SettingsOptionChip(
+                            label = lang.displayName,
+                            selected = targetLanguage.equals(lang.code, ignoreCase = true),
+                            isDark = isDark,
+                            isPureAmoled = isPureAmoled,
+                            onClick = { onSetTargetLanguage(lang.code) }
+                        )
+                    }
+                }
+
+                HorizontalDivider(color = dividerColor, thickness = 0.5.dp)
+
+                // 歌词与翻译首选源
+                Text(
+                    text = strings.lyricsSourceSetting,
+                    color = textPrimary,
+                    fontSize = 14.5.sp,
+                    fontWeight = FontWeight.SemiBold
+                )
+                FlowRow(
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    verticalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    AiPreferences.LyricsSourcePreference.entries.forEach { source ->
+                        val sourceLabel = when (source) {
+                            AiPreferences.LyricsSourcePreference.AUTO_FIRST -> strings.sourceAuto
+                            AiPreferences.LyricsSourcePreference.NETEASE_ONLY -> strings.sourceOfficial
+                            AiPreferences.LyricsSourcePreference.QQ_ONLY -> strings.sourceQq
+                            AiPreferences.LyricsSourcePreference.KUGOU_ONLY -> strings.sourceKugou
+                            AiPreferences.LyricsSourcePreference.MUSIXMATCH_ONLY -> strings.sourceMusixmatch
+                            AiPreferences.LyricsSourcePreference.LRCLIB_ONLY -> strings.sourceLrclib
+                        }
+                        SettingsOptionChip(
+                            label = sourceLabel,
+                            selected = lyricsSource.equals(source.code, ignoreCase = true),
+                            isDark = isDark,
+                            isPureAmoled = isPureAmoled,
+                            onClick = { onSetLyricsSource(source.code) }
+                        )
+                    }
+                }
 
                 HorizontalDivider(color = dividerColor, thickness = 0.5.dp)
 
@@ -390,29 +466,20 @@ fun LyricNotesSettingsSheet(
                 isDark = isDark,
                 isPureAmoled = isPureAmoled
             ) {
-                // 顶栏：单曲与全局分段切换
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Text(
-                        text = if (offsetScope == 0) strings.offsetScopeSongTitle else strings.offsetScopeGlobalTitle,
-                        color = textPrimary,
-                        fontSize = 15.sp,
-                        fontWeight = FontWeight.SemiBold
-                    )
-
-                    Box(modifier = Modifier.width(136.dp)) {
-                        AppleSegmentedControl(
-                            items = listOf(0 to strings.offsetScopeSong, 1 to strings.offsetScopeGlobal),
-                            selectedItem = offsetScope,
-                            onItemSelected = { offsetScope = it },
-                            isDark = isDark,
-                            height = 30.dp
-                        )
-                    }
-                }
+                // 顶栏：单曲与全局全宽分段切换，避免英文/日文标签截断
+                Text(
+                    text = if (offsetScope == 0) strings.offsetScopeSongTitle else strings.offsetScopeGlobalTitle,
+                    color = textPrimary,
+                    fontSize = 15.sp,
+                    fontWeight = FontWeight.SemiBold
+                )
+                AppleSegmentedControl(
+                    items = listOf(0 to strings.offsetScopeSong, 1 to strings.offsetScopeGlobal),
+                    selectedItem = offsetScope,
+                    onItemSelected = { offsetScope = it },
+                    isDark = isDark,
+                    height = 32.dp
+                )
 
                 val currentVal = if (offsetScope == 0) songOffsetMs else globalOffsetMs
                 Row(
@@ -920,7 +987,11 @@ fun LyricNotesSettingsSheet(
                                     fontWeight = FontWeight.SemiBold
                                 )
                                 Text(
-                                    text = if (isLoadingGenius) "正在检索 Genius 典故..." else (geniusNotice ?: "未收录本曲 Genius 典故"),
+                                    text = if (isLoadingGenius) {
+                                        strings.searchingGeniusStatus
+                                    } else {
+                                        geniusNotice?.let { resolveAppMessage(it, strings) } ?: strings.geniusNoticeNotFound
+                                    },
                                     color = textSecondary,
                                     fontSize = 12.sp
                                 )
@@ -954,6 +1025,90 @@ fun LyricNotesSettingsSheet(
                                     Text(text = strings.retryBtn, color = textPrimary, fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
                                 }
                             }
+                        }
+                    }
+                }
+            }
+
+            // Genius Developer Token（始终可见，避免限流时无处配置）
+            SettingsGroupCard(
+                title = strings.geniusTokenLabel,
+                isDark = isDark,
+                isPureAmoled = isPureAmoled
+            ) {
+                var tokenDraft by remember(geniusToken) { mutableStateOf(geniusToken) }
+                var tokenVisible by remember { mutableStateOf(false) }
+                val focusManager = LocalFocusManager.current
+                val hasUnsavedToken = tokenDraft.trim() != geniusToken.trim()
+
+                Text(
+                    text = strings.geniusTokenDesc,
+                    color = textSecondary,
+                    fontSize = 12.sp,
+                    lineHeight = 16.sp
+                )
+
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    OutlinedTextField(
+                        value = tokenDraft,
+                        onValueChange = { tokenDraft = it },
+                        placeholder = {
+                            Text(
+                                text = strings.geniusTokenPlaceholder,
+                                fontSize = 12.5.sp,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis
+                            )
+                        },
+                        singleLine = true,
+                        visualTransformation = if (tokenVisible) VisualTransformation.None else PasswordVisualTransformation(),
+                        trailingIcon = {
+                            IconButton(onClick = { tokenVisible = !tokenVisible }) {
+                                Icon(
+                                    imageVector = if (tokenVisible) Icons.Default.VisibilityOff else Icons.Default.Visibility,
+                                    contentDescription = null,
+                                    tint = textSecondary,
+                                    modifier = Modifier.size(18.dp)
+                                )
+                            }
+                        },
+                        colors = OutlinedTextFieldDefaults.colors(
+                            focusedTextColor = textPrimary,
+                            unfocusedTextColor = textPrimary,
+                            focusedBorderColor = Color(0xFF0A84FF),
+                            unfocusedBorderColor = cardBorder,
+                            focusedPlaceholderColor = textSecondary,
+                            unfocusedPlaceholderColor = textSecondary
+                        ),
+                        shape = RoundedCornerShape(12.dp),
+                        modifier = Modifier.weight(1f)
+                    )
+
+                    Surface(
+                        color = if (hasUnsavedToken) Color(0xFF34C759) else (if (isDark) Color.White.copy(alpha = 0.08f) else Color.Black.copy(alpha = 0.05f)),
+                        shape = RoundedCornerShape(12.dp),
+                        border = if (hasUnsavedToken) null else BorderStroke(0.5.dp, cardBorder),
+                        modifier = Modifier
+                            .height(50.dp)
+                            .bouncyClickable(pressedScale = 0.94f) {
+                                onSetGeniusToken(tokenDraft)
+                                focusManager.clearFocus()
+                            }
+                    ) {
+                        Box(
+                            contentAlignment = Alignment.Center,
+                            modifier = Modifier.padding(horizontal = 14.dp)
+                        ) {
+                            Text(
+                                text = strings.saveTokenBtn,
+                                color = if (hasUnsavedToken) Color.White else textPrimary,
+                                fontSize = 13.sp,
+                                fontWeight = FontWeight.SemiBold
+                            )
                         }
                     }
                 }
@@ -1104,85 +1259,46 @@ private fun SettingsGroupCard(
     }
 }
 
-/**
- * 原生 iOS / macOS 质感的微动效分段选择器 (AppleSegmentedControl)
- */
 @Composable
-private fun <T> AppleSegmentedControl(
-    items: List<Pair<T, String>>,
-    selectedItem: T,
-    onItemSelected: (T) -> Unit,
-    modifier: Modifier = Modifier,
-    isDark: Boolean = true,
-    height: Dp = 34.dp
+private fun SettingsOptionChip(
+    label: String,
+    selected: Boolean,
+    isDark: Boolean,
+    isPureAmoled: Boolean,
+    onClick: () -> Unit
 ) {
-    val trackBg = if (isDark) Color.White.copy(alpha = 0.08f) else Color.Black.copy(alpha = 0.06f)
-    val textPrimary = if (isDark) Color.White else Color(0xFF1C1C1E)
-    val textSecondary = if (isDark) Color.White.copy(alpha = 0.50f) else Color.Black.copy(alpha = 0.45f)
+    val bg = when {
+        selected -> Color(0xFF0A84FF).copy(alpha = if (isDark) 0.24f else 0.14f)
+        isDark -> if (isPureAmoled) Color(0xFF141416) else Color.White.copy(alpha = 0.06f)
+        else -> Color.Black.copy(alpha = 0.05f)
+    }
+    val border = when {
+        selected -> Color(0xFF0A84FF).copy(alpha = 0.55f)
+        isDark -> Color.White.copy(alpha = 0.10f)
+        else -> Color.Black.copy(alpha = 0.06f)
+    }
+    val textColor = when {
+        selected -> if (isDark) Color(0xFF64B5FF) else Color(0xFF0066CC)
+        isDark -> Color.White.copy(alpha = 0.80f)
+        else -> Color(0xFF1C1C1E).copy(alpha = 0.85f)
+    }
 
     Surface(
-        color = trackBg,
+        color = bg,
         shape = RoundedCornerShape(10.dp),
-        modifier = modifier
-            .fillMaxWidth()
-            .height(height)
+        border = BorderStroke(0.5.dp, border),
+        modifier = Modifier.bouncyClickable(pressedScale = 0.95f, onClick = onClick)
     ) {
-        Row(
-            modifier = Modifier
-                .fillMaxSize()
-                .padding(2.5.dp),
-            horizontalArrangement = Arrangement.spacedBy(2.dp),
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            items.forEach { (itemVal, label) ->
-                val isSelected = selectedItem == itemVal
-
-                val pillBg by animateColorAsState(
-                    targetValue = if (isSelected) {
-                        if (isDark) Color(0xFF38383A) else Color.White
-                    } else Color.Transparent,
-                    animationSpec = spring(stiffness = 650f),
-                    label = "segPillBg"
-                )
-
-                val pillBorder by animateColorAsState(
-                    targetValue = if (isSelected) {
-                        if (isDark) Color.White.copy(alpha = 0.12f) else Color.Black.copy(alpha = 0.04f)
-                    } else Color.Transparent,
-                    animationSpec = spring(stiffness = 650f),
-                    label = "segPillBorder"
-                )
-
-                val textColor by animateColorAsState(
-                    targetValue = if (isSelected) textPrimary else textSecondary,
-                    animationSpec = spring(stiffness = 650f),
-                    label = "segText"
-                )
-
-                Box(
-                    modifier = Modifier
-                        .weight(1f)
-                        .fillMaxHeight()
-                        .clip(RoundedCornerShape(8.dp))
-                        .background(pillBg)
-                        .border(0.5.dp, pillBorder, RoundedCornerShape(8.dp))
-                        .bouncyClickable(pressedScale = 0.95f) {
-                            onItemSelected(itemVal)
-                        },
-                    contentAlignment = Alignment.Center
-                ) {
-                    Text(
-                        text = label,
-                        color = textColor,
-                        fontSize = 12.sp,
-                        fontWeight = if (isSelected) FontWeight.SemiBold else FontWeight.Normal,
-                        fontFamily = FontFamily.SansSerif,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis
-                    )
-                }
-            }
-        }
+        Text(
+            text = label,
+            color = textColor,
+            fontSize = 12.sp,
+            fontWeight = if (selected) FontWeight.SemiBold else FontWeight.Normal,
+            fontFamily = FontFamily.SansSerif,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+            modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp)
+        )
     }
 }
 
@@ -1238,6 +1354,7 @@ private fun SettingsSwitchRow(
     title: String,
     subtitle: String? = null,
     checked: Boolean,
+    enabled: Boolean = true,
     isDark: Boolean = true,
     onCheckedChange: (Boolean) -> Unit
 ) {
@@ -1248,8 +1365,9 @@ private fun SettingsSwitchRow(
     Row(
         modifier = Modifier
             .fillMaxWidth()
+            .alpha(if (enabled) 1f else 0.48f)
             .clip(RoundedCornerShape(12.dp))
-            .bouncyItemClickable(pressedScale = 0.985f) {
+            .bouncyItemClickable(enabled = enabled, pressedScale = 0.985f) {
                 onCheckedChange(!checked)
             }
             .padding(vertical = 6.dp, horizontal = 2.dp),
@@ -1276,6 +1394,7 @@ private fun SettingsSwitchRow(
         }
         Switch(
             checked = checked,
+            enabled = enabled,
             onCheckedChange = onCheckedChange,
             colors = SwitchDefaults.colors(
                 checkedThumbColor = Color.White,

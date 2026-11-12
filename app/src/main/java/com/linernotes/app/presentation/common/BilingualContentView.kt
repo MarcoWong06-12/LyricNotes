@@ -1,34 +1,29 @@
 package com.linernotes.app.presentation.common
 
 import androidx.compose.animation.AnimatedVisibility
-import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.animateContentSize
-import androidx.compose.animation.core.spring
 import androidx.compose.foundation.BorderStroke
-import androidx.compose.foundation.background
-import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.linernotes.app.core.i18n.LocalStrings
 import com.linernotes.app.core.lyric.AiAnnotationCurator
 import com.linernotes.app.core.lyric.BilingualSentenceAligner
 import com.linernotes.app.core.util.ChineseConverter
 
 enum class BilingualDisplayTab {
-    PARALLEL, // 中英对照
-    CHINESE,  // 纯中文
-    ORIGINAL  // 纯英文
+    PARALLEL,
+    CHINESE,
+    ORIGINAL
 }
 
 data class AlignedParagraph(
@@ -37,8 +32,10 @@ data class AlignedParagraph(
 )
 
 object ParagraphAligner {
+    private val PARAGRAPH_SPLIT_REGEX = Regex("""\n\s*\n""")
+
     fun align(original: String, translation: String?): List<AlignedParagraph> {
-        val origParagraphs = original.split(Regex("""\n\s*\n"""))
+        val origParagraphs = original.split(PARAGRAPH_SPLIT_REGEX)
             .map { it.trim() }
             .filter { it.isNotBlank() }
 
@@ -116,79 +113,26 @@ fun BilingualContentView(
     val quoteBg = if (isEffectiveDark) Color.White.copy(alpha = 0.05f) else Color.Black.copy(alpha = 0.035f)
     val quoteBorder = if (isEffectiveDark) Color.White.copy(alpha = 0.08f) else Color.Black.copy(alpha = 0.05f)
 
+    val strings = LocalStrings.current
+
     Column(
         modifier = modifier
             .fillMaxWidth()
             .animateContentSize(),
         verticalArrangement = Arrangement.spacedBy(16.dp)
     ) {
-        // 顶部模式切换分段控制器 (Apple Segmented Style，告别原先突兀的紫色高亮)
+        // 顶部模式切换分段控制器 (AppleSegmentedControl 共享弹簧滑块)
         if (!isAlreadyChinese && hasTranslation) {
-            val trackBg = if (isEffectiveDark) Color.White.copy(alpha = 0.08f) else Color.Black.copy(alpha = 0.06f)
-            Surface(
-                color = trackBg,
-                shape = RoundedCornerShape(10.dp),
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .height(34.dp)
-            ) {
-                Row(
-                    modifier = Modifier
-                        .fillMaxSize()
-                        .padding(2.5.dp),
-                    horizontalArrangement = Arrangement.spacedBy(2.dp),
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    val tabs = listOf(
-                        BilingualDisplayTab.PARALLEL to (if (isTraditional) "中英對照" else "中英对照"),
-                        BilingualDisplayTab.CHINESE to (if (isTraditional) "純中文" else "纯中文"),
-                        BilingualDisplayTab.ORIGINAL to (if (isTraditional) "純英文" else "纯英文")
-                    )
-                    tabs.forEach { (tabVal, label) ->
-                        val isSelected = selectedTab == tabVal
-                        val pillBg by animateColorAsState(
-                            targetValue = if (isSelected) {
-                                if (isEffectiveDark) Color(0xFF38383A) else Color.White
-                            } else Color.Transparent,
-                            animationSpec = spring(stiffness = 650f),
-                            label = "bilingualPillBg"
-                        )
-                        val pillBorder by animateColorAsState(
-                            targetValue = if (isSelected) {
-                                if (isEffectiveDark) Color.White.copy(alpha = 0.12f) else Color.Black.copy(alpha = 0.04f)
-                            } else Color.Transparent,
-                            animationSpec = spring(stiffness = 650f),
-                            label = "bilingualPillBorder"
-                        )
-                        val textColor by animateColorAsState(
-                            targetValue = if (isSelected) primaryTextColor else secondaryTextColor,
-                            animationSpec = spring(stiffness = 650f),
-                            label = "bilingualText"
-                        )
-
-                        Box(
-                            modifier = Modifier
-                                .weight(1f)
-                                .fillMaxHeight()
-                                .clip(RoundedCornerShape(8.dp))
-                                .background(pillBg)
-                                .border(0.5.dp, pillBorder, RoundedCornerShape(8.dp))
-                                .bouncyClickable(pressedScale = 0.95f) {
-                                    selectedTab = tabVal
-                                },
-                            contentAlignment = Alignment.Center
-                        ) {
-                            Text(
-                                text = label,
-                                color = textColor,
-                                fontSize = 12.5.sp,
-                                fontWeight = if (isSelected) FontWeight.SemiBold else FontWeight.Normal,
-                                fontFamily = FontFamily.SansSerif
-                            )
-                        }
-                    }
-                }
-            }
+            AppleSegmentedControl(
+                items = listOf(
+                    BilingualDisplayTab.PARALLEL to strings.bilingualTabParallel,
+                    BilingualDisplayTab.CHINESE to strings.bilingualTabTranslated,
+                    BilingualDisplayTab.ORIGINAL to strings.bilingualTabOriginal
+                ),
+                selectedItem = selectedTab,
+                onItemSelected = { selectedTab = it },
+                isDark = isEffectiveDark
+            )
         }
 
         // 正在自动翻译中的轻量状态提示
@@ -210,7 +154,7 @@ fun BilingualContentView(
                         color = if (isEffectiveDark) Color(0xFFFFD54F) else Color(0xFFD97706)
                     )
                     Text(
-                        text = if (isTraditional) "正在為您生成精準中文對照釋義..." else "正在为您生成精准中文对照释义...",
+                        text = strings.bilingualTranslatingNotice,
                         fontSize = 12.sp,
                         color = if (isEffectiveDark) Color(0xFFFFD54F) else Color(0xFFD97706),
                         fontWeight = FontWeight.Medium
@@ -240,7 +184,7 @@ fun BilingualContentView(
                     Text("✨", fontSize = 13.sp)
                     Spacer(modifier = Modifier.width(6.dp))
                     Text(
-                        text = if (isTraditional) "即刻生成中文對照釋義" else "即刻生成中文对照释义",
+                        text = strings.bilingualGenerateAction,
                         color = primaryTextColor,
                         fontSize = 13.sp,
                         fontWeight = FontWeight.SemiBold

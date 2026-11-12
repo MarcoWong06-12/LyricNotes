@@ -33,6 +33,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import coil.compose.AsyncImage
 import com.linernotes.app.core.i18n.LocalStrings
+import com.linernotes.app.core.i18n.resolveAppMessage
 import com.linernotes.app.core.util.ChineseConverter
 import com.linernotes.app.domain.model.LyricCandidateItem
 import com.linernotes.app.domain.model.LyricSource
@@ -307,7 +308,7 @@ fun ManualLyricSearchSheet(
                         ) {
                             Text(text = "🔍", fontSize = 28.sp)
                             Text(
-                                text = tr(errorMessage),
+                                text = tr(resolveAppMessage(errorMessage, strings)),
                                 fontSize = 14.sp,
                                 color = textSecondary
                             )
@@ -459,7 +460,7 @@ private fun CandidateItemCard(
                 ) {
                     Box(contentAlignment = Alignment.Center) {
                         Text(
-                            text = if (item.source == LyricSource.NETEASE) "网" else "Q",
+                            text = if (item.source == LyricSource.NETEASE) strings.lyricSourceShortNetease else strings.lyricSourceShortQq,
                             fontWeight = FontWeight.Bold,
                             color = textSecondary,
                             fontSize = 18.sp
@@ -501,7 +502,7 @@ private fun CandidateItemCard(
                         shape = RoundedCornerShape(8.dp)
                     ) {
                         Text(
-                            text = item.source.displayName,
+                            text = item.source.localizedName(strings),
                             fontSize = 10.sp,
                             fontWeight = FontWeight.SemiBold,
                             color = sourceBadgeColor,

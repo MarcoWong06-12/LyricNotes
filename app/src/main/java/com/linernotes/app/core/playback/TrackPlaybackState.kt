@@ -2,6 +2,7 @@ package com.linernotes.app.core.playback
 
 import android.os.SystemClock
 import androidx.compose.runtime.Immutable
+import com.linernotes.app.core.i18n.AppStrings
 
 enum class MediaSourceApp(val displayName: String, val packageName: String) {
     SPOTIFY("Spotify", "com.spotify.music"),
@@ -10,6 +11,13 @@ enum class MediaSourceApp(val displayName: String, val packageName: String) {
     QQ_MUSIC("QQ音乐", "com.tencent.qqmusic"),
     YOUTUBE_MUSIC("YouTube Music", "com.google.android.apps.youtube.music"),
     UNKNOWN("流媒体播放器", "");
+
+    fun localizedName(strings: AppStrings): String = when (this) {
+        NETEASE -> strings.mediaSourceNetease
+        QQ_MUSIC -> strings.mediaSourceQq
+        UNKNOWN -> strings.mediaSourceUnknown
+        else -> displayName
+    }
 
     companion object {
         fun fromPackageName(pkg: String?): MediaSourceApp {

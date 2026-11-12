@@ -22,6 +22,7 @@ import android.view.View
 import android.view.WindowInsets
 import android.view.WindowManager
 import android.view.animation.DecelerateInterpolator
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
@@ -41,7 +42,10 @@ import androidx.savedstate.SavedStateRegistryOwner
 import androidx.savedstate.setViewTreeSavedStateRegistryOwner
 import com.linernotes.app.MainActivity
 import com.linernotes.app.R
+import com.linernotes.app.core.i18n.LocalStrings
+import com.linernotes.app.core.i18n.resolveAppStrings
 import com.linernotes.app.core.playback.PlaybackStateManager
+import com.linernotes.app.core.preference.AiPreferences
 import com.linernotes.app.core.preference.FloatingLyricsPreferences
 import com.linernotes.app.data.repository.NowPlayingRepository
 import com.linernotes.app.presentation.floating.FloatingLyricsCapsule
@@ -51,6 +55,7 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.drop
 import javax.inject.Inject
 
 /**
@@ -106,6 +111,7 @@ class FloatingLyricsService : Service() {
 
         _isRunningFlow.value = true
         floatingPreferences.isEnabled = true
+        FloatingLyricsTileService.requestSync(this)
         createNotificationChannel()
         startForeground(NOTIFICATION_ID, buildNotification(floatingPreferences.isLocked))
 
@@ -126,8 +132,15 @@ class FloatingLyricsService : Service() {
         serviceScope.launch {
             floatingPreferences.isLockedFlow.collect { locked ->
                 updateLockState(locked)
-                val nm = getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
-                nm.notify(NOTIFICATION_ID, buildNotification(locked))
+                refreshNotification(locked)
+            }
+        }
+
+        // 语言切换时即时更新通知渠道名称与通知文案
+        serviceScope.launch {
+            aiPreferences.appLanguageFlow.drop(1).collect {
+                createNotificationChannel()
+                refreshNotification(floatingPreferences.isLocked)
             }
         }
 
@@ -143,13 +156,13 @@ class FloatingLyricsService : Service() {
             }
         }
 
-        // 监听悬浮窗宽度动态变化：在安全视口范围内重新钳制，杜绝贴边时调整宽度飞出屏幕
+        // 监听悬浮窗宽度动态变化：同步固定 WindowManager 窗口宽度并在安全视口范围内重新钳制
         serviceScope.launch {
             floatingPreferences.capsuleWidthDpFlow.collect { widthDp ->
                 windowLayoutParams?.let { params ->
                     val landscape = isLandscape()
                     val density = resources.displayMetrics.density
-                    val viewWidth = (widthDp * density).toInt()
+                    val viewWidth = getSafeOverlayWidthPx(widthDp, landscape)
                     val viewHeight = composeView?.height?.takeIf { it > 0 } ?: (52 * density).toInt()
                     val bounds = getSafeDragBounds(viewWidth, viewHeight, landscape)
                     val screenBounds = getScreenBounds(landscape)
@@ -161,7 +174,8 @@ class FloatingLyricsService : Service() {
                         params.x.coerceIn(bounds.left, bounds.right)
                     }
                     val clampedY = params.y.coerceIn(bounds.top, bounds.bottom)
-                    if (newX != params.x || clampedY != params.y) {
+                    if (viewWidth != params.width || newX != params.x || clampedY != params.y) {
+                        params.width = viewWidth
                         params.x = newX
                         params.y = clampedY
                         dragCurrentX = newX.toFloat()
@@ -269,6 +283,20 @@ class FloatingLyricsService : Service() {
         return Rect(minX, minY, maxX, maxY)
     }
 
+    private fun getSafeOverlayWidthPx(
+        widthDp: Int = floatingPreferences.capsuleWidthDp,
+        isLandscape: Boolean = isLandscape()
+    ): Int {
+        val density = resources.displayMetrics.density
+        val screenWidthPx = getScreenBounds(isLandscape).width()
+        val insets = getSystemBarInsets()
+        val sideMarginPx = (8 * density).toInt()
+        val maxWidthPx = (screenWidthPx - insets.left - insets.right - sideMarginPx * 2)
+            .coerceAtLeast((220 * density).toInt())
+        val minWidthPx = (220 * density).toInt().coerceAtMost(maxWidthPx)
+        return (widthDp * density).toInt().coerceIn(minWidthPx, maxWidthPx)
+    }
+
     private fun initOverlayWindow() {
         if (!Settings.canDrawOverlays(this)) {
             stopSelf()
@@ -281,14 +309,13 @@ class FloatingLyricsService : Service() {
         val screenBounds = getScreenBounds(landscape)
         val density = resources.displayMetrics.density
         val insets = getSystemBarInsets()
-        val viewWidth = (floatingPreferences.capsuleWidthDp * density).toInt()
+        val viewWidth = getSafeOverlayWidthPx(floatingPreferences.capsuleWidthDp, landscape)
         val viewHeight = (52 * density).toInt()
         val bounds = getSafeDragBounds(viewWidth, viewHeight, landscape)
 
         val savedX = floatingPreferences.getLastPositionX(landscape)
         val savedY = floatingPreferences.getLastPositionY(landscape)
 
-        // 安全双轴钳制：初次或历史坐标必须被严格限定在安全边距内，杜绝横竖屏切换后悬浮窗飞出屏幕失踪
         val initialX = if (savedX >= 0) {
             savedX.coerceIn(bounds.left, bounds.right)
         } else {
@@ -308,7 +335,6 @@ class FloatingLyricsService : Service() {
             WindowManager.LayoutParams.TYPE_PHONE
         }
 
-        // 启用硬件加速 FLAG_HARDWARE_ACCELERATED，保证在高刷屏 (90Hz/120Hz) 上 Compose 渲染管线流畅不掉帧
         val baseFlags = WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or
             WindowManager.LayoutParams.FLAG_LAYOUT_NO_LIMITS or
             WindowManager.LayoutParams.FLAG_HARDWARE_ACCELERATED
@@ -319,8 +345,11 @@ class FloatingLyricsService : Service() {
             baseFlags
         }
 
+        dragCurrentX = initialX.toFloat()
+        dragCurrentY = initialY.toFloat()
+
         windowLayoutParams = WindowManager.LayoutParams(
-            WindowManager.LayoutParams.WRAP_CONTENT,
+            viewWidth,
             WindowManager.LayoutParams.WRAP_CONTENT,
             windowType,
             initialFlags,
@@ -339,11 +368,16 @@ class FloatingLyricsService : Service() {
             setContent {
                 val appLanguageCode by aiPreferences.appLanguageFlow.collectAsState()
                 val strings = remember(appLanguageCode) {
-                    com.linernotes.app.core.i18n.resolveAppStrings(appLanguageCode)
+                    resolveAppStrings(appLanguageCode)
                 }
 
-                androidx.compose.runtime.CompositionLocalProvider(com.linernotes.app.core.i18n.LocalStrings provides strings) {
-                    val nowData by nowPlayingRepository.nowPlayingData.collectAsState()
+                CompositionLocalProvider(LocalStrings provides strings) {
+                    val trackMetadata by nowPlayingRepository.trackMetadataFlow.collectAsState()
+                    val playbackClock by nowPlayingRepository.playbackClockFlow.collectAsState()
+                    val lyricsContent by nowPlayingRepository.lyricsContentFlow.collectAsState()
+                    val activeIndex by nowPlayingRepository.currentLineIndexFlow.collectAsState()
+                    val lyricOffsetMs by nowPlayingRepository.lyricOffsetMsFlow.collectAsState()
+                    val isWordByWordEnabled by nowPlayingRepository.isWordByWordEnabledFlow.collectAsState()
                     val isLocked by floatingPreferences.isLockedFlow.collectAsState()
                     val isBilingual by floatingPreferences.isBilingualFlow.collectAsState()
                     val bgAlpha by floatingPreferences.backgroundAlphaFlow.collectAsState()
@@ -356,7 +390,12 @@ class FloatingLyricsService : Service() {
                     val textAlignment by floatingPreferences.textAlignmentFlow.collectAsState()
 
                     FloatingLyricsCapsule(
-                        nowPlayingData = nowData,
+                        trackMetadata = trackMetadata,
+                        playbackClock = playbackClock,
+                        lyricsContent = lyricsContent,
+                        activeIndex = activeIndex,
+                        lyricOffsetMs = lyricOffsetMs,
+                        isWordByWordEnabled = isWordByWordEnabled,
                         isLocked = isLocked,
                         isBilingual = isBilingual,
                         backgroundAlpha = bgAlpha,
@@ -379,10 +418,9 @@ class FloatingLyricsService : Service() {
                             windowLayoutParams?.let { params ->
                                 val densityVal = resources.displayMetrics.density
                                 val viewHeight = composeView?.height?.takeIf { it > 0 } ?: (52 * densityVal).toInt()
-                                val viewWidth = composeView?.width?.takeIf { it > 0 } ?: (capsuleWidthDp * densityVal).toInt()
-                                val bounds = getSafeDragBounds(viewWidth, viewHeight)
+                                val currentViewWidth = params.width.takeIf { it > 0 } ?: getSafeOverlayWidthPx(capsuleWidthDp)
+                                val bounds = getSafeDragBounds(currentViewWidth, viewHeight)
 
-                                // 采用高精度浮点累积，彻底消除 90/120Hz 刷新率下的慢速拖拽丢帧与卡滞
                                 dragCurrentX = (dragCurrentX + dx).coerceIn(bounds.left.toFloat(), bounds.right.toFloat())
                                 dragCurrentY = (dragCurrentY + dy).coerceIn(bounds.top.toFloat(), bounds.bottom.toFloat())
 
@@ -397,15 +435,17 @@ class FloatingLyricsService : Service() {
                                 }
                             }
                         },
-                        onDragEnd = { isExpanded ->
+                        onDragEnd = { _ ->
                             windowLayoutParams?.let { params ->
                                 cancelSnapAnimation()
-                                // 自由悬浮停留：单次原子持久化坐标（按横竖屏独立存储）
                                 floatingPreferences.setLastPosition(params.x, params.y, isLandscape())
                             }
                         },
                         onExpandChanged = { isExpanded ->
                             handleExpandChanged(isExpanded)
+                        },
+                        onPureControlsChanged = { isVisible ->
+                            handlePureControlsChanged(isVisible)
                         },
                         onToggleLock = {
                             floatingPreferences.isLocked = !floatingPreferences.isLocked
@@ -447,18 +487,19 @@ class FloatingLyricsService : Service() {
         windowLayoutParams?.let { params ->
             val landscape = isLandscape()
             val density = resources.displayMetrics.density
-            val expandedWidthPx = (EXPANDED_WIDTH_DP * density).toInt()
+            val currentWidthPx = params.width.takeIf { it > 0 } ?: getSafeOverlayWidthPx(isLandscape = landscape)
             val expandedHeightPx = (270 * density).toInt()
-            val bounds = getSafeDragBounds(expandedWidthPx, expandedHeightPx, landscape)
+            val bounds = getSafeDragBounds(currentWidthPx, expandedHeightPx, landscape)
 
             cancelSnapAnimation()
             if (isExpanded) {
-                // 展开时双轴安全视口钳制，确保右侧与底端播控栏 100% 完整显示在屏幕可视区域内并动态避让状态栏/导航栏
                 val targetX = params.x.coerceIn(bounds.left, bounds.right)
                 val targetY = params.y.coerceIn(bounds.top, bounds.bottom)
                 if (targetX != params.x || targetY != params.y) {
                     params.x = targetX
                     params.y = targetY
+                    dragCurrentX = targetX.toFloat()
+                    dragCurrentY = targetY.toFloat()
                     try {
                         windowManager?.updateViewLayout(composeView, params)
                     } catch (e: Exception) {}
@@ -469,23 +510,45 @@ class FloatingLyricsService : Service() {
         }
     }
 
+    private fun handlePureControlsChanged(visible: Boolean) {
+        if (!visible) return
+        windowLayoutParams?.let { params ->
+            val landscape = isLandscape()
+            val density = resources.displayMetrics.density
+            val currentWidthPx = params.width.takeIf { it > 0 } ?: getSafeOverlayWidthPx(isLandscape = landscape)
+            val baseHeight = composeView?.height?.takeIf { it > 0 } ?: (52 * density).toInt()
+            val projectedHeight = maxOf(
+                baseHeight + (PURE_CONTROLS_EXTRA_DP * density).toInt(),
+                (116 * density).toInt()
+            )
+            val bounds = getSafeDragBounds(currentWidthPx, projectedHeight, landscape)
+            val targetY = params.y.coerceIn(bounds.top, bounds.bottom)
+            if (targetY != params.y) {
+                params.y = targetY
+                dragCurrentY = targetY.toFloat()
+                try {
+                    windowManager?.updateViewLayout(composeView, params)
+                } catch (e: Exception) {}
+            }
+        }
+    }
+
     private fun snapToNearestEdge(params: WindowManager.LayoutParams) {
         cancelSnapAnimation()
         val landscape = isLandscape()
         val screenBounds = getScreenBounds(landscape)
         val density = resources.displayMetrics.density
-        val viewWidth = composeView?.width?.takeIf { it > 0 } ?: (floatingPreferences.capsuleWidthDp * density).toInt()
+        val viewWidth = params.width.takeIf { it > 0 } ?: getSafeOverlayWidthPx(isLandscape = landscape)
         val viewHeight = composeView?.height?.takeIf { it > 0 } ?: (48 * density).toInt()
         val bounds = getSafeDragBounds(viewWidth, viewHeight, landscape)
         val currentX = params.x
         val targetX = if (currentX + (viewWidth / 2) < screenBounds.width() / 2) {
-            bounds.left // 吸附至左侧安全边距
+            bounds.left
         } else {
-            bounds.right // 吸附至右侧安全边距
+            bounds.right
         }
 
-        val startX = currentX
-        snapAnimator = ValueAnimator.ofInt(startX, targetX).apply {
+        snapAnimator = ValueAnimator.ofInt(currentX, targetX).apply {
             duration = 260L
             interpolator = DecelerateInterpolator()
             addUpdateListener { va ->
@@ -522,14 +585,20 @@ class FloatingLyricsService : Service() {
         }
     }
 
+    private fun refreshNotification(locked: Boolean) {
+        val nm = getSystemService(Context.NOTIFICATION_SERVICE) as? NotificationManager ?: return
+        nm.notify(NOTIFICATION_ID, buildNotification(locked))
+    }
+
     private fun createNotificationChannel() {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            val strings = resolveAppStrings(aiPreferences.appLanguage)
             val channel = NotificationChannel(
                 CHANNEL_ID,
-                "LinerNotes 桌面悬浮歌词",
+                strings.floatingChannelName,
                 NotificationManager.IMPORTANCE_LOW
             ).apply {
-                description = "保持桌面悬浮歌词在后台稳定运行，并提供锁定/解锁快捷控制"
+                description = strings.floatingChannelDesc
                 setShowBadge(false)
             }
             val nm = getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
@@ -538,6 +607,7 @@ class FloatingLyricsService : Service() {
     }
 
     private fun buildNotification(isLocked: Boolean): Notification {
+        val strings = resolveAppStrings(aiPreferences.appLanguage)
         val openAppIntent = Intent(this, MainActivity::class.java).let {
             PendingIntent.getActivity(this, 0, it, PendingIntent.FLAG_IMMUTABLE)
         }
@@ -554,17 +624,17 @@ class FloatingLyricsService : Service() {
             PendingIntent.getService(this, 2, it, PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT)
         }
 
-        val lockActionTitle = if (isLocked) "🔓 解除锁定" else "🔒 穿透锁定"
+        val lockActionTitle = if (isLocked) strings.floatingNotifUnlock else strings.floatingNotifLock
 
         return NotificationCompat.Builder(this, CHANNEL_ID)
-            .setContentTitle("LinerNotes 桌面歌词已开启")
-            .setContentText(if (isLocked) "当前处于触摸穿透锁定状态" else "轻触可拖拽或展开播控卡片")
+            .setContentTitle(strings.floatingNotifTitle)
+            .setContentText(if (isLocked) strings.floatingNotifTextLocked else strings.floatingNotifTextUnlocked)
             .setSmallIcon(R.mipmap.ic_launcher)
             .setContentIntent(openAppIntent)
             .setOngoing(true)
             .setPriority(NotificationCompat.PRIORITY_LOW)
             .addAction(0, lockActionTitle, toggleLockIntent)
-            .addAction(0, "关闭悬浮窗", closeIntent)
+            .addAction(0, strings.floatingNotifClose, closeIntent)
             .build()
     }
 
@@ -578,7 +648,7 @@ class FloatingLyricsService : Service() {
             }
 
             val density = resources.displayMetrics.density
-            val currentViewWidth = composeView?.width?.takeIf { it > 0 } ?: (floatingPreferences.capsuleWidthDp * density).toInt()
+            val currentViewWidth = getSafeOverlayWidthPx(floatingPreferences.capsuleWidthDp, isLandscape)
             val currentViewHeight = composeView?.height?.takeIf { it > 0 } ?: (48 * density).toInt()
             val bounds = getSafeDragBounds(currentViewWidth, currentViewHeight, isLandscape)
             val screenBounds = getScreenBounds(isLandscape)
@@ -587,8 +657,6 @@ class FloatingLyricsService : Service() {
             val savedX = floatingPreferences.getLastPositionX(isLandscape)
             val savedY = floatingPreferences.getLastPositionY(isLandscape)
 
-            // 彻底解决横竖屏旋转位置错位与锁定后换回横屏偏左不居中问题：
-            // 横屏与竖屏采用独立记忆坐标；若横屏下未曾手动拖拽，自动对齐横屏水平居中位置，拒绝因竖屏钳制导致横屏偏左
             val targetX = if (savedX >= 0) {
                 savedX.coerceIn(bounds.left, bounds.right)
             } else {
@@ -602,6 +670,7 @@ class FloatingLyricsService : Service() {
                 (insets.top + (defaultMarginTop * density).toInt()).coerceIn(bounds.top, bounds.bottom)
             }
 
+            params.width = currentViewWidth
             params.x = targetX
             params.y = targetY
             dragCurrentX = targetX.toFloat()
@@ -617,7 +686,6 @@ class FloatingLyricsService : Service() {
 
     override fun onTaskRemoved(rootIntent: Intent?) {
         super.onTaskRemoved(rootIntent)
-        // 用户从最近任务划掉主应用时，确保重置前台标记，避免悬浮窗在桌面上永久不可见
         setAppInForeground(false)
     }
 
@@ -625,6 +693,7 @@ class FloatingLyricsService : Service() {
         super.onDestroy()
         _isRunningFlow.value = false
         floatingPreferences.isEnabled = false
+        FloatingLyricsTileService.requestSync(this)
         cancelSnapAnimation()
         try {
             unregisterReceiver(screenStateReceiver)
@@ -707,8 +776,7 @@ class FloatingLyricsService : Service() {
     }
 
     companion object {
-        const val EXPANDED_WIDTH_DP = 356
-        const val COMPACT_WIDTH_DP = 356
+        const val PURE_CONTROLS_EXTRA_DP = 64
 
         const val CHANNEL_ID = "floating_lyrics_channel"
         const val NOTIFICATION_ID = 20001

@@ -6,16 +6,23 @@ import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
 import com.linernotes.app.core.floating.FloatingLyricsService
+import com.linernotes.app.core.preference.AiPreferencesEntryPoint
+import dagger.hilt.android.EntryPointAccessors
 import dagger.hilt.android.HiltAndroidApp
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.launch
 
 @HiltAndroidApp
 class LinerNotesApp : Application() {
 
     private var startedActivityCount = 0
     private val mainHandler = Handler(Looper.getMainLooper())
+    private val appWarmupScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     private val backgroundRunnable = Runnable {
         if (startedActivityCount == 0) {
             _isForegroundFlow.value = false
@@ -25,6 +32,17 @@ class LinerNotesApp : Application() {
 
     override fun onCreate() {
         super.onCreate()
+        // 在后台 IO 线程预热 SharedPreferences 与全局配置单例，减轻主线程冷启动阻塞
+        appWarmupScope.launch {
+            runCatching {
+                getSharedPreferences("app_settings", MODE_PRIVATE).all
+                getSharedPreferences("floating_lyrics_prefs", MODE_PRIVATE).all
+                EntryPointAccessors.fromApplication(
+                    applicationContext,
+                    AiPreferencesEntryPoint::class.java
+                ).aiPreferences()
+            }
+        }
 
         registerActivityLifecycleCallbacks(object : ActivityLifecycleCallbacks {
             override fun onActivityStarted(activity: Activity) {

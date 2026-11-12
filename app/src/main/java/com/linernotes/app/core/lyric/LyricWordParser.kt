@@ -13,6 +13,9 @@ object LyricWordParser {
 
     private val INLINE_PAREN_REGEX = Regex("""\((\d+),(\d+)(?:,\d+)?\)([^(\n\r]+)""")
     private val INLINE_ANGLED_REGEX = Regex("""<(\d{1,2}):(\d{2})(?:\.(\d{1,3}))?>([^<\n\r]+)""")
+    private val CLEAN_BRACKET_TS_REGEX = Regex("""\[\d{1,2}:\d{2}(?:\.\d{1,3})?\]""")
+    private val CLEAN_PAREN_TS_REGEX = Regex("""\(\d+,\d+(?:,\d+)?\)""")
+    private val CLEAN_ANGLED_TS_REGEX = Regex("""<\d{1,2}:\d{2}(?:\.\d{1,3})?>""")
 
     // 智能语元匹配：CJK 字符单字切分，欧美/拉丁单词保留词尾空格作为整体单元
     private val TOKEN_REGEX = Regex("""([\u4e00-\u9fa5\u3040-\u30ff\uac00-\ud7af]|(?:[^\s\u4e00-\u9fa5\u3040-\u30ff\uac00-\ud7af]+\s*))""")
@@ -22,9 +25,9 @@ object LyricWordParser {
      */
     fun cleanInlineTimestamps(rawLine: String): String {
         return rawLine
-            .replace(Regex("""\[\d{1,2}:\d{2}(?:\.\d{1,3})?\]"""), "")
-            .replace(Regex("""\(\d+,\d+(?:,\d+)?\)"""), "")
-            .replace(Regex("""<\d{1,2}:\d{2}(?:\.\d{1,3})?>"""), "")
+            .replace(CLEAN_BRACKET_TS_REGEX, "")
+            .replace(CLEAN_PAREN_TS_REGEX, "")
+            .replace(CLEAN_ANGLED_TS_REGEX, "")
     }
 
     /**
