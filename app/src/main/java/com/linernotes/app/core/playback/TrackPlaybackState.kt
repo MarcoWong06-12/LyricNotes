@@ -138,6 +138,19 @@ data class TrackPlaybackState(
     val hasValidTrack: Boolean
         get() = title.isNotBlank() && artist.isNotBlank()
 
+    fun withClock(clock: PlaybackClockState): TrackPlaybackState =
+        if (trackEpoch > 0L && clock.trackEpoch > 0L && clock.trackEpoch != trackEpoch) {
+            this
+        } else {
+            copy(
+                currentPositionMs = clock.currentPositionMs,
+                isPlaying = clock.isPlaying,
+                playbackSpeed = clock.playbackSpeed,
+                lastUpdateTimeMs = clock.lastUpdateTimeMs,
+                durationMs = if (clock.durationMs > 0L) clock.durationMs else durationMs
+            )
+        }
+
     fun toMetadata(): TrackMetadataState = TrackMetadataState(
         trackEpoch = trackEpoch,
         title = title,

@@ -747,18 +747,13 @@ private fun NowPlayingLyricsSlot(
     val currentLineIndex by currentLineIndexFlow.collectAsStateWithLifecycle()
     val playbackClock by playbackClockFlow.collectAsStateWithLifecycle()
     val effectiveTrackState = remember(baseTrackState, playbackClock) {
-        baseTrackState.copy(
-            isPlaying = playbackClock.isPlaying,
-            currentPositionMs = playbackClock.currentPositionMs,
-            durationMs = playbackClock.durationMs,
-            lastPositionUpdateTimeMs = playbackClock.lastPositionUpdateTimeMs
-        )
+        baseTrackState.withClock(playbackClock)
     }
     NowPlayingLyricsContent(
         lyrics = lyrics,
         currentLineIndex = currentLineIndex,
         annotatedLines = annotatedLines,
-        isPlaying = isPlaying,
+        isPlaying = playbackClock.isPlaying,
         isTraditional = isTraditional,
         isLoadingLyrics = isLoadingLyrics,
         isDark = isDark,

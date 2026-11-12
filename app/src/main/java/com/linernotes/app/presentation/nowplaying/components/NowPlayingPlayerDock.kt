@@ -306,12 +306,7 @@ private fun PlayerProgressSlot(
 ) {
     val clock by playbackClockFlow.collectAsStateWithLifecycle()
     val progressTrackState = remember(baseTrackState, clock) {
-        baseTrackState.copy(
-            isPlaying = clock.isPlaying,
-            currentPositionMs = clock.currentPositionMs,
-            durationMs = clock.durationMs,
-            lastPositionUpdateTimeMs = clock.lastPositionUpdateTimeMs
-        )
+        baseTrackState.withClock(clock)
     }
     PlayerProgressSection(
         trackState = progressTrackState,
