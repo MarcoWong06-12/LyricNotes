@@ -14,6 +14,7 @@ import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.ThumbUp
 import androidx.compose.material3.*
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -29,6 +30,7 @@ import com.linernotes.app.core.i18n.LocalStrings
 import com.linernotes.app.core.util.ChineseConverter
 import com.linernotes.app.data.local.entity.LyricAnnotationEntity
 import com.linernotes.app.presentation.common.*
+import kotlinx.coroutines.launch
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -43,6 +45,14 @@ fun NowPlayingGeniusSheet(
 ) {
     if (annotation == null) return
 
+    val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
+    val coroutineScope = rememberCoroutineScope()
+    val dismissWithAnimation: () -> Unit = {
+        coroutineScope.launch { sheetState.hide() }.invokeOnCompletion {
+            if (!sheetState.isVisible) onDismiss()
+        }
+    }
+
     val isDark = MaterialTheme.colorScheme.background.luminance() < 0.5f
     val isPureAmoled = isDark && isAmoledMode
     val sheetBg = if (isPureAmoled) Color(0xFF0C0C0E) else (if (isDark) Color(0xFF13141B) else MaterialTheme.colorScheme.surface)
@@ -53,8 +63,10 @@ fun NowPlayingGeniusSheet(
 
     ModalBottomSheet(
         onDismissRequest = onDismiss,
+        sheetState = sheetState,
         containerColor = sheetBg,
         contentColor = sheetContent,
+        tonalElevation = 0.dp,
         dragHandle = {
             Surface(
                 modifier = Modifier.padding(top = 12.dp, bottom = 8.dp),
@@ -135,7 +147,7 @@ fun NowPlayingGeniusSheet(
                         shape = CircleShape,
                         modifier = Modifier
                             .size(34.dp)
-                            .bouncyIconClickable(onClick = onDismiss)
+                            .bouncyIconClickable(onClick = dismissWithAnimation)
                     ) {
                         Box(contentAlignment = Alignment.Center) {
                             Icon(

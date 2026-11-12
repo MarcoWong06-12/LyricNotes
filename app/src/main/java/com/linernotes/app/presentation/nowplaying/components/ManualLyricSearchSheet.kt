@@ -65,6 +65,10 @@ fun ManualLyricSearchSheet(
     val strings = LocalStrings.current
     var inputQuery by remember { mutableStateOf(if (trackTitle.isNotBlank()) "$trackTitle $artistName".trim() else "") }
     var selectedFilterSource by remember { mutableStateOf<LyricSource?>(null) } // null = 全部
+    var applyingCandidateKey by remember { mutableStateOf<String?>(null) }
+    LaunchedEffect(isApplying) {
+        if (!isApplying) applyingCandidateKey = null
+    }
 
     val isDark = MaterialTheme.colorScheme.background.luminance() < 0.5f
     val isPureAmoled = isDark && isAmoledMode
@@ -87,7 +91,7 @@ fun ManualLyricSearchSheet(
         sheetState = sheetState,
         containerColor = sheetBg,
         contentColor = sheetContent,
-        tonalElevation = 8.dp,
+        tonalElevation = 0.dp,
         shape = RoundedCornerShape(topStart = 28.dp, topEnd = 28.dp),
         dragHandle = {
             Surface(
@@ -136,6 +140,7 @@ fun ManualLyricSearchSheet(
                 if (hasManualBinding) {
                     TextButton(
                         onClick = onResetToAutoMatch,
+                        enabled = !isApplying,
                         contentPadding = PaddingValues(horizontal = 8.dp, vertical = 4.dp)
                     ) {
                         Text(
@@ -338,14 +343,22 @@ fun ManualLyricSearchSheet(
                             contentPadding = PaddingValues(bottom = 8.dp)
                         ) {
                             items(filteredCandidates, key = { "${it.source}_${it.sourceId}" }) { item ->
+                                val itemKey = "${item.source}_${item.sourceId}"
+                                val isApplyingThis = isApplying && applyingCandidateKey == itemKey
                                 CandidateItemCard(
                                     item = item,
                                     targetDurationMs = targetDurationMs,
                                     isDark = isDark,
                                     isAmoledMode = isAmoledMode,
                                     isApplying = isApplying,
+                                    isApplyingThis = isApplyingThis,
                                     isTraditional = isTraditional,
-                                    onClick = { onSelectCandidate(item) }
+                                    onClick = {
+                                        if (!isApplying) {
+                                            applyingCandidateKey = itemKey
+                                            onSelectCandidate(item)
+                                        }
+                                    }
                                 )
                             }
                         }
@@ -396,12 +409,15 @@ private fun CandidateItemCard(
     isDark: Boolean,
     isAmoledMode: Boolean = false,
     isApplying: Boolean,
+    isApplyingThis: Boolean = false,
     isTraditional: Boolean,
     onClick: () -> Unit
 ) {
     val isPureAmoled = isDark && isAmoledMode
     val cardBg = if (isPureAmoled) Color(0xFF141416) else (if (isDark) Color(0xFF1C1E2A) else MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.85f))
-    val cardBorder = if (isPureAmoled) Color(0xFF222226) else (if (isDark) Color.White.copy(alpha = 0.08f) else Color.Black.copy(alpha = 0.06f))
+    val cardBorder = if (isApplyingThis) {
+        Color(0xFF1ED760).copy(alpha = 0.65f)
+    } else if (isPureAmoled) Color(0xFF222226) else (if (isDark) Color.White.copy(alpha = 0.08f) else Color.Black.copy(alpha = 0.06f))
     val textPrimary = if (isDark) Color.White else MaterialTheme.colorScheme.onSurface
     val textSecondary = if (isDark) Color.White.copy(alpha = 0.55f) else MaterialTheme.colorScheme.onSurfaceVariant
     val strings = LocalStrings.current
@@ -412,7 +428,11 @@ private fun CandidateItemCard(
         border = BorderStroke(1.dp, cardBorder),
         modifier = Modifier
             .fillMaxWidth()
-            .bouncyClickable(pressedScale = 0.97f, onClick = onClick)
+            .bouncyClickable(
+                enabled = !isApplying,
+                pressedScale = 0.97f,
+                onClick = onClick
+            )
     ) {
         Row(
             modifier = Modifier
@@ -561,13 +581,21 @@ private fun CandidateItemCard(
                 }
             }
 
-            // 右侧选择按钮
-            Icon(
-                imageVector = Icons.Default.ChevronRight,
-                contentDescription = strings.doneBtn,
-                tint = textSecondary,
-                modifier = Modifier.size(20.dp)
-            )
+            // 右侧选择按钮 / 应用中进度反馈
+            if (isApplyingThis) {
+                CircularProgressIndicator(
+                    modifier = Modifier.size(18.dp),
+                    strokeWidth = 2.dp,
+                    color = Color(0xFF1ED760)
+                )
+            } else {
+                Icon(
+                    imageVector = Icons.Default.ChevronRight,
+                    contentDescription = strings.doneBtn,
+                    tint = textSecondary.copy(alpha = if (isApplying) 0.35f else 1f),
+                    modifier = Modifier.size(20.dp)
+                )
+            }
         }
     }
 }

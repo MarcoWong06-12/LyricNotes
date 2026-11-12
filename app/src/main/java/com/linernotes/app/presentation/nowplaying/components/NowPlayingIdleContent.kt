@@ -1,5 +1,11 @@
 package com.linernotes.app.presentation.nowplaying.components
 
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.core.tween
+import androidx.compose.animation.expandVertically
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.shrinkVertically
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.CircleShape
@@ -80,56 +86,68 @@ fun NowPlayingIdleContent(
 
         Spacer(modifier = Modifier.height(32.dp))
 
-        if (!isNotificationGranted) {
-            Surface(
-                color = if (isDark) Color.White.copy(alpha = 0.06f) else MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.85f),
-                shape = RoundedCornerShape(22.dp),
-                border = BorderStroke(1.dp, if (isDark) Color(0xFF1DB954).copy(alpha = 0.30f) else Color(0xFF1DB954).copy(alpha = 0.40f)),
-                modifier = Modifier.fillMaxWidth()
-            ) {
-                Row(
-                    modifier = Modifier.padding(16.dp),
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment = Alignment.CenterVertically
+        AnimatedVisibility(
+            visible = !isNotificationGranted,
+            enter = fadeIn(tween(240)) + expandVertically(tween(240)),
+            exit = fadeOut(tween(180)) + shrinkVertically(tween(200))
+        ) {
+            Column {
+                Surface(
+                    color = if (isDark) Color.White.copy(alpha = 0.06f) else MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.85f),
+                    shape = RoundedCornerShape(22.dp),
+                    border = BorderStroke(1.dp, if (isDark) Color(0xFF1DB954).copy(alpha = 0.30f) else Color(0xFF1DB954).copy(alpha = 0.40f)),
+                    modifier = Modifier.fillMaxWidth()
                 ) {
-                    Column(modifier = Modifier.weight(1f)) {
-                        Text(
-                            text = strings.openNotificationPermission,
-                            color = if (isDark) Color.White else MaterialTheme.colorScheme.onSurface,
-                            fontSize = 14.sp,
-                            fontWeight = FontWeight.Bold,
-                            fontFamily = FontFamily.SansSerif
-                        )
-                        Text(
-                            text = strings.openNotificationPermissionDesc,
-                            color = if (isDark) Color.White.copy(alpha = 0.50f) else MaterialTheme.colorScheme.onSurface.copy(alpha = 0.60f),
-                            fontSize = 11.5.sp,
-                            fontFamily = FontFamily.SansSerif
-                        )
-                    }
-
-                    Surface(
-                        color = Color(0xFF1DB954),
-                        shape = CircleShape,
-                        modifier = Modifier
-                            .bouncyClickable(
-                                pressedScale = 0.92f,
-                                onClick = onGrantPermission
-                            )
+                    Row(
+                        modifier = Modifier.padding(16.dp),
+                        horizontalArrangement = Arrangement.spacedBy(12.dp),
+                        verticalAlignment = Alignment.CenterVertically
                     ) {
-                        Text(
-                            text = strings.grantPermissionAction,
-                            color = Color.Black,
-                            fontSize = 12.sp,
-                            fontWeight = FontWeight.Bold,
-                            fontFamily = FontFamily.SansSerif,
-                            modifier = Modifier.padding(horizontal = 14.dp, vertical = 7.dp)
-                        )
+                        Column(
+                            modifier = Modifier.weight(1f),
+                            verticalArrangement = Arrangement.spacedBy(3.dp)
+                        ) {
+                            Text(
+                                text = strings.openNotificationPermission,
+                                color = if (isDark) Color.White else MaterialTheme.colorScheme.onSurface,
+                                fontSize = 14.sp,
+                                fontWeight = FontWeight.Bold,
+                                fontFamily = FontFamily.SansSerif
+                            )
+                            Text(
+                                text = strings.openNotificationPermissionDesc,
+                                color = if (isDark) Color.White.copy(alpha = 0.56f) else MaterialTheme.colorScheme.onSurface.copy(alpha = 0.62f),
+                                fontSize = 11.5.sp,
+                                lineHeight = 16.sp,
+                                fontFamily = FontFamily.SansSerif
+                            )
+                        }
+
+                        // 次级描边胶囊按钮：把唯一高饱和实心视觉焦点留给下方主 CTA
+                        Surface(
+                            color = Color(0xFF1DB954).copy(alpha = if (isDark) 0.16f else 0.12f),
+                            shape = CircleShape,
+                            border = BorderStroke(1.dp, Color(0xFF1DB954).copy(alpha = 0.75f)),
+                            modifier = Modifier
+                                .bouncyClickable(
+                                    pressedScale = 0.92f,
+                                    onClick = onGrantPermission
+                                )
+                        ) {
+                            Text(
+                                text = strings.grantPermissionAction,
+                                color = if (isDark) Color(0xFF1ED760) else Color(0xFF0E7A34),
+                                fontSize = 12.sp,
+                                fontWeight = FontWeight.Bold,
+                                fontFamily = FontFamily.SansSerif,
+                                modifier = Modifier.padding(horizontal = 14.dp, vertical = 7.dp)
+                            )
+                        }
                     }
                 }
-            }
 
-            Spacer(modifier = Modifier.height(14.dp))
+                Spacer(modifier = Modifier.height(14.dp))
+            }
         }
 
         Surface(

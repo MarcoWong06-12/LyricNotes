@@ -1,13 +1,14 @@
 package com.linernotes.app.presentation.nowplaying.components
 
+import android.os.SystemClock
 import androidx.compose.animation.*
 import androidx.compose.animation.core.*
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
-import androidx.compose.foundation.gestures.detectHorizontalDragGestures
-import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.border
+import androidx.compose.foundation.gestures.awaitEachGesture
+import androidx.compose.foundation.gestures.awaitFirstDown
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -23,7 +24,10 @@ import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
+import androidx.compose.ui.input.pointer.changedToUpIgnoreConsumed
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.input.pointer.positionChanged
+import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.text.font.FontFamily
@@ -32,6 +36,7 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.linernotes.app.core.i18n.LocalStrings
 import com.linernotes.app.core.playback.PlaybackClockState
 import com.linernotes.app.core.playback.TrackPlaybackState
 import com.linernotes.app.presentation.common.bouncyIconClickable
@@ -65,12 +70,13 @@ fun NowPlayingFloatingGlassPlayer(
 ) {
     val onPlayerTextSec = if (isDark) Color.White.copy(alpha = 0.65f) else Color.Black.copy(alpha = 0.60f)
     val iconTint = if (isDark) Color.White.copy(alpha = 0.94f) else Color(0xFF1E202B)
+    val strings = LocalStrings.current
 
     Column(
         modifier = modifier
             .fillMaxWidth()
             .navigationBarsPadding()
-            .padding(horizontal = 24.dp, vertical = 6.dp)
+            .padding(horizontal = 24.dp, vertical = 4.dp)
     ) {
         // 1. 顶部声学进度轨 (隔离收集高频时钟流，进度心跳与 Seek 仅局部重组本进度条)
         PlayerProgressSlot(
@@ -79,7 +85,7 @@ fun NowPlayingFloatingGlassPlayer(
             isDark = isDark,
             onPlayerTextSec = onPlayerTextSec,
             onSeekTo = onSeekTo,
-            modifier = Modifier.padding(bottom = 6.dp)
+            modifier = Modifier.padding(bottom = 2.dp)
         )
 
         // 2. 现代无界流体播控群 (Apple Music 纯净 5 联键：[随机] [上一首] [52dp 白瓷播放] [下一首] [循环])
@@ -125,7 +131,7 @@ fun NowPlayingFloatingGlassPlayer(
                 Box(contentAlignment = Alignment.Center) {
                     Icon(
                         imageVector = Icons.Default.Shuffle,
-                        contentDescription = if (isShuffle) "随机播放 (已开启)" else "顺序播放",
+                        contentDescription = if (isShuffle) strings.shuffleOnDesc else strings.shuffleOffDesc,
                         tint = shuffleTint,
                         modifier = Modifier.size(20.dp)
                     )
@@ -153,7 +159,7 @@ fun NowPlayingFloatingGlassPlayer(
             ) {
                 Icon(
                     imageVector = Icons.Default.SkipPrevious,
-                    contentDescription = "上一首",
+                    contentDescription = strings.previousTrackDesc,
                     tint = iconTint,
                     modifier = Modifier.size(28.dp)
                 )
@@ -202,7 +208,7 @@ fun NowPlayingFloatingGlassPlayer(
                     ) { isPlaying ->
                         Icon(
                             imageVector = if (isPlaying) Icons.Default.Pause else Icons.Default.PlayArrow,
-                            contentDescription = if (isPlaying) "暂停" else "播放",
+                            contentDescription = if (isPlaying) strings.pauseDesc else strings.playDesc,
                             tint = if (isDark) Color(0xFF0F1118) else Color.White,
                             modifier = Modifier
                                 .size(28.dp)
@@ -235,7 +241,7 @@ fun NowPlayingFloatingGlassPlayer(
             ) {
                 Icon(
                     imageVector = Icons.Default.SkipNext,
-                    contentDescription = "下一首",
+                    contentDescription = strings.nextTrackDesc,
                     tint = iconTint,
                     modifier = Modifier.size(28.dp)
                 )
@@ -281,9 +287,9 @@ fun NowPlayingFloatingGlassPlayer(
                         Icon(
                             imageVector = if (mode == 2) Icons.Default.RepeatOne else Icons.Default.Repeat,
                             contentDescription = when (mode) {
-                                1 -> "列表循环"
-                                2 -> "单曲循环"
-                                else -> "顺序播放"
+                                1 -> strings.repeatAllDesc
+                                2 -> strings.repeatOneDesc
+                                else -> strings.repeatOffDesc
                             },
                             tint = repeatTint,
                             modifier = Modifier.size(20.dp)
@@ -325,33 +331,64 @@ fun PlayerProgressSection(
     onSeekTo: (Long) -> Unit,
     modifier: Modifier = Modifier
 ) {
-    var estimatedPosition by remember { mutableLongStateOf(trackState.currentPositionMs) }
+    val hasValidDuration = trackState.durationMs > 0L
+    val duration = if (hasValidDuration) trackState.durationMs else 1L
     var isScrubbing by remember { mutableStateOf(false) }
     var scrubFraction by remember { mutableFloatStateOf(0f) }
 
-    LaunchedEffect(trackState) {
-        while (isActive) {
-            if (!isScrubbing) {
-                estimatedPosition = trackState.getEstimatedPositionMs()
+    // 乐观进度锁定：松手提交 Seek 后短暂锁定目标时刻，等待远端播放器广播追上或超时 (850ms)，彻底杜绝滑块闪跳弹回
+    var seekLockTargetMs by remember(trackState.trackEpoch) { mutableStateOf<Long?>(null) }
+    var seekLockDeadlineMs by remember(trackState.trackEpoch) { mutableLongStateOf(0L) }
+
+    fun resolveCurrentPositionMs(): Long {
+        if (isScrubbing && hasValidDuration) {
+            return (scrubFraction * duration).toLong().coerceIn(0L, duration)
+        }
+        val lockTarget = seekLockTargetMs
+        val systemEst = trackState.getEstimatedPositionMs()
+        if (lockTarget != null) {
+            val withinTolerance = kotlin.math.abs(systemEst - lockTarget) <= 1800L
+            if (!withinTolerance && SystemClock.elapsedRealtime() < seekLockDeadlineMs) {
+                return lockTarget.coerceIn(0L, duration)
             }
-            delay(100)
+        }
+        return systemEst
+    }
+
+    var displayedSecondMs by remember(trackState.trackEpoch) {
+        mutableLongStateOf((resolveCurrentPositionMs() / 1000L) * 1000L)
+    }
+
+    // 文本时间戳仅在播放态且跨过整秒边界时更新 (~1Hz)，暂停态 0 次唤醒
+    LaunchedEffect(trackState, hasValidDuration, isScrubbing, seekLockTargetMs) {
+        val currentMs = resolveCurrentPositionMs()
+        displayedSecondMs = (currentMs / 1000L) * 1000L
+        if (!trackState.isPlaying || !hasValidDuration || isScrubbing) {
+            if (seekLockTargetMs != null && kotlin.math.abs(trackState.getEstimatedPositionMs() - seekLockTargetMs!!) <= 1800L) {
+                seekLockTargetMs = null
+            }
+            return@LaunchedEffect
+        }
+        while (isActive) {
+            val est = resolveCurrentPositionMs()
+            if (seekLockTargetMs != null &&
+                (SystemClock.elapsedRealtime() >= seekLockDeadlineMs || kotlin.math.abs(trackState.getEstimatedPositionMs() - seekLockTargetMs!!) <= 1800L)
+            ) {
+                seekLockTargetMs = null
+            }
+            displayedSecondMs = (est / 1000L) * 1000L
+            val delayToNextSec = 1000L - (est % 1000L)
+            delay(delayToNextSec.coerceIn(100L, 1000L))
         }
     }
 
-    val hasValidDuration = trackState.durationMs > 0L
-    val duration = if (hasValidDuration) trackState.durationMs else 1L
-    val livePositionMs = if (isScrubbing && hasValidDuration) {
+    val textPositionMs = if (isScrubbing && hasValidDuration) {
         (scrubFraction * duration).toLong().coerceIn(0L, duration)
     } else {
-        estimatedPosition
-    }
-    val progress = if (hasValidDuration) {
-        (livePositionMs.toFloat() / duration.toFloat()).coerceIn(0f, 1f)
-    } else {
-        0f
+        displayedSecondMs
     }
     val remainingMs = if (hasValidDuration) {
-        (duration - livePositionMs).coerceAtLeast(0L)
+        (duration - textPositionMs).coerceAtLeast(0L)
     } else {
         0L
     }
@@ -367,25 +404,13 @@ fun PlayerProgressSection(
         onPlayerTextSec
     }
 
-    fun formatMs(ms: Long): String {
-        val totalSec = (ms / 1000).coerceAtLeast(0)
-        val hours = totalSec / 3600
-        val minutes = (totalSec % 3600) / 60
-        val seconds = totalSec % 60
-        return if (hours > 0) {
-            "%d:%02d:%02d".format(hours, minutes, seconds)
-        } else {
-            "%02d:%02d".format(minutes, seconds)
-        }
-    }
-
     Row(
         modifier = modifier.fillMaxWidth(),
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.SpaceBetween
     ) {
         Text(
-            text = formatMs(livePositionMs),
+            text = formatProgressMs(textPositionMs),
             color = activeTimeColor,
             fontSize = 11.sp,
             fontWeight = if (isScrubbing) FontWeight.Bold else FontWeight.Medium,
@@ -400,7 +425,12 @@ fun PlayerProgressSection(
         )
 
         SleekTrackScrubber(
-            progress = progress,
+            hasValidDuration = hasValidDuration,
+            durationMs = duration,
+            isPlaying = trackState.isPlaying,
+            progressProvider = {
+                if (hasValidDuration) (resolveCurrentPositionMs().toFloat() / duration.toFloat()).coerceIn(0f, 1f) else 0f
+            },
             isDark = isDark,
             onScrubStateChange = { dragging, frac ->
                 isScrubbing = dragging
@@ -408,8 +438,10 @@ fun PlayerProgressSection(
             },
             onSeekToFraction = { frac ->
                 if (hasValidDuration) {
-                    val targetMs = (frac * duration).toLong()
-                    estimatedPosition = targetMs
+                    val targetMs = (frac * duration).toLong().coerceIn(0L, duration)
+                    seekLockTargetMs = targetMs
+                    seekLockDeadlineMs = SystemClock.elapsedRealtime() + 850L
+                    displayedSecondMs = (targetMs / 1000L) * 1000L
                     onSeekTo(targetMs)
                 }
             },
@@ -419,7 +451,7 @@ fun PlayerProgressSection(
         )
 
         Text(
-            text = if (hasValidDuration) "-${formatMs(remainingMs)}" else "--:--",
+            text = if (hasValidDuration) "-${formatProgressMs(remainingMs)}" else "--:--",
             color = if (isScrubbing) activeTimeColor else onPlayerTextSec.copy(alpha = 0.75f),
             fontSize = 11.sp,
             fontWeight = if (isScrubbing) FontWeight.Bold else FontWeight.Medium,
@@ -435,12 +467,27 @@ fun PlayerProgressSection(
     }
 }
 
+private fun formatProgressMs(ms: Long): String {
+    val totalSec = (ms / 1000).coerceAtLeast(0)
+    val hours = totalSec / 3600
+    val minutes = (totalSec % 3600) / 60
+    val seconds = totalSec % 60
+    return if (hours > 0) {
+        "%d:%02d:%02d".format(hours, minutes, seconds)
+    } else {
+        "%02d:%02d".format(minutes, seconds)
+    }
+}
+
 /**
- * 极简平滑声学进度轨 (Apple Music 3dp 极细流线，手指触控时膨胀至 6dp 并浮现高光白瓷晶珠)
+ * 极简平滑声学进度轨 (48dp 无障碍热区 + 统一单手势无死区跟手 + 指尖悬浮时间预演气泡 + Draw/GPU 阶段 120Hz 零重组推演)
  */
 @Composable
 fun SleekTrackScrubber(
-    progress: Float,
+    hasValidDuration: Boolean,
+    durationMs: Long,
+    isPlaying: Boolean,
+    progressProvider: () -> Float,
     isDark: Boolean,
     onScrubStateChange: (Boolean, Float) -> Unit = { _, _ -> },
     onSeekToFraction: (Float) -> Unit,
@@ -450,9 +497,21 @@ fun SleekTrackScrubber(
     var isDragging by remember { mutableStateOf(false) }
     var dragFraction by remember { mutableFloatStateOf(0f) }
 
-    val currentFraction = (if (isDragging) dragFraction else progress).coerceIn(0f, 1f)
+    // 仅在播放态且非手动拖拽时驱动 Draw 帧时钟，保证进度条丝滑前行而零 Recompose
+    val frameClock = remember { mutableLongStateOf(0L) }
+    LaunchedEffect(isPlaying, hasValidDuration, isDragging) {
+        if (isPlaying && hasValidDuration && !isDragging) {
+            while (isActive) {
+                withFrameNanos { frameClock.longValue = it }
+            }
+        }
+    }
 
-    // 触感物理绽放动力学：手指拖拽时膨胀至 6dp，松手时平滑沉降回 3dp 极细流线
+    fun resolveFraction(): Float {
+        return if (isDragging) dragFraction.coerceIn(0f, 1f) else progressProvider().coerceIn(0f, 1f)
+    }
+
+    // 触感物理绽放动力学：手指按压/拖拽时膨胀至 6dp，松手时平滑沉降回 3dp 极细流线
     val trackHeight by animateDpAsState(
         targetValue = if (isDragging) 6.dp else 3.dp,
         animationSpec = spring(dampingRatio = 0.76f, stiffness = 420f),
@@ -476,57 +535,64 @@ fun SleekTrackScrubber(
     BoxWithConstraints(
         modifier = modifier
             .fillMaxWidth()
-            .height(24.dp)
-            .pointerInput(Unit) {
-                detectTapGestures { offset ->
-                    val frac = (offset.x / size.width.toFloat()).coerceIn(0f, 1f)
+            .height(48.dp)
+            .pointerInput(hasValidDuration) {
+                if (!hasValidDuration) return@pointerInput
+                awaitEachGesture {
+                    val down = awaitFirstDown(requireUnconsumed = false)
+                    down.consume()
+                    val width = size.width.toFloat().coerceAtLeast(1f)
+                    var frac = (down.position.x / width).coerceIn(0f, 1f)
+                    isDragging = true
+                    dragFraction = frac
+                    onScrubStateChange(true, frac)
                     try {
                         haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
-                    } catch (e: Exception) {}
-                    onSeekToFraction(frac)
-                }
-            }
-            .pointerInput(Unit) {
-                detectHorizontalDragGestures(
-                    onDragStart = { offset ->
-                        isDragging = true
-                        dragFraction = (offset.x / size.width.toFloat()).coerceIn(0f, 1f)
-                        onScrubStateChange(true, dragFraction)
-                        try {
-                            haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
-                        } catch (e: Exception) {}
-                    },
-                    onDragEnd = {
-                        isDragging = false
-                        onScrubStateChange(false, dragFraction)
-                        try {
-                            haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
-                        } catch (e: Exception) {}
-                        onSeekToFraction(dragFraction)
-                    },
-                    onDragCancel = {
-                        isDragging = false
-                        onScrubStateChange(false, dragFraction)
-                    },
-                    onHorizontalDrag = { change, _ ->
-                        change.consume()
-                        val frac = (change.position.x / size.width.toFloat()).coerceIn(0f, 1f)
-                        dragFraction = frac
-                        onScrubStateChange(true, frac)
+                    } catch (_: Exception) {}
+
+                    var committed = false
+                    while (true) {
+                        val event = awaitPointerEvent()
+                        val change = event.changes.firstOrNull { it.id == down.id }
+                        if (change == null) {
+                            break
+                        }
+                        if (!change.pressed) {
+                            committed = change.changedToUpIgnoreConsumed()
+                            change.consume()
+                            break
+                        }
+                        if (change.positionChanged()) {
+                            change.consume()
+                            frac = (change.position.x / width).coerceIn(0f, 1f)
+                            dragFraction = frac
+                            onScrubStateChange(true, frac)
+                        }
                     }
-                )
+
+                    isDragging = false
+                    onScrubStateChange(false, frac)
+                    if (committed) {
+                        try {
+                            haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                        } catch (_: Exception) {}
+                        onSeekToFraction(frac)
+                    }
+                }
             },
         contentAlignment = Alignment.CenterStart
     ) {
         val widthPx = constraints.maxWidth.toFloat()
         val density = LocalDensity.current
 
-        // 槽轨底色与高光槽轨 (在 Draw 阶段直接完成向量绘制，0 Measure/Layout 开销)
+        // 槽轨底色与高光槽轨 (在 Draw 阶段读取 frameClock 与进度，0 Measure/Layout/Recompose 开销)
         Canvas(
             modifier = Modifier
                 .fillMaxWidth()
                 .height(trackHeight)
         ) {
+            frameClock.longValue
+            val frac = resolveFraction()
             val h = size.height
             val radius = CornerRadius(h / 2f, h / 2f)
             drawRoundRect(
@@ -534,12 +600,46 @@ fun SleekTrackScrubber(
                 size = size,
                 cornerRadius = radius
             )
-            val activeWidth = size.width * currentFraction
+            val activeWidth = size.width * frac
             if (activeWidth > 0f) {
                 drawRoundRect(
                     color = trackActiveColor,
                     size = Size(activeWidth, h),
                     cornerRadius = radius
+                )
+            }
+        }
+
+        // 指尖上方悬浮实时时间预览气泡 (仅拖拽交互时显示)
+        if (haloScale > 0.02f && hasValidDuration) {
+            var bubbleWidthPx by remember { mutableIntStateOf(0) }
+            val previewMs = (dragFraction * durationMs).toLong().coerceIn(0L, durationMs)
+            val liftPx = with(density) { 36.dp.toPx() }
+            Surface(
+                color = if (isDark) Color(0xF01C1E28) else Color(0xF519191C),
+                shape = RoundedCornerShape(10.dp),
+                shadowElevation = 6.dp,
+                border = BorderStroke(0.5.dp, Color.White.copy(alpha = if (isDark) 0.22f else 0.14f)),
+                modifier = Modifier
+                    .onSizeChanged { bubbleWidthPx = it.width }
+                    .graphicsLayer {
+                        val halfW = (bubbleWidthPx / 2f).coerceAtLeast(with(density) { 24.dp.toPx() })
+                        val centerX = widthPx * dragFraction.coerceIn(0f, 1f)
+                        translationX = (centerX - halfW).coerceIn(0f, (widthPx - bubbleWidthPx).coerceAtLeast(0f))
+                        translationY = -liftPx
+                        val s = 0.86f + 0.14f * haloScale
+                        scaleX = s
+                        scaleY = s
+                        alpha = haloScale
+                    }
+            ) {
+                Text(
+                    text = formatProgressMs(previewMs),
+                    color = Color.White,
+                    fontSize = 11.sp,
+                    fontWeight = FontWeight.Bold,
+                    fontFamily = FontFamily.Monospace,
+                    modifier = Modifier.padding(horizontal = 8.dp, vertical = 3.5.dp)
                 )
             }
         }
@@ -551,7 +651,9 @@ fun SleekTrackScrubber(
             Box(
                 modifier = Modifier
                     .graphicsLayer {
-                        val haloOffsetPx = ((widthPx * currentFraction) - haloRadiusPx)
+                        frameClock.longValue
+                        val frac = resolveFraction()
+                        val haloOffsetPx = ((widthPx * frac) - haloRadiusPx)
                             .coerceIn(-haloRadiusPx, (widthPx - haloRadiusPx).coerceAtLeast(0f))
                         translationX = haloOffsetPx
                         scaleX = haloScale
@@ -569,7 +671,9 @@ fun SleekTrackScrubber(
         Box(
             modifier = Modifier
                 .graphicsLayer {
-                    val thumbOffsetPx = ((widthPx * currentFraction) - thumbRadiusPx)
+                    frameClock.longValue
+                    val frac = resolveFraction()
+                    val thumbOffsetPx = ((widthPx * frac) - thumbRadiusPx)
                         .coerceIn(0f, (widthPx - thumbRadiusPx * 2).coerceAtLeast(0f))
                     translationX = thumbOffsetPx
                 }

@@ -181,7 +181,13 @@ object AlbumColorExtractor {
             (color.blue * 255).toInt(),
             hsv
         )
-        hsv[0] = (hsv[0] + deltaHue + 360f) % 360f
+        if (hsv[1] < 0.12f) {
+            // 灰阶封面不通过旋转色相制造假彩色，改为错落明度层次
+            val lumaDelta = if (deltaHue >= 0f) 0.14f else -0.12f
+            hsv[2] = (hsv[2] + lumaDelta).coerceIn(0.32f, 0.78f)
+        } else {
+            hsv[0] = (hsv[0] + deltaHue + 360f) % 360f
+        }
         val argb = android.graphics.Color.HSVToColor(hsv)
         return Color(argb)
     }
@@ -194,9 +200,15 @@ object AlbumColorExtractor {
             (color.blue * 255).toInt(),
             hsv
         )
-        // 确保极光提取色拥有充沛的活态饱和度 (>= 0.36) 与温润明度 (0.42~0.82)，告别死黑暗泥
-        hsv[1] = hsv[1].coerceAtLeast(0.36f)
-        hsv[2] = hsv[2].coerceIn(0.42f, 0.82f)
+        if (hsv[1] < 0.12f) {
+            // 无彩度/黑白灰阶封面：严禁强拉 S >= 0.36，否则 H=0 会偏转成鲑鱼粉红；保持中性银灰调
+            hsv[1] = hsv[1].coerceAtMost(0.06f)
+            hsv[2] = hsv[2].coerceIn(0.32f, 0.78f)
+        } else {
+            // 彩色封面：确保极光提取色拥有充沛的活态饱和度 (>= 0.36) 与温润明度 (0.42~0.82)
+            hsv[1] = hsv[1].coerceAtLeast(0.36f)
+            hsv[2] = hsv[2].coerceIn(0.42f, 0.82f)
+        }
         val argb = android.graphics.Color.HSVToColor(hsv)
         return Color(argb)
     }

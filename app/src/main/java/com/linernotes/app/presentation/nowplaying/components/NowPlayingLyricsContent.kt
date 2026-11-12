@@ -6,7 +6,6 @@ import androidx.compose.animation.core.*
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
-import androidx.compose.foundation.gestures.animateScrollBy
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.interaction.collectIsDraggedAsState
 import androidx.compose.foundation.layout.*
@@ -60,8 +59,12 @@ import java.util.Arrays
 import kotlin.math.exp
 import kotlin.math.roundToInt
 import kotlinx.coroutines.delay
-import kotlinx.coroutines.isActive
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
+
+private const val MAX_DOMINO_FORWARD_ROWS = 8
+private const val DOMINO_STEP_DELAY_MS = 32f
+private val INLINE_CONTINUATION_PUNCTUATION = charArrayOf('\'', '’', ',', '.', '!', '?', ';', ':', ')', ']', '-')
 
 /**
  * iOS Apple Music 原生溫潤流體多米諾波浪引擎 (Velvety Critically-Damped Domino Wave State)
@@ -91,19 +94,16 @@ class AppleMusicWaveState(lyricsCount: Int) {
 }
 
 /**
- * iOS CASpringAnimation C2 二階連續漸近收束質量彈簧曲線：
- * - 起步階段 (t -> 0)：S(0) = 0, S'(0) = 0, S''(0) > 0，無突兀猛衝亦無卡頓死區；
- * - 收尾階段 (t -> 1)：乘以二階平滑收束窗 (1 - t^2)^2，確保 S(1) = 1, S'(1) = 0, S''(1) = 0！
- *   徹底消除傳統截斷彈簧在 t = 1 時殘餘 20% 速度撞牆驟停的「收尾生硬感」，實現羽毛般無感落位。
+ * Apple Music 物理级平滑阻尼位移曲线：
+ * - 起步阶段 (t = 0)：S(0) = 0, S'(0) > 0（非零初速，0ms 立即响应无死区发沉感）；
+ * - 收尾阶段 (t -> 1)：乘以光滑收束窗 (1 - t)^2，确保 S(1) = 1, S'(1) = 0 羽毛落位、无振铃过冲。
  */
 private fun appleMusicSpringCurve(u: Float): Float {
     val t = u.coerceIn(0f, 1f)
     if (t <= 0f) return 0f
     if (t >= 1f) return 1f
-    val omega = 4.0f
-    val oneMinusT2 = 1f - t * t
-    val tailWindow = oneMinusT2 * oneMinusT2
-    return (1f - (1f + omega * t) * exp(-omega * t) * tailWindow).coerceIn(0f, 1f)
+    val oneMinusT = 1f - t
+    return (1f - exp(-1.8f * t) * oneMinusT * oneMinusT).coerceIn(0f, 1f)
 }
 
 /**
@@ -283,16 +283,10 @@ fun NowPlayingLyricsContent(
     val topFocalPadding = focalTargetDp
     val bottomFocalPadding = screenHeightDp * 0.65f + (if (showPlaybackControls) 120.dp else 40.dp)
 
-    // Apple Music 溫潤視口滾動曲線 (用於遠距離回正)
-    val lyricFluidScrollSpec = remember {
-        tween<Float>(
-            durationMillis = 660,
-            easing = CubicBezierEasing(0.25f, 0.1f, 0.25f, 1.0f)
-        )
-    }
+    val songKey = "${trackState.trackEpoch}|${trackState.title}|${trackState.artist}"
 
     // Apple Music 逐行時間差多米諾波浪引擎狀態機 (按曲目歌詞數初始化，全程於 graphicsLayer 零重組讀取)
-    val waveState = remember(lyrics.size, trackState.title) {
+    val waveState = remember(lyrics.size, songKey) {
         AppleMusicWaveState(lyrics.size)
     }
 
@@ -307,16 +301,21 @@ fun NowPlayingLyricsContent(
         }
     }
 
-    LaunchedEffect(trackState.title, trackState.artist) {
+    LaunchedEffect(songKey) {
         userScrolledAway = false
         waveState.clearAll()
     }
 
-    // 蘋果官方 2.5 秒無觸控自動平滑彈簧歸位
+    // 蘋果官方 2.5 秒無觸控自動平滑彈簧歸位（先等待用戶 Fling 慣性自然歸零再計時）
     LaunchedEffect(userScrolledAway, isUserDragging) {
         if (userScrolledAway && !isUserDragging) {
+            if (listState.isScrollInProgress) {
+                snapshotFlow { listState.isScrollInProgress }.first { !it }
+            }
             delay(2500L)
-            userScrolledAway = false
+            if (!listState.isScrollInProgress && !isUserDragging) {
+                userScrolledAway = false
+            }
         }
     }
 
@@ -336,7 +335,7 @@ fun NowPlayingLyricsContent(
     }
 
     LaunchedEffect(visibleFocalIndex, currentLineIndex, isUserDragging) {
-        if (!isUserDragging && userScrolledAway && currentLineIndex >= 0 && visibleFocalIndex == currentLineIndex) {
+        if (!isUserDragging && !listState.isScrollInProgress && userScrolledAway && currentLineIndex >= 0 && visibleFocalIndex == currentLineIndex) {
             userScrolledAway = false
         }
     }
@@ -348,24 +347,33 @@ fun NowPlayingLyricsContent(
         if (currentLineIndex in lyrics.indices) currentLineIndex else 0
     }
 
-    var lastSongTitle by remember { mutableStateOf("") }
+    var lastSongKey by remember { mutableStateOf("") }
+    var lastLyricsIdentity by remember { mutableIntStateOf(0) }
+    val lyricsIdentity = System.identityHashCode(lyrics)
 
     // 視口中心動態平滑追蹤 + Apple Music 零死區多米諾波浪引擎
-    LaunchedEffect(currentLineIndex, userScrolledAway, lyrics, trackState.title) {
+    LaunchedEffect(currentLineIndex, userScrolledAway, lyricsIdentity, songKey) {
         if (userScrolledAway || lyrics.isEmpty()) {
             return@LaunchedEffect
         }
         val targetIndex = if (currentLineIndex in lyrics.indices) currentLineIndex else 0
-        val isSongChanged = trackState.title != lastSongTitle
+        val isSongChanged = songKey != lastSongKey || lyricsIdentity != lastLyricsIdentity
 
         if (isSongChanged) {
-            lastSongTitle = trackState.title
+            lastSongKey = songKey
+            lastLyricsIdentity = lyricsIdentity
             waveState.clearAll()
             listState.scrollToItem(targetIndex, scrollOffset = 0)
             return@LaunchedEffect
         }
 
-        // 根據相鄰歌詞行時間差自適應調校基礎滾動時長 (580ms ~ 750ms，留出充裕的羽毛級漸近收尾空間)
+        // 若列表正處於用戶 Fling 慣性滑動中，禮讓慣性自然減速結束再接管跟蹤
+        if (listState.isScrollInProgress) {
+            snapshotFlow { listState.isScrollInProgress }.first { !it }
+            if (userScrolledAway) return@LaunchedEffect
+        }
+
+        // 根據相鄰歌詞行時間差自適應調校基礎滾動時長 (580ms ~ 750ms)
         val curStart = lyrics.getOrNull(targetIndex)?.startTimeMs ?: 0L
         val nextStart = lyrics.getOrNull(targetIndex + 1)?.startTimeMs ?: (curStart + 3000L)
         val lineDurationMs = (nextStart - curStart).coerceIn(300L, 4000L)
@@ -384,35 +392,38 @@ fun NowPlayingLyricsContent(
             waveState.baseProgress = 0f
             waveState.elapsedMs = 0f
 
-            // 38ms 溫潤級聯時差：總時長涵蓋最後一行 (r = 5) 的起跑延遲 + 彈簧長尾收束
-            val totalWaveMs = dynamicBaseDurationMs + 5f * 38f + 160f
+            val totalWaveMs = dynamicBaseDurationMs + MAX_DOMINO_FORWARD_ROWS * DOMINO_STEP_DELAY_MS + 160f
             var prevTargetScrollPx = 0f
             val waveAnim = Animatable(0f)
 
-            listState.scroll {
-                waveAnim.animateTo(
-                    targetValue = totalWaveMs,
-                    animationSpec = tween(durationMillis = totalWaveMs.roundToInt(), easing = LinearEasing)
-                ) {
-                    val tMs = value
-                    val u0 = (tMs / dynamicBaseDurationMs).coerceIn(0f, 1f)
-                    val p0 = appleMusicSpringCurve(u0)
-                    val targetScrollPx = scrollDelta * p0
-                    val stepPx = targetScrollPx - prevTargetScrollPx
-                    prevTargetScrollPx = targetScrollPx
-                    if (kotlin.math.abs(stepPx) > 0.01f) {
-                        val consumed = scrollBy(stepPx)
-                        waveState.actualScrolledPx += consumed
+            try {
+                listState.scroll {
+                    waveAnim.animateTo(
+                        targetValue = totalWaveMs,
+                        animationSpec = tween(durationMillis = totalWaveMs.roundToInt(), easing = LinearEasing)
+                    ) {
+                        val tMs = value
+                        val u0 = (tMs / dynamicBaseDurationMs).coerceIn(0f, 1f)
+                        val p0 = appleMusicSpringCurve(u0)
+                        val targetScrollPx = scrollDelta * p0
+                        val stepPx = targetScrollPx - prevTargetScrollPx
+                        prevTargetScrollPx = targetScrollPx
+                        if (kotlin.math.abs(stepPx) > 0.01f) {
+                            val consumed = scrollBy(stepPx)
+                            waveState.actualScrolledPx += consumed
+                        }
+                        waveState.baseProgress = p0
+                        waveState.elapsedMs = tMs
                     }
-                    waveState.baseProgress = p0
-                    waveState.elapsedMs = tMs
+                    val remPx = scrollDelta - waveState.actualScrolledPx
+                    if (kotlin.math.abs(remPx) > 0.05f) {
+                        waveState.actualScrolledPx += scrollBy(remPx)
+                    }
                 }
-                val remPx = scrollDelta - waveState.actualScrolledPx
-                if (kotlin.math.abs(remPx) > 0.05f) {
-                    waveState.actualScrolledPx += scrollBy(remPx)
-                }
+            } finally {
+                // 無論正常完成或遭手勢/新一行中斷取消，強制歸零波形殘餘偏移
+                waveState.clearAll()
             }
-            waveState.clearAll()
         }
 
         val visibleItem = listState.layoutInfo.visibleItemsInfo.find { it.index == targetIndex }
@@ -429,6 +440,8 @@ fun NowPlayingLyricsContent(
                 }
                 waveState.clearAll()
                 listState.scrollToItem(preJumpIndex)
+                // 等待一幀佈局量測就緒，確保 relayoutItem 座標已進入 visibleItemsInfo
+                withFrameNanos { }
             }
             val relayoutItem = listState.layoutInfo.visibleItemsInfo.find { it.index == targetIndex }
             if (relayoutItem != null) {
@@ -505,7 +518,7 @@ fun NowPlayingLyricsContent(
             ) { index, line ->
                 val isActive = (index == currentLineIndex)
                 val isFocal = (index == focalIndex)
-                val relativeOrder = (index - focalIndex).coerceIn(-2, 5)
+                val relativeOrder = (index - focalIndex).coerceIn(-3, MAX_DOMINO_FORWARD_ROWS)
                 val annotation = annotatedLines[index]
 
                 LyricLineRow(
@@ -803,7 +816,7 @@ fun LyricLineRow(
                     val baseDur = ws.baseDurationMs
                     val targetDeltaPx = ws.targetScrollDeltaPx
                     val scrolledPx = ws.actualScrolledPx
-                    val totalDur = baseDur + 5f * 38f + 160f
+                    val totalDur = baseDur + MAX_DOMINO_FORWARD_ROWS * DOMINO_STEP_DELAY_MS + 160f
 
                     if (tMs < totalDur && (kotlin.math.abs(targetDeltaPx) > 0.5f || lineIndex in ws.initialOffsetsPx.indices)) {
                         val delayMs: Float
@@ -816,14 +829,14 @@ fun LyricLineRow(
                                     rowDurMs = baseDur
                                 }
                                 else -> {
-                                    // 下方待唱行 (r = 1..5)：每隔 38ms 依次从容起跑追赶，呈现丝绸般柔和的波浪跟随
-                                    delayMs = relativeOrder * 38f
-                                    rowDurMs = baseDur + relativeOrder * 22f
+                                    // 下方待唱行 (r = 1..8)：每隔 32ms 依次从容起跑追赶，呈现丝绸般柔和的多米诺波浪
+                                    delayMs = relativeOrder * DOMINO_STEP_DELAY_MS
+                                    rowDurMs = baseDur + relativeOrder * 18f
                                 }
                             }
                         } else {
-                            delayMs = distance * 32f
-                            rowDurMs = baseDur + distance * 18f
+                            delayMs = distance * DOMINO_STEP_DELAY_MS
+                            rowDurMs = baseDur + distance * 16f
                         }
 
                         val ur = ((tMs - delayMs) / rowDurMs).coerceIn(0f, 1f)
@@ -956,20 +969,14 @@ fun LyricLineRow(
             )
         }
 
-        val showAnnotation = annotation != null && (isVisuallyActive || (isBrowsing && isFocal))
-        AnimatedVisibility(
-            visible = showAnnotation,
-            enter = fadeIn(animationSpec = tween(200)) + expandVertically(animationSpec = tween(200)),
-            exit = fadeOut(animationSpec = tween(150)) + shrinkVertically(animationSpec = tween(150))
-        ) {
-            Column {
-                Spacer(modifier = Modifier.height(6.dp))
-                LyricAnnotationBadge(
-                    isActive = true,
-                    isDark = isDark,
-                    onClick = onAnnotationClick
-                )
-            }
+        if (annotation != null) {
+            // 保持典故徽章常驻固定布局槽位，仅平滑切换亮暗配色与描边，避免滚动期行高突变抖动
+            Spacer(modifier = Modifier.height(6.dp))
+            LyricAnnotationBadge(
+                isActive = isVisuallyActive || (isBrowsing && isFocal),
+                isDark = isDark,
+                onClick = onAnnotationClick
+            )
         }
     }
 }
@@ -991,19 +998,36 @@ fun AppleMusicDualLayerLyricLine(
     lineHeight: TextUnit = 44.sp,
     modifier: Modifier = Modifier
 ) {
-    val cleanWords = remember(words, isTraditional) {
+    val cleanWords = remember(text, words, isTraditional) {
+        val rawLine = LyricWordParser.cleanInlineTimestamps(text)
+        val referenceLine = (if (isTraditional) ChineseConverter.toTraditional(rawLine) else rawLine).trim()
         val cleaned = words.map {
             val raw = LyricWordParser.cleanInlineTimestamps(it.text)
             val converted = if (isTraditional) ChineseConverter.toTraditional(raw) else raw
             it.copy(text = converted)
         }.filter { it.text.isNotEmpty() }
 
+        var refCursor = 0
         cleaned.mapIndexed { index, w ->
             val wText = w.text
-            val isCurrentLatin = wText.isNotEmpty() && !wText.last().isWhitespace() && wText.last().code < 0x2E80
-            val hasNextLatin = index < cleaned.size - 1 && cleaned[index + 1].text.isNotEmpty() && cleaned[index + 1].text.first().code < 0x2E80
-            if (isCurrentLatin && hasNextLatin && !wText.endsWith(" ")) {
-                w.copy(text = wText + " ")
+            val tokenCore = wText.trim()
+            val matchIdx = if (tokenCore.isNotEmpty()) {
+                referenceLine.indexOf(tokenCore, startIndex = refCursor, ignoreCase = true)
+            } else -1
+            val endsInSourceWithSpace = if (matchIdx >= 0) {
+                refCursor = matchIdx + tokenCore.length
+                refCursor < referenceLine.length && referenceLine[refCursor].isWhitespace()
+            } else {
+                // 回退策略：仅在前后均为拉丁字母/数字且非撇号/标点连写时补空格，防止 QRC 音节 (e.g. "Beau"+"ti") 或 don+'t 被误拆
+                val nextText = cleaned.getOrNull(index + 1)?.text.orEmpty()
+                val nextFirst = nextText.firstOrNull()
+                val currLast = wText.last()
+                currLast.code < 0x2E80 && !currLast.isWhitespace() &&
+                    nextFirst != null && nextFirst.code < 0x2E80 && !nextFirst.isWhitespace() &&
+                    nextFirst !in INLINE_CONTINUATION_PUNCTUATION
+            }
+            if (!wText.last().isWhitespace() && index < cleaned.lastIndex && endsInSourceWithSpace) {
+                w.copy(text = "$wText ")
             } else {
                 w
             }
@@ -1053,6 +1077,8 @@ fun AppleMusicWordUnit(
     lineHeight: TextUnit = 44.sp
 ) {
     val wordText = word.text
+    val trimmedWord = wordText.trimEnd()
+    val trailingSpace = if (trimmedWord.length < wordText.length) wordText.substring(trimmedWord.length) else ""
     val duration = word.durationMs.coerceAtLeast(1L)
     val start = word.startTimeMs
     val end = start + duration
@@ -1060,64 +1086,89 @@ fun AppleMusicWordUnit(
     // Apple Music 官方逆向 lyrics_karaoke_gradient_feather_width: 30dp
     val fadeWidth = remember(density) { with(density) { 30.dp.toPx() } }
 
-    Box(contentAlignment = Alignment.TopStart) {
-        Text(
-            text = wordText,
-            color = if (isActive) lyricColor.copy(alpha = 0.45f) else lyricColor,
-            fontSize = fontSize,
-            fontWeight = FontWeight.Bold,
-            fontFamily = FontFamily.SansSerif,
-            lineHeight = lineHeight,
-            letterSpacing = (-0.5).sp
-        )
-
-        if (isActive) {
+    @Composable
+    fun DualLayerWordBox(visibleToken: String) {
+        Box(contentAlignment = Alignment.TopStart) {
             Text(
-                text = wordText,
-                color = lyricColor,
+                text = visibleToken,
+                color = if (isActive) lyricColor.copy(alpha = 0.45f) else lyricColor,
                 fontSize = fontSize,
                 fontWeight = FontWeight.Bold,
                 fontFamily = FontFamily.SansSerif,
                 lineHeight = lineHeight,
-                letterSpacing = (-0.5).sp,
-                modifier = Modifier
-                    .graphicsLayer {
-                        val now = currentPositionMsProvider()
-                        compositingStrategy = if (now in start until end) {
-                            CompositingStrategy.Offscreen
-                        } else {
-                            CompositingStrategy.Auto
+                letterSpacing = (-0.5).sp
+            )
+
+            if (isActive) {
+                Text(
+                    text = visibleToken,
+                    color = lyricColor,
+                    fontSize = fontSize,
+                    fontWeight = FontWeight.Bold,
+                    fontFamily = FontFamily.SansSerif,
+                    lineHeight = lineHeight,
+                    letterSpacing = (-0.5).sp,
+                    modifier = Modifier
+                        .graphicsLayer {
+                            val now = currentPositionMsProvider()
+                            compositingStrategy = if (now in start until end) {
+                                CompositingStrategy.Offscreen
+                            } else {
+                                CompositingStrategy.Auto
+                            }
                         }
-                    }
-                    .drawWithContent {
-                        val now = currentPositionMsProvider()
-                        if (now < start) {
-                            return@drawWithContent
-                        }
-                        if (now >= end) {
+                        .drawWithContent {
+                            val now = currentPositionMsProvider()
+                            if (now < start) {
+                                return@drawWithContent
+                            }
+                            if (now >= end) {
+                                drawContent()
+                                return@drawWithContent
+                            }
+
+                            val progress = ((now - start).toFloat() / duration.toFloat()).coerceIn(0f, 1f)
+                            val sweepX = size.width * progress
+
+                            val brush = Brush.horizontalGradient(
+                                0f to Color.White,
+                                ((sweepX - fadeWidth * 0.4f) / size.width.coerceAtLeast(1f)).coerceIn(0f, 1f) to Color.White,
+                                ((sweepX + fadeWidth * 0.6f) / size.width.coerceAtLeast(1f)).coerceIn(0f, 1f) to Color.Transparent,
+                                1f to Color.Transparent,
+                                startX = 0f,
+                                endX = size.width
+                            )
+
                             drawContent()
-                            return@drawWithContent
+                            drawRect(
+                                brush = brush,
+                                size = size,
+                                blendMode = BlendMode.DstIn
+                            )
                         }
+                )
+            }
+        }
+    }
 
-                        val progress = ((now - start).toFloat() / duration.toFloat()).coerceIn(0f, 1f)
-                        val sweepX = size.width * progress
-
-                        val brush = Brush.horizontalGradient(
-                            0f to Color.White,
-                            ((sweepX - fadeWidth * 0.4f) / size.width.coerceAtLeast(1f)).coerceIn(0f, 1f) to Color.White,
-                            ((sweepX + fadeWidth * 0.6f) / size.width.coerceAtLeast(1f)).coerceIn(0f, 1f) to Color.Transparent,
-                            1f to Color.Transparent,
-                            startX = 0f,
-                            endX = size.width
-                        )
-
-                        drawContent()
-                        drawRect(
-                            brush = brush,
-                            size = size,
-                            blendMode = BlendMode.DstIn
-                        )
-                    }
+    if (trailingSpace.isEmpty()) {
+        if (trimmedWord.isNotEmpty()) {
+            DualLayerWordBox(trimmedWord)
+        }
+    } else {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            if (trimmedWord.isNotEmpty()) {
+                DualLayerWordBox(trimmedWord)
+            }
+            // 尾随空格单独承担排版间距，不计入双层渐显扫描宽度
+            Text(
+                text = trailingSpace,
+                color = Color.Transparent,
+                fontSize = fontSize,
+                fontWeight = FontWeight.Bold,
+                fontFamily = FontFamily.SansSerif,
+                lineHeight = lineHeight,
+                letterSpacing = (-0.5).sp
             )
         }
     }

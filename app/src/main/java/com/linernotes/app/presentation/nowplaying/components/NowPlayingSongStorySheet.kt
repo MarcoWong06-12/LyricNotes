@@ -12,6 +12,7 @@ import androidx.compose.material.icons.filled.Close
 import androidx.compose.material3.*
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -27,6 +28,7 @@ import coil.compose.AsyncImage
 import com.linernotes.app.core.i18n.LocalStrings
 import com.linernotes.app.data.local.entity.SongStoryEntity
 import com.linernotes.app.presentation.common.*
+import kotlinx.coroutines.launch
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -39,6 +41,14 @@ fun NowPlayingSongStorySheet(
     onDismiss: () -> Unit
 ) {
     if (story == null) return
+
+    val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
+    val coroutineScope = rememberCoroutineScope()
+    val dismissWithAnimation: () -> Unit = {
+        coroutineScope.launch { sheetState.hide() }.invokeOnCompletion {
+            if (!sheetState.isVisible) onDismiss()
+        }
+    }
 
     val isDark = MaterialTheme.colorScheme.background.luminance() < 0.5f
     val isPureAmoled = isDark && isAmoledMode
@@ -70,6 +80,7 @@ fun NowPlayingSongStorySheet(
 
     ModalBottomSheet(
         onDismissRequest = onDismiss,
+        sheetState = sheetState,
         containerColor = sheetBg,
         contentColor = sheetContent,
         tonalElevation = 0.dp,
@@ -140,7 +151,7 @@ fun NowPlayingSongStorySheet(
                     shape = CircleShape,
                     modifier = Modifier
                         .size(32.dp)
-                        .bouncyIconClickable(onClick = onDismiss)
+                        .bouncyIconClickable(onClick = dismissWithAnimation)
                 ) {
                     Box(contentAlignment = Alignment.Center) {
                         Icon(

@@ -29,6 +29,7 @@ import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.input.pointer.util.VelocityTracker
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
@@ -57,6 +58,7 @@ import com.linernotes.app.presentation.nowplaying.components.*
 import com.linernotes.app.presentation.theme.PaperWhite
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.StateFlow
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -108,33 +110,70 @@ fun NowPlayingScreen(
     val haptic = LocalHapticFeedback.current
     val density = LocalDensity.current
     val configuration = LocalConfiguration.current
-    val screenWidthPx = with(density) { configuration.screenWidthDp.dp.toPx() }
-    val swipeThresholdPx = with(density) { 72.dp.toPx() }
+    val screenWidthPx = with(density) { configuration.screenWidthDp.dp.toPx().coerceAtLeast(360f) }
+    val swipeThresholdPx = with(density) {
+        (screenWidthPx * 0.22f).coerceIn(72.dp.toPx(), 128.dp.toPx())
+    }
+    val flingVelocityThresholdPx = with(density) { 520.dp.toPx() }
 
-    // 交互式左右滑动手势位移与物理弹簧
+    // 交互式左右滑动手势位移与零闪回切歌状态机（全程仅在 graphicsLayer 内读取，0 Recompose）
     val swipeOffsetX = remember { Animatable(0f) }
-    var hasTriggeredSwipeHaptic by remember { mutableStateOf(false) }
+    val swipeContentAlpha = remember { Animatable(1f) }
+    val currentTrackKey = "${trackState.trackEpoch}|${trackState.title}|${trackState.artist}|${trackState.album}"
+    var awaitingSkipDirection by remember { mutableIntStateOf(0) } // -1 = 下一首, 1 = 上一首, 0 = 无待切歌
 
-    val onPlayPause: () -> Unit = remember(viewModel) { { viewModel.togglePlayPause() } }
-    val onNext: () -> Unit = remember(viewModel, coroutineScope, screenWidthPx) {
-        {
-            coroutineScope.launch {
-                swipeOffsetX.animateTo(-screenWidthPx * 0.45f, tween(130, easing = FastOutLinearInEasing))
-                viewModel.skipToNext()
-                swipeOffsetX.snapTo(screenWidthPx * 0.45f)
-                swipeOffsetX.animateTo(0f, spring(dampingRatio = 0.86f, stiffness = 380f))
+    LaunchedEffect(currentTrackKey) {
+        val dir = awaitingSkipDirection
+        if (dir != 0) {
+            awaitingSkipDirection = 0
+            // 新曲目真正到达后才从对侧柔和进场，杜绝旧歌歌词 snapTo 闪回穿帮
+            swipeOffsetX.snapTo(if (dir < 0) screenWidthPx * 0.34f else -screenWidthPx * 0.34f)
+            launch {
+                swipeContentAlpha.animateTo(1f, tween(durationMillis = 220, easing = LinearOutSlowInEasing))
+            }
+            swipeOffsetX.animateTo(0f, spring(dampingRatio = 0.86f, stiffness = 360f))
+        }
+    }
+
+    // 超时兜底：若远程播放器因队尾或网络原因未切歌，750ms 后平滑回正，避免界面长期隐身
+    LaunchedEffect(awaitingSkipDirection) {
+        if (awaitingSkipDirection != 0) {
+            delay(750L)
+            if (awaitingSkipDirection != 0) {
+                awaitingSkipDirection = 0
+                launch { swipeContentAlpha.animateTo(1f, tween(180)) }
+                swipeOffsetX.animateTo(0f, spring(dampingRatio = 0.84f, stiffness = 420f))
             }
         }
     }
-    val onPrevious: () -> Unit = remember(viewModel, coroutineScope, screenWidthPx) {
-        {
-            coroutineScope.launch {
-                swipeOffsetX.animateTo(screenWidthPx * 0.45f, tween(130, easing = FastOutLinearInEasing))
-                viewModel.skipToPrevious()
-                swipeOffsetX.snapTo(-screenWidthPx * 0.45f)
-                swipeOffsetX.animateTo(0f, spring(dampingRatio = 0.86f, stiffness = 380f))
+
+    fun triggerTrackSkip(direction: Int, releaseVelocityX: Float = 0f) {
+        awaitingSkipDirection = direction
+        coroutineScope.launch {
+            val exitTarget = if (direction < 0) -screenWidthPx * 0.88f else screenWidthPx * 0.88f
+            val seededVelocity = if (direction < 0) {
+                releaseVelocityX.coerceAtMost(-screenWidthPx * 1.4f)
+            } else {
+                releaseVelocityX.coerceAtLeast(screenWidthPx * 1.4f)
             }
+            launch {
+                swipeContentAlpha.animateTo(0f, tween(durationMillis = 120, easing = FastOutLinearInEasing))
+            }
+            swipeOffsetX.animateTo(
+                targetValue = exitTarget,
+                animationSpec = spring(dampingRatio = 1.0f, stiffness = 560f),
+                initialVelocity = seededVelocity
+            )
+            if (direction < 0) viewModel.skipToNext() else viewModel.skipToPrevious()
         }
+    }
+
+    val onPlayPause: () -> Unit = remember(viewModel) { { viewModel.togglePlayPause() } }
+    val onNext: () -> Unit = remember(viewModel, screenWidthPx) {
+        { triggerTrackSkip(direction = -1) }
+    }
+    val onPrevious: () -> Unit = remember(viewModel, screenWidthPx) {
+        { triggerTrackSkip(direction = 1) }
     }
     val onToggleShuffle: () -> Unit = remember(viewModel) { { viewModel.toggleShuffle() } }
     val onCycleRepeat: () -> Unit = remember(viewModel) { { viewModel.cycleRepeatMode() } }
@@ -190,13 +229,21 @@ fun NowPlayingScreen(
         )
 
         val trackSwipeModifier = if (hasTrack && !isAnySheetOpen && !showEnlargedCover) {
-            Modifier.pointerInput(Unit) {
+            Modifier.pointerInput(screenWidthPx, swipeThresholdPx, hasTrack) {
+                val velocityTracker = VelocityTracker()
+                var hasTriggeredHaptic = false
                 detectHorizontalDragGestures(
                     onDragStart = {
-                        hasTriggeredSwipeHaptic = false
+                        velocityTracker.resetTracking()
+                        hasTriggeredHaptic = false
+                        awaitingSkipDirection = 0
+                        coroutineScope.launch {
+                            swipeContentAlpha.snapTo(1f)
+                        }
                     },
                     onHorizontalDrag = { change, dragAmount ->
                         change.consume()
+                        velocityTracker.addPosition(change.uptimeMillis, change.position)
                         val current = swipeOffsetX.value
                         // 渐进式橡皮筋阻尼 (Rubber-Band Resistance)：超过切歌阈值后阻力加倍，赋予真实拉力张力
                         val damping = if (kotlin.math.abs(current) < swipeThresholdPx) 0.85f else 0.42f
@@ -204,39 +251,38 @@ fun NowPlayingScreen(
                         coroutineScope.launch {
                             swipeOffsetX.snapTo(newOffset)
                         }
-                        if (!hasTriggeredSwipeHaptic && kotlin.math.abs(newOffset) >= swipeThresholdPx) {
-                            hasTriggeredSwipeHaptic = true
+                        if (!hasTriggeredHaptic && kotlin.math.abs(newOffset) >= swipeThresholdPx) {
+                            hasTriggeredHaptic = true
                             try {
                                 haptic.performHapticFeedback(HapticFeedbackType.LongPress)
                             } catch (e: Exception) {}
-                        } else if (hasTriggeredSwipeHaptic && kotlin.math.abs(newOffset) < swipeThresholdPx) {
-                            hasTriggeredSwipeHaptic = false
+                        } else if (hasTriggeredHaptic && kotlin.math.abs(newOffset) < swipeThresholdPx) {
+                            hasTriggeredHaptic = false
                         }
                     },
                     onDragEnd = {
                         val currentOffset = swipeOffsetX.value
-                        coroutineScope.launch {
-                            if (currentOffset <= -swipeThresholdPx) {
-                                // 左滑 -> 切下一首
-                                swipeOffsetX.animateTo(-screenWidthPx * 0.75f, tween(150, easing = FastOutLinearInEasing))
-                                viewModel.skipToNext()
-                                swipeOffsetX.snapTo(screenWidthPx * 0.75f)
-                                swipeOffsetX.animateTo(0f, spring(dampingRatio = 0.84f, stiffness = 380f))
-                            } else if (currentOffset >= swipeThresholdPx) {
-                                // 右滑 -> 切上一首
-                                swipeOffsetX.animateTo(screenWidthPx * 0.75f, tween(150, easing = FastOutLinearInEasing))
-                                viewModel.skipToPrevious()
-                                swipeOffsetX.snapTo(-screenWidthPx * 0.75f)
-                                swipeOffsetX.animateTo(0f, spring(dampingRatio = 0.84f, stiffness = 380f))
-                            } else {
-                                // 未超过阈值 -> 柔性弹簧回正
-                                swipeOffsetX.animateTo(0f, spring(dampingRatio = 0.76f, stiffness = 460f))
+                        val vx = velocityTracker.calculateVelocity().x
+                        val flickNext = currentOffset <= -swipeThresholdPx ||
+                            (currentOffset < -24f && vx <= -flingVelocityThresholdPx)
+                        val flickPrev = currentOffset >= swipeThresholdPx ||
+                            (currentOffset > 24f && vx >= flingVelocityThresholdPx)
+
+                        when {
+                            flickNext -> triggerTrackSkip(direction = -1, releaseVelocityX = vx)
+                            flickPrev -> triggerTrackSkip(direction = 1, releaseVelocityX = vx)
+                            else -> coroutineScope.launch {
+                                swipeOffsetX.animateTo(
+                                    targetValue = 0f,
+                                    animationSpec = spring(dampingRatio = 0.78f, stiffness = 460f),
+                                    initialVelocity = vx
+                                )
                             }
                         }
                     },
                     onDragCancel = {
                         coroutineScope.launch {
-                            swipeOffsetX.animateTo(0f, spring(dampingRatio = 0.76f, stiffness = 460f))
+                            swipeOffsetX.animateTo(0f, spring(dampingRatio = 0.78f, stiffness = 460f))
                         }
                     }
                 )
@@ -280,7 +326,7 @@ fun NowPlayingScreen(
                         .graphicsLayer {
                             translationX = swipeOffsetX.value
                             val dragRatio = (kotlin.math.abs(swipeOffsetX.value) / screenWidthPx).coerceIn(0f, 1f)
-                            alpha = (1f - dragRatio * 0.50f).coerceIn(0.50f, 1f)
+                            alpha = (swipeContentAlpha.value * (1f - dragRatio * 0.45f)).coerceIn(0f, 1f)
                         }
                 ) {
                     NowPlayingLyricsSlot(
@@ -307,51 +353,69 @@ fun NowPlayingScreen(
                     )
                 }
 
-                // 左右滑动指示器微徽标 (左滑边缘浮现 "下一首"，右滑边缘浮现 "上一首"，达到切歌阈值时触发弹簧激发态蓄力弹跳)
-                val isSwipingLeft = swipeOffsetX.value < -20f
-                val isSwipingRight = swipeOffsetX.value > 20f
-                if (isSwipingLeft || isSwipingRight) {
-                    val absOffset = kotlin.math.abs(swipeOffsetX.value)
-                    val indicatorAlpha = (absOffset / swipeThresholdPx).coerceIn(0f, 1f)
-                    val isThresholdArmed = absOffset >= swipeThresholdPx
+                // 左右滑动指示器微徽标（仅在超过死区阈值切换可见状态，位移与透明度全走 graphicsLayer 实现 0 Recompose）
+                val swipeDirection by remember {
+                    derivedStateOf {
+                        if (awaitingSkipDirection != 0) 0
+                        else when {
+                            swipeOffsetX.value < -24f -> -1
+                            swipeOffsetX.value > 24f -> 1
+                            else -> 0
+                        }
+                    }
+                }
+                val isThresholdArmed by remember(swipeThresholdPx) {
+                    derivedStateOf { kotlin.math.abs(swipeOffsetX.value) >= swipeThresholdPx }
+                }
+                if (swipeDirection != 0) {
                     val armedBonusScale by animateFloatAsState(
-                        targetValue = if (isThresholdArmed) 1.18f else 1.0f,
-                        animationSpec = spring(dampingRatio = 0.58f, stiffness = 520f),
+                        targetValue = if (isThresholdArmed) 1.16f else 1.0f,
+                        animationSpec = spring(dampingRatio = 0.62f, stiffness = 520f),
                         label = "swipeArmedBonusScale"
                     )
+                    val indicatorBg = when {
+                        isThresholdArmed && isDarkUi -> Color.White.copy(alpha = 0.30f)
+                        isThresholdArmed -> MaterialTheme.colorScheme.primary.copy(alpha = 0.18f)
+                        isDarkUi -> Color.White.copy(alpha = 0.16f)
+                        else -> MaterialTheme.colorScheme.surface.copy(alpha = 0.88f)
+                    }
+                    val indicatorBorderColor = when {
+                        isThresholdArmed && isDarkUi -> Color.White.copy(alpha = 0.55f)
+                        isThresholdArmed -> MaterialTheme.colorScheme.primary.copy(alpha = 0.65f)
+                        isDarkUi -> Color.White.copy(alpha = 0.28f)
+                        else -> Color.Black.copy(alpha = 0.14f)
+                    }
+                    val indicatorTint = when {
+                        isDarkUi -> Color.White
+                        isThresholdArmed -> MaterialTheme.colorScheme.primary
+                        else -> MaterialTheme.colorScheme.onSurface
+                    }
                     Box(
                         modifier = Modifier
                             .fillMaxSize()
                             .padding(horizontal = 24.dp),
-                        contentAlignment = if (isSwipingLeft) Alignment.CenterEnd else Alignment.CenterStart
+                        contentAlignment = if (swipeDirection < 0) Alignment.CenterEnd else Alignment.CenterStart
                     ) {
                         Surface(
-                            color = if (isThresholdArmed) {
-                                Color.White.copy(alpha = 0.32f)
-                            } else if (isDarkUi) {
-                                Color.White.copy(alpha = 0.20f * indicatorAlpha)
-                            } else {
-                                Color.Black.copy(alpha = 0.16f * indicatorAlpha)
-                            },
+                            color = indicatorBg,
                             shape = CircleShape,
-                            border = BorderStroke(
-                                if (isThresholdArmed) 1.dp else 0.5.dp,
-                                Color.White.copy(alpha = if (isThresholdArmed) 0.55f else 0.30f * indicatorAlpha)
-                            ),
+                            border = BorderStroke(if (isThresholdArmed) 1.2.dp else 0.5.dp, indicatorBorderColor),
+                            shadowElevation = if (isDarkUi) 0.dp else 6.dp,
                             modifier = Modifier
                                 .size(48.dp)
                                 .graphicsLayer {
-                                    val baseScale = (0.72f + 0.28f * indicatorAlpha) * armedBonusScale
+                                    val ratio = (kotlin.math.abs(swipeOffsetX.value) / swipeThresholdPx).coerceIn(0f, 1f)
+                                    val baseScale = (0.74f + 0.26f * ratio) * armedBonusScale
                                     scaleX = baseScale
                                     scaleY = baseScale
-                                    alpha = indicatorAlpha
+                                    alpha = ratio
                                 }
                         ) {
                             Box(contentAlignment = Alignment.Center) {
                                 Icon(
-                                    imageVector = if (isSwipingLeft) Icons.Default.SkipNext else Icons.Default.SkipPrevious,
+                                    imageVector = if (swipeDirection < 0) Icons.Default.SkipNext else Icons.Default.SkipPrevious,
                                     contentDescription = null,
-                                    tint = Color.White.copy(alpha = if (isThresholdArmed) 1.0f else indicatorAlpha),
+                                    tint = indicatorTint,
                                     modifier = Modifier.size(24.dp)
                                 )
                             }
@@ -416,12 +480,12 @@ fun NowPlayingScreen(
                     ) {
                         Icon(
                             imageVector = Icons.Default.FullscreenExit,
-                            contentDescription = "退出全屏",
+                            contentDescription = strings.exitFullscreen,
                             tint = if (isDarkUi) Color.White else MaterialTheme.colorScheme.onSurface,
                             modifier = Modifier.size(16.dp)
                         )
                         Text(
-                            text = if (state.isTraditionalChinese) "退出全螢幕" else "退出全屏",
+                            text = strings.exitFullscreen,
                             color = if (isDarkUi) Color.White else MaterialTheme.colorScheme.onSurface,
                             fontSize = 12.sp,
                             fontWeight = FontWeight.Medium,

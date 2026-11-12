@@ -8,7 +8,7 @@ import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
@@ -19,6 +19,9 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.TransformOrigin
+import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
@@ -62,19 +65,40 @@ fun NowPlayingQueueSheet(
 ) {
     val context = LocalContext.current
     val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
+    val coroutineScope = rememberCoroutineScope()
     val strings = LocalStrings.current
+    val dismissWithAnimation: () -> Unit = {
+        coroutineScope.launch { sheetState.hide() }.invokeOnCompletion {
+            if (!sheetState.isVisible) onDismiss()
+        }
+    }
 
     // 定时睡眠关闭状态管理
     var showTimerDialog by remember { mutableStateOf(false) }
     val isTimerActive = sleepTimerMinutesLeft > 0
 
-    // 经典暗色系规范 (支持 0-nits 纯黑 AMOLED 模式)
-    val sheetBg = if (isAmoledMode) Color(0xFF0C0C0E) else Color(0xFF121212)
-    val cardBg = if (isAmoledMode) Color(0xFF141416) else Color(0xFF1E1E1E)
-    val buttonBg = if (isAmoledMode) Color(0xFF1C1C1F) else Color(0xFF242424)
-    val textPrimary = Color.White
-    val textSecondary = Color.White.copy(alpha = 0.60f)
-    val spotifyGreen = Color(0xFF1ED760)
+    val isDark = MaterialTheme.colorScheme.background.luminance() < 0.5f
+    val isPureAmoled = isDark && isAmoledMode
+    val sheetBg = when {
+        isPureAmoled -> Color(0xFF0C0C0E)
+        isDark -> Color(0xFF121212)
+        else -> MaterialTheme.colorScheme.surface
+    }
+    val cardBg = when {
+        isPureAmoled -> Color(0xFF141416)
+        isDark -> Color(0xFF1E1E1E)
+        else -> MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.72f)
+    }
+    val buttonBg = when {
+        isPureAmoled -> Color(0xFF1C1C1F)
+        isDark -> Color(0xFF242424)
+        else -> MaterialTheme.colorScheme.surfaceVariant
+    }
+    val borderSubtle = if (isDark) Color.White.copy(alpha = 0.12f) else Color.Black.copy(alpha = 0.08f)
+    val handleColor = if (isDark) Color.White.copy(alpha = 0.28f) else Color.Black.copy(alpha = 0.20f)
+    val textPrimary = if (isDark) Color.White else MaterialTheme.colorScheme.onSurface
+    val textSecondary = if (isDark) Color.White.copy(alpha = 0.60f) else MaterialTheme.colorScheme.onSurfaceVariant
+    val spotifyGreen = if (isDark) Color(0xFF1ED760) else Color(0xFF149E48)
 
     ModalBottomSheet(
         onDismissRequest = onDismiss,
@@ -87,7 +111,7 @@ fun NowPlayingQueueSheet(
         dragHandle = {
             Surface(
                 modifier = Modifier.padding(top = 10.dp, bottom = 6.dp),
-                color = Color.White.copy(alpha = 0.32f),
+                color = handleColor,
                 shape = CircleShape
             ) {
                 Box(modifier = Modifier.size(width = 38.dp, height = 4.dp))
@@ -104,7 +128,7 @@ fun NowPlayingQueueSheet(
                 .fillMaxSize()
                 .navigationBarsPadding()
         ) {
-            // 1. 顶部标题栏 (Queue / Playing {Artist} / 完成)
+            // 1. 顶部标题栏 (队列名 / 歌手 / 完成)
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
@@ -114,7 +138,7 @@ fun NowPlayingQueueSheet(
             ) {
                 Column(modifier = Modifier.weight(1f)) {
                     Text(
-                        text = "Queue",
+                        text = strings.queueHeaderTitle,
                         color = textPrimary,
                         fontSize = 20.sp,
                         fontWeight = FontWeight.Bold,
@@ -123,7 +147,11 @@ fun NowPlayingQueueSheet(
                     )
                     Spacer(modifier = Modifier.height(1.dp))
                     Text(
-                        text = if (trackState.artist.isNotBlank()) "Playing ${trackState.artist}" else strings.queueTitle,
+                        text = if (trackState.artist.isNotBlank()) {
+                            String.format(strings.queuePlayingArtist, trackState.artist)
+                        } else {
+                            strings.queueTitle
+                        },
                         color = textSecondary,
                         fontSize = 12.5.sp,
                         fontFamily = FontFamily.SansSerif,
@@ -133,12 +161,12 @@ fun NowPlayingQueueSheet(
                 }
 
                 Surface(
-                    color = Color.White.copy(alpha = 0.12f),
+                    color = if (isDark) Color.White.copy(alpha = 0.12f) else Color.Black.copy(alpha = 0.06f),
                     shape = CircleShape,
-                    border = BorderStroke(0.5.dp, Color.White.copy(alpha = 0.18f)),
+                    border = BorderStroke(0.5.dp, if (isDark) Color.White.copy(alpha = 0.18f) else Color.Black.copy(alpha = 0.10f)),
                     modifier = Modifier.bouncyClickable(
                         pressedScale = 0.92f,
-                        onClick = onDismiss
+                        onClick = dismissWithAnimation
                     )
                 ) {
                     Text(
@@ -154,9 +182,9 @@ fun NowPlayingQueueSheet(
 
             Spacer(modifier = Modifier.height(10.dp))
 
-            // 2. 正在播放 (Now playing) 标题
+            // 2. 正在播放 标题
             Text(
-                text = "${strings.nowPlayingPrefix} (Now playing)",
+                text = strings.nowPlayingPrefix,
                 color = textSecondary,
                 fontSize = 12.sp,
                 fontWeight = FontWeight.Bold,
@@ -164,9 +192,10 @@ fun NowPlayingQueueSheet(
                 modifier = Modifier.padding(horizontal = 20.dp, vertical = 4.dp)
             )
 
-            // 正在播放单行 (无厚重外边框卡片，纯净 1:1 Spotify 极简风格)
+            // 正在播放单行
             NowPlayingTrackRow(
                 trackState = trackState,
+                isDark = isDark,
                 spotifyGreen = spotifyGreen,
                 textPrimary = textPrimary,
                 textSecondary = textSecondary,
@@ -175,9 +204,9 @@ fun NowPlayingQueueSheet(
 
             Spacer(modifier = Modifier.height(16.dp))
 
-            // 3. 接下来播放 (Next in queue) 标题
+            // 3. 接下来播放 标题
             Text(
-                text = "${strings.nextInQueue} (Next in queue)",
+                text = strings.nextInQueue,
                 color = textSecondary,
                 fontSize = 12.sp,
                 fontWeight = FontWeight.Bold,
@@ -197,9 +226,13 @@ fun NowPlayingQueueSheet(
                         contentPadding = PaddingValues(horizontal = 14.dp, vertical = 4.dp),
                         verticalArrangement = Arrangement.spacedBy(4.dp)
                     ) {
-                        items(trackState.queueItems) { item ->
+                        itemsIndexed(
+                            items = trackState.queueItems,
+                            key = { idx, item -> "${idx}_${item.id}_${item.title}" }
+                        ) { _, item ->
                             SpotifyQueueItemRow(
                                 item = item,
+                                isDark = isDark,
                                 textPrimary = textPrimary,
                                 textSecondary = textSecondary,
                                 onClick = { onSkipToQueueItem(item) }
@@ -207,7 +240,7 @@ fun NowPlayingQueueSheet(
                         }
                     }
                 } else {
-                    // 当系统 MediaSession 未拿到完整队列时，展示官方沉浸说明卡片
+                    // 当系统 MediaSession 未拿到完整队列时，展示沉浸说明卡片
                     Column(
                         modifier = Modifier
                             .fillMaxSize()
@@ -218,7 +251,7 @@ fun NowPlayingQueueSheet(
                         Surface(
                             color = cardBg,
                             shape = RoundedCornerShape(22.dp),
-                            border = BorderStroke(0.5.dp, Color.White.copy(alpha = 0.12f)),
+                            border = BorderStroke(0.5.dp, borderSubtle),
                             modifier = Modifier.fillMaxWidth()
                         ) {
                             Column(
@@ -236,7 +269,7 @@ fun NowPlayingQueueSheet(
                                         modifier = Modifier.size(16.dp)
                                     )
                                     Text(
-                                        text = "待播队列已就绪",
+                                        text = strings.queueReadyTitle,
                                         color = textPrimary,
                                         fontSize = 13.5.sp,
                                         fontWeight = FontWeight.Bold
@@ -244,7 +277,7 @@ fun NowPlayingQueueSheet(
                                 }
 
                                 Text(
-                                    text = "已同步当前媒体播放会话。你可在此查看队列清单，或使用下方播控坞调节随机与循环模式。",
+                                    text = strings.queueReadyDesc,
                                     color = textSecondary,
                                     fontSize = 12.sp,
                                     lineHeight = 17.sp
@@ -260,10 +293,10 @@ fun NowPlayingQueueSheet(
                                             pressedScale = 0.96f,
                                             onClick = { SpotifyLauncher.launchSpotify(context) }
                                         )
-                                 ) {
+                                ) {
                                     Box(contentAlignment = Alignment.Center) {
                                         Text(
-                                            text = "管理播放列表 ➔",
+                                            text = strings.managePlaylistAction,
                                             color = Color.Black,
                                             fontSize = 12.5.sp,
                                             fontWeight = FontWeight.Bold
@@ -278,7 +311,7 @@ fun NowPlayingQueueSheet(
 
             Spacer(modifier = Modifier.height(10.dp))
 
-            // 5. 底部 Spotify 专属 4 键播控坞 (Mix、Shuffle、Repeat、Timer)
+            // 5. 底部 4 键播控坞
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
@@ -287,29 +320,28 @@ fun NowPlayingQueueSheet(
                 horizontalArrangement = Arrangement.spacedBy(10.dp),
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                // 1. Mix (音效调谐)
                 SpotifyDockButton(
                     icon = Icons.Default.Tune,
                     label = "Mix",
                     isActive = false,
+                    isDark = isDark,
                     spotifyGreen = spotifyGreen,
                     buttonBg = buttonBg,
                     modifier = Modifier.weight(1f),
                     onClick = { /* 扩展调音台 */ }
                 )
 
-                // 2. Shuffle (随机播放)
                 SpotifyDockButton(
                     icon = Icons.Default.Shuffle,
                     label = "Shuffle",
                     isActive = trackState.isShuffleActive,
+                    isDark = isDark,
                     spotifyGreen = spotifyGreen,
                     buttonBg = buttonBg,
                     modifier = Modifier.weight(1f),
                     onClick = onToggleShuffle
                 )
 
-                // 3. Repeat (循环模式)
                 val repeatIcon = if (trackState.repeatMode == 2) Icons.Default.RepeatOne else Icons.Default.Repeat
                 val repeatLabel = when (trackState.repeatMode) {
                     1 -> "Repeat All"
@@ -320,18 +352,19 @@ fun NowPlayingQueueSheet(
                     icon = repeatIcon,
                     label = repeatLabel,
                     isActive = trackState.repeatMode != 0,
+                    isDark = isDark,
                     spotifyGreen = spotifyGreen,
                     buttonBg = buttonBg,
                     modifier = Modifier.weight(1f),
                     onClick = onCycleRepeat
                 )
 
-                // 4. Timer (定时关闭)
                 val timerLabel = if (isTimerActive) "${sleepTimerMinutesLeft}m" else "Timer"
                 SpotifyDockButton(
                     icon = Icons.Default.Timer,
                     label = timerLabel,
                     isActive = isTimerActive,
+                    isDark = isDark,
                     spotifyGreen = spotifyGreen,
                     buttonBg = buttonBg,
                     modifier = Modifier.weight(1f),
@@ -341,15 +374,20 @@ fun NowPlayingQueueSheet(
         }
     }
 
-    // 定时关闭弹窗
+    // 定时关闭弹窗（完整继承明暗与 AMOLED 主题及 120Hz 刷新率锁）
     if (showTimerDialog) {
+        val dialogBg = if (isDark) (if (isPureAmoled) Color(0xFF0C0C0E) else Color(0xFF1E1E1E)) else MaterialTheme.colorScheme.surface
+        val optionBg = if (isDark) Color.White.copy(alpha = 0.06f) else Color.Black.copy(alpha = 0.04f)
+        val optionBorder = if (isDark) Color.White.copy(alpha = 0.10f) else Color.Black.copy(alpha = 0.08f)
+
         AlertDialog(
             onDismissRequest = { showTimerDialog = false },
-            containerColor = Color(0xFF1E1E1E),
+            containerColor = dialogBg,
             shape = RoundedCornerShape(24.dp),
-            titleContentColor = Color.White,
-            textContentColor = Color.White.copy(alpha = 0.8f),
+            titleContentColor = textPrimary,
+            textContentColor = textSecondary,
             title = {
+                LockWindowRefreshRateEffect()
                 Text(
                     text = strings.sleepTimerTitle,
                     fontSize = 17.sp,
@@ -362,9 +400,9 @@ fun NowPlayingQueueSheet(
                     minutesOptions.forEach { min ->
                         val isSelected = isTimerActive && sleepTimerMinutesLeft == min
                         Surface(
-                            color = if (isSelected) spotifyGreen.copy(alpha = 0.2f) else Color.White.copy(alpha = 0.06f),
+                            color = if (isSelected) spotifyGreen.copy(alpha = 0.18f) else optionBg,
                             shape = CircleShape,
-                            border = BorderStroke(0.5.dp, if (isSelected) spotifyGreen.copy(alpha = 0.40f) else Color.White.copy(alpha = 0.10f)),
+                            border = BorderStroke(0.5.dp, if (isSelected) spotifyGreen.copy(alpha = 0.45f) else optionBorder),
                             modifier = Modifier
                                 .fillMaxWidth()
                                 .bouncyClickable(pressedScale = 0.96f) {
@@ -374,7 +412,7 @@ fun NowPlayingQueueSheet(
                         ) {
                             Text(
                                 text = String.format(strings.minutesLater, min),
-                                color = if (isSelected) spotifyGreen else Color.White,
+                                color = if (isSelected) spotifyGreen else textPrimary,
                                 fontSize = 14.sp,
                                 fontWeight = FontWeight.Medium,
                                 modifier = Modifier.padding(horizontal = 16.dp, vertical = 11.dp)
@@ -408,7 +446,7 @@ fun NowPlayingQueueSheet(
             },
             confirmButton = {
                 TextButton(onClick = { showTimerDialog = false }) {
-                    Text(strings.cancel, color = Color.White.copy(alpha = 0.6f))
+                    Text(strings.cancel, color = textSecondary)
                 }
             }
         )
@@ -416,17 +454,19 @@ fun NowPlayingQueueSheet(
 }
 
 /**
- * 正在播放单曲行 (1:1 复刻 Spotify 界面)
+ * 正在播放单曲行
  */
 @Composable
 private fun NowPlayingTrackRow(
     trackState: TrackPlaybackState,
+    isDark: Boolean,
     spotifyGreen: Color,
     textPrimary: Color,
     textSecondary: Color,
     onPlayPause: () -> Unit
 ) {
     val strings = LocalStrings.current
+    val borderTint = if (isDark) Color.White.copy(alpha = 0.15f) else Color.Black.copy(alpha = 0.10f)
     Row(
         modifier = Modifier
             .fillMaxWidth()
@@ -434,7 +474,6 @@ private fun NowPlayingTrackRow(
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(12.dp)
     ) {
-        // 封面 (46x46dp, 圆角 8dp squircle)
         if (!trackState.coverUrl.isNullOrBlank()) {
             AsyncImage(
                 model = trackState.coverUrl,
@@ -443,27 +482,26 @@ private fun NowPlayingTrackRow(
                 modifier = Modifier
                     .size(46.dp)
                     .clip(RoundedCornerShape(8.dp))
-                    .border(0.5.dp, Color.White.copy(alpha = 0.15f), RoundedCornerShape(8.dp))
+                    .border(0.5.dp, borderTint, RoundedCornerShape(8.dp))
             )
         } else {
             Surface(
-                color = Color.White.copy(alpha = 0.1f),
+                color = if (isDark) Color.White.copy(alpha = 0.1f) else Color.Black.copy(alpha = 0.06f),
                 shape = RoundedCornerShape(8.dp),
-                border = BorderStroke(0.5.dp, Color.White.copy(alpha = 0.12f)),
+                border = BorderStroke(0.5.dp, borderTint),
                 modifier = Modifier.size(46.dp)
             ) {
                 Box(contentAlignment = Alignment.Center) {
                     Icon(
                         imageVector = Icons.Default.MusicNote,
                         contentDescription = null,
-                        tint = Color.White.copy(alpha = 0.5f),
+                        tint = textSecondary,
                         modifier = Modifier.size(20.dp)
                     )
                 }
             }
         }
 
-        // 歌曲信息 + 跳动绿色声波
         Column(
             modifier = Modifier.weight(1f),
             verticalArrangement = Arrangement.spacedBy(3.dp)
@@ -490,7 +528,7 @@ private fun NowPlayingTrackRow(
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.spacedBy(5.dp)
             ) {
-                ExplicitBadge()
+                ExplicitBadge(isDark = isDark)
                 Text(
                     text = if (trackState.hasValidTrack) trackState.artist else strings.waitingForPlaybackShort,
                     color = textSecondary,
@@ -502,9 +540,8 @@ private fun NowPlayingTrackRow(
             }
         }
 
-        // 纯白圆形播放/暂停按钮 (36dp)
         Surface(
-            color = Color.White,
+            color = if (isDark) Color.White else Color(0xFF19191C),
             shape = CircleShape,
             modifier = Modifier
                 .size(36.dp)
@@ -517,7 +554,7 @@ private fun NowPlayingTrackRow(
                 Icon(
                     imageVector = if (trackState.isPlaying) Icons.Default.Pause else Icons.Default.PlayArrow,
                     contentDescription = if (trackState.isPlaying) strings.cdCompanionPause else strings.cdCompanionPlay,
-                    tint = Color.Black,
+                    tint = if (isDark) Color.Black else Color.White,
                     modifier = Modifier.size(20.dp)
                 )
             }
@@ -526,23 +563,26 @@ private fun NowPlayingTrackRow(
 }
 
 /**
- * 待播项行 (1:1 Spotify 极简行规范)
+ * 待播项行
  */
 @Composable
 private fun SpotifyQueueItemRow(
     item: QueueTrackItem,
+    isDark: Boolean,
     textPrimary: Color,
     textSecondary: Color,
     onClick: () -> Unit
 ) {
+    val strings = LocalStrings.current
+    val borderTint = if (isDark) Color.White.copy(alpha = 0.14f) else Color.Black.copy(alpha = 0.10f)
     val displayTitle = if (item.title.isNotBlank()) {
         item.title
     } else if (item.album.isNotBlank() && item.album != item.artist) {
         item.album
     } else {
-        "Unknown Track"
+        strings.unknownTrack
     }
-    val displayArtist = if (item.artist.isNotBlank()) item.artist else item.album.ifBlank { "未知歌手" }
+    val displayArtist = if (item.artist.isNotBlank()) item.artist else item.album.ifBlank { strings.unknownArtist }
 
     Row(
         modifier = Modifier
@@ -556,7 +596,6 @@ private fun SpotifyQueueItemRow(
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(12.dp)
     ) {
-        // 封面 (46x46dp, 圆角 8dp squircle)
         if (!item.coverUri.isNullOrBlank()) {
             AsyncImage(
                 model = item.coverUri,
@@ -565,27 +604,26 @@ private fun SpotifyQueueItemRow(
                 modifier = Modifier
                     .size(46.dp)
                     .clip(RoundedCornerShape(8.dp))
-                    .border(0.5.dp, Color.White.copy(alpha = 0.15f), RoundedCornerShape(8.dp))
+                    .border(0.5.dp, borderTint, RoundedCornerShape(8.dp))
             )
         } else {
             Surface(
-                color = Color.White.copy(alpha = 0.08f),
+                color = if (isDark) Color.White.copy(alpha = 0.08f) else Color.Black.copy(alpha = 0.05f),
                 shape = RoundedCornerShape(8.dp),
-                border = BorderStroke(0.5.dp, Color.White.copy(alpha = 0.12f)),
+                border = BorderStroke(0.5.dp, borderTint),
                 modifier = Modifier.size(46.dp)
             ) {
                 Box(contentAlignment = Alignment.Center) {
                     Icon(
                         imageVector = Icons.Default.MusicNote,
                         contentDescription = null,
-                        tint = Color.White.copy(alpha = 0.4f),
+                        tint = textSecondary,
                         modifier = Modifier.size(20.dp)
                     )
                 }
             }
         }
 
-        // 标题与副标题
         Column(
             modifier = Modifier.weight(1f),
             verticalArrangement = Arrangement.spacedBy(3.dp)
@@ -604,7 +642,7 @@ private fun SpotifyQueueItemRow(
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.spacedBy(5.dp)
             ) {
-                ExplicitBadge()
+                ExplicitBadge(isDark = isDark)
                 Text(
                     text = displayArtist,
                     color = textSecondary,
@@ -616,13 +654,15 @@ private fun SpotifyQueueItemRow(
             }
         }
 
-        // 右侧三条杠拖拽手柄图标 (Spotify 标志性 ☰ 排序手柄)
-        DragHandleBars(modifier = Modifier.padding(end = 4.dp))
+        DragHandleBars(
+            color = if (isDark) Color.White.copy(alpha = 0.45f) else Color.Black.copy(alpha = 0.35f),
+            modifier = Modifier.padding(end = 4.dp)
+        )
     }
 }
 
 /**
- * 仿 Spotify 专属 3 条杠拖拽排序手柄图标 (☰)
+ * 3 条杠拖拽排序手柄图标
  */
 @Composable
 private fun DragHandleBars(
@@ -640,19 +680,19 @@ private fun DragHandleBars(
 }
 
 /**
- * Spotify 标志性 [E] Explicit 徽章
+ * Explicit 徽章
  */
 @Composable
-private fun ExplicitBadge() {
+private fun ExplicitBadge(isDark: Boolean = true) {
     Surface(
-        color = Color.White.copy(alpha = 0.55f),
+        color = if (isDark) Color.White.copy(alpha = 0.55f) else Color.Black.copy(alpha = 0.45f),
         shape = RoundedCornerShape(2.dp),
         modifier = Modifier.size(width = 12.dp, height = 12.dp)
     ) {
         Box(contentAlignment = Alignment.Center) {
             Text(
                 text = "E",
-                color = Color.Black,
+                color = if (isDark) Color.Black else Color.White,
                 fontSize = 8.5.sp,
                 fontWeight = FontWeight.Black,
                 lineHeight = 8.5.sp
@@ -662,7 +702,7 @@ private fun ExplicitBadge() {
 }
 
 /**
- * 绿色动态跳动均衡器声波 (Equalizer Wave)
+ * 动态跳动均衡器声波（纯 GPU scaleY 缩放绘制，120Hz 零 Measure/Layout 分配）
  */
 @Composable
 private fun PlayingEqualizerWave(
@@ -670,19 +710,19 @@ private fun PlayingEqualizerWave(
     color: Color = Color(0xFF1ED760)
 ) {
     val infiniteTransition = rememberInfiniteTransition(label = "eqWave")
-    val bar1 by infiniteTransition.animateFloat(
+    val bar1 = infiniteTransition.animateFloat(
         initialValue = 0.35f, targetValue = 1.0f,
-        animationSpec = infiniteRepeatable(tween(420, easing = LinearEasing), RepeatMode.Reverse),
+        animationSpec = infiniteRepeatable(tween(420, easing = FastOutSlowInEasing), RepeatMode.Reverse),
         label = "b1"
     )
-    val bar2 by infiniteTransition.animateFloat(
+    val bar2 = infiniteTransition.animateFloat(
         initialValue = 0.90f, targetValue = 0.25f,
-        animationSpec = infiniteRepeatable(tween(360, easing = LinearEasing), RepeatMode.Reverse),
+        animationSpec = infiniteRepeatable(tween(360, easing = FastOutSlowInEasing), RepeatMode.Reverse),
         label = "b2"
     )
-    val bar3 by infiniteTransition.animateFloat(
+    val bar3 = infiniteTransition.animateFloat(
         initialValue = 0.40f, targetValue = 0.95f,
-        animationSpec = infiniteRepeatable(tween(480, easing = LinearEasing), RepeatMode.Reverse),
+        animationSpec = infiniteRepeatable(tween(480, easing = FastOutSlowInEasing), RepeatMode.Reverse),
         label = "b3"
     )
 
@@ -691,37 +731,68 @@ private fun PlayingEqualizerWave(
         horizontalArrangement = Arrangement.spacedBy(2.dp),
         verticalAlignment = Alignment.Bottom
     ) {
-        Box(modifier = Modifier.width(2.2.dp).fillMaxHeight(bar1).clip(RoundedCornerShape(1.dp)).background(color))
-        Box(modifier = Modifier.width(2.2.dp).fillMaxHeight(bar2).clip(RoundedCornerShape(1.dp)).background(color))
-        Box(modifier = Modifier.width(2.2.dp).fillMaxHeight(bar3).clip(RoundedCornerShape(1.dp)).background(color))
+        Box(
+            modifier = Modifier
+                .width(2.2.dp)
+                .fillMaxHeight()
+                .graphicsLayer {
+                    scaleY = bar1.value
+                    transformOrigin = TransformOrigin(0.5f, 1f)
+                }
+                .clip(RoundedCornerShape(1.dp))
+                .background(color)
+        )
+        Box(
+            modifier = Modifier
+                .width(2.2.dp)
+                .fillMaxHeight()
+                .graphicsLayer {
+                    scaleY = bar2.value
+                    transformOrigin = TransformOrigin(0.5f, 1f)
+                }
+                .clip(RoundedCornerShape(1.dp))
+                .background(color)
+        )
+        Box(
+            modifier = Modifier
+                .width(2.2.dp)
+                .fillMaxHeight()
+                .graphicsLayer {
+                    scaleY = bar3.value
+                    transformOrigin = TransformOrigin(0.5f, 1f)
+                }
+                .clip(RoundedCornerShape(1.dp))
+                .background(color)
+        )
     }
 }
 
 /**
- * Spotify 底部专属现代流体药丸胶囊按钮 (Mix, Shuffle, Repeat, Timer)
+ * 底部控制坞胶囊按钮
  */
 @Composable
 private fun SpotifyDockButton(
     icon: ImageVector,
     label: String,
     isActive: Boolean,
+    isDark: Boolean = true,
     spotifyGreen: Color,
     buttonBg: Color,
     modifier: Modifier = Modifier,
     onClick: () -> Unit
 ) {
     val contentColor by animateColorAsState(
-        targetValue = if (isActive) spotifyGreen else Color.White.copy(alpha = 0.70f),
+        targetValue = if (isActive) spotifyGreen else if (isDark) Color.White.copy(alpha = 0.72f) else MaterialTheme.colorScheme.onSurfaceVariant,
         animationSpec = spring(stiffness = 500f),
         label = "dockBtnContent"
     )
     val containerBg by animateColorAsState(
-        targetValue = if (isActive) spotifyGreen.copy(alpha = 0.18f) else Color.White.copy(alpha = 0.08f),
+        targetValue = if (isActive) spotifyGreen.copy(alpha = 0.16f) else buttonBg,
         animationSpec = spring(stiffness = 500f),
         label = "dockBtnBg"
     )
     val borderColor by animateColorAsState(
-        targetValue = if (isActive) spotifyGreen.copy(alpha = 0.50f) else Color.White.copy(alpha = 0.12f),
+        targetValue = if (isActive) spotifyGreen.copy(alpha = 0.50f) else if (isDark) Color.White.copy(alpha = 0.12f) else Color.Black.copy(alpha = 0.08f),
         animationSpec = spring(stiffness = 500f),
         label = "dockBtnBorder"
     )

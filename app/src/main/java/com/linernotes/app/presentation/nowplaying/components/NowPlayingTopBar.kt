@@ -92,10 +92,10 @@ fun NowPlayingTopBar(
             ) {
                 Box(contentAlignment = Alignment.Center) {
                     Icon(
-                        imageVector = Icons.Default.KeyboardArrowDown,
-                        contentDescription = "收起/设置",
+                        imageVector = Icons.Default.Tune,
+                        contentDescription = strings.topBarSettings,
                         tint = pillIconTint,
-                        modifier = Modifier.size(22.dp)
+                        modifier = Modifier.size(19.dp)
                     )
                 }
             }
@@ -255,7 +255,7 @@ fun NowPlayingTopBar(
                 Box(contentAlignment = Alignment.Center) {
                     Icon(
                         imageVector = Icons.Default.QueueMusic,
-                        contentDescription = "待播队列",
+                        contentDescription = strings.topBarQueue,
                         tint = pillIconTint,
                         modifier = Modifier.size(19.dp)
                     )
@@ -277,7 +277,7 @@ fun NowPlayingTopBar(
                     Box(contentAlignment = Alignment.Center) {
                         Icon(
                             imageVector = Icons.Default.MoreHoriz,
-                            contentDescription = "更多选项",
+                            contentDescription = strings.topBarMoreOptions,
                             tint = pillIconTint,
                             modifier = Modifier.size(20.dp)
                         )
@@ -299,7 +299,7 @@ fun NowPlayingTopBar(
                     DropdownMenuItem(
                         text = {
                             Text(
-                                text = if (isFloatingActive) "关闭悬浮歌词" else "桌面悬浮歌词",
+                                text = if (isFloatingActive) strings.topBarFloatingOff else strings.topBarFloatingOn,
                                 fontSize = 14.sp,
                                 fontWeight = FontWeight.Medium,
                                 color = if (isDark) Color.White else MaterialTheme.colorScheme.onSurface
@@ -338,7 +338,7 @@ fun NowPlayingTopBar(
                     DropdownMenuItem(
                         text = {
                             Text(
-                                text = "全屏沉浸模式",
+                                text = strings.topBarImmersive,
                                 fontSize = 14.sp,
                                 fontWeight = FontWeight.Medium,
                                 color = if (isDark) Color.White else MaterialTheme.colorScheme.onSurface
@@ -373,7 +373,7 @@ fun NowPlayingTopBar(
                     DropdownMenuItem(
                         text = {
                             Text(
-                                text = "更换歌词版本",
+                                text = strings.topBarSearchVersion,
                                 fontSize = 14.sp,
                                 fontWeight = FontWeight.Medium,
                                 color = if (isDark) Color.White else MaterialTheme.colorScheme.onSurface
@@ -408,7 +408,7 @@ fun NowPlayingTopBar(
                     DropdownMenuItem(
                         text = {
                             Text(
-                                text = "播放设置",
+                                text = strings.topBarSettings,
                                 fontSize = 14.sp,
                                 fontWeight = FontWeight.Medium,
                                 color = if (isDark) Color.White else MaterialTheme.colorScheme.onSurface

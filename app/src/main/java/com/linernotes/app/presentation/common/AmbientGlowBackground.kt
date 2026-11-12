@@ -1,20 +1,36 @@
 package com.linernotes.app.presentation.common
 
 import android.os.Build
-import androidx.compose.animation.animateColorAsState
-import androidx.compose.animation.core.*
+import androidx.compose.animation.core.Animatable
+import androidx.compose.animation.core.CubicBezierEasing
+import androidx.compose.animation.core.FastOutSlowInEasing
+import androidx.compose.animation.core.LinearOutSlowInEasing
+import androidx.compose.animation.core.RepeatMode
+import androidx.compose.animation.core.animateFloat
+import androidx.compose.animation.core.infiniteRepeatable
+import androidx.compose.animation.core.rememberInfiniteTransition
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.runtime.*
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.Immutable
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.State
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableFloatStateOf
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.blur
-import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.draw.drawWithCache
 import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.CompositingStrategy
 import androidx.compose.ui.graphics.drawscope.withTransform
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.layout.ContentScale
@@ -23,6 +39,19 @@ import androidx.compose.ui.unit.dp
 import coil.compose.AsyncImage
 import coil.request.ImageRequest
 import com.linernotes.app.core.util.AlbumColorExtractor
+
+private val SineEaseInOut = CubicBezierEasing(0.37f, 0.0f, 0.63f, 1.0f)
+
+@Immutable
+private data class AuroraRenderSnapshot(
+    val primary: Color,
+    val secondary: Color,
+    val tertiary: Color,
+    val accent: Color,
+    val backgroundColor: Color,
+    val effectiveDark: Boolean,
+    val isDynamicAurora: Boolean
+)
 
 /**
  * 现代流光弥散与动态流体极光背景 (Apple Music 风格 Dynamic Fluid Aurora Canvas)
@@ -89,38 +118,49 @@ fun AmbientGlowBackground(
             }
         }
 
+        val effectiveDark = isDark
+        val targetSnapshot = remember(
+            extractedPalette,
+            fallbackPrimary,
+            fallbackSecondary,
+            fallbackTertiary,
+            backgroundColor,
+            effectiveDark,
+            isDynamicAurora
+        ) {
+            AuroraRenderSnapshot(
+                primary = if (isDynamicAurora) extractedPalette.primary else fallbackPrimary,
+                secondary = if (isDynamicAurora) extractedPalette.secondary else fallbackSecondary,
+                tertiary = if (isDynamicAurora) extractedPalette.tertiary else fallbackTertiary,
+                accent = if (isDynamicAurora) extractedPalette.accent else fallbackPrimary,
+                backgroundColor = backgroundColor,
+                effectiveDark = effectiveDark,
+                isDynamicAurora = isDynamicAurora
+            )
+        }
+
+        // 色彩平滑交叉溶解：仅缓存稳态调色板与 Shader，切换时以单一 Animatable Alpha 在 GPU 层叠淡入，避免 120Hz 下每帧重建 Shader
+        var previousSnapshot by remember { mutableStateOf<AuroraRenderSnapshot?>(null) }
+        var currentSnapshot by remember { mutableStateOf(targetSnapshot) }
+        val fadeProgress = remember { Animatable(1f) }
+
+        LaunchedEffect(targetSnapshot) {
+            if (targetSnapshot != currentSnapshot) {
+                previousSnapshot = currentSnapshot
+                currentSnapshot = targetSnapshot
+                fadeProgress.snapTo(0f)
+                fadeProgress.animateTo(
+                    targetValue = 1f,
+                    animationSpec = tween(durationMillis = 1200, easing = LinearOutSlowInEasing)
+                )
+                previousSnapshot = null
+            }
+        }
+
         val infiniteTransition = rememberInfiniteTransition(label = "ambientGlow")
 
-        // 色彩平滑交叉溶解 (1200ms LinearOutSlowInEasing，切歌与主题切换如水墨晕染)
-        val colorAnimSpec = tween<Color>(1200, easing = LinearOutSlowInEasing)
-        val animatedPrimary by animateColorAsState(
-            targetValue = if (isDynamicAurora) extractedPalette.primary else fallbackPrimary,
-            animationSpec = colorAnimSpec,
-            label = "ambPrimary"
-        )
-        val animatedSecondary by animateColorAsState(
-            targetValue = if (isDynamicAurora) extractedPalette.secondary else fallbackSecondary,
-            animationSpec = colorAnimSpec,
-            label = "ambSecondary"
-        )
-        val animatedTertiary by animateColorAsState(
-            targetValue = if (isDynamicAurora) extractedPalette.tertiary else fallbackTertiary,
-            animationSpec = colorAnimSpec,
-            label = "ambTertiary"
-        )
-        val animatedAccent by animateColorAsState(
-            targetValue = if (isDynamicAurora) extractedPalette.accent else fallbackPrimary,
-            animationSpec = colorAnimSpec,
-            label = "ambAccent"
-        )
-        val animatedBg by animateColorAsState(
-            targetValue = backgroundColor,
-            animationSpec = colorAnimSpec,
-            label = "ambBg"
-        )
-
-        // 光斑 1: 主色调漂移与呼吸 (周期 9~12 秒)
-        val orb1OffsetX by infiniteTransition.animateFloat(
+        // 光斑 1: 主色调漂移与正弦平缓呼吸 (消除 LinearEasing 折返尖点)
+        val orb1OffsetX = infiniteTransition.animateFloat(
             initialValue = -90f,
             targetValue = 110f,
             animationSpec = infiniteRepeatable(
@@ -129,7 +169,7 @@ fun AmbientGlowBackground(
             ),
             label = "orb1X"
         )
-        val orb1OffsetY by infiniteTransition.animateFloat(
+        val orb1OffsetY = infiniteTransition.animateFloat(
             initialValue = -60f,
             targetValue = 90f,
             animationSpec = infiniteRepeatable(
@@ -138,18 +178,18 @@ fun AmbientGlowBackground(
             ),
             label = "orb1Y"
         )
-        val orb1Scale by infiniteTransition.animateFloat(
+        val orb1Scale = infiniteTransition.animateFloat(
             initialValue = 0.92f,
             targetValue = 1.18f,
             animationSpec = infiniteRepeatable(
-                animation = tween(durationMillis = 8000, easing = LinearEasing),
+                animation = tween(durationMillis = 8000, easing = SineEaseInOut),
                 repeatMode = RepeatMode.Reverse
             ),
             label = "orb1Scale"
         )
 
         // 光斑 2: 副色调反向漂移 (周期 11 秒)
-        val orb2OffsetX by infiniteTransition.animateFloat(
+        val orb2OffsetX = infiniteTransition.animateFloat(
             initialValue = 110f,
             targetValue = -100f,
             animationSpec = infiniteRepeatable(
@@ -158,7 +198,7 @@ fun AmbientGlowBackground(
             ),
             label = "orb2X"
         )
-        val orb2OffsetY by infiniteTransition.animateFloat(
+        val orb2OffsetY = infiniteTransition.animateFloat(
             initialValue = 90f,
             targetValue = -70f,
             animationSpec = infiniteRepeatable(
@@ -168,97 +208,62 @@ fun AmbientGlowBackground(
             label = "orb2Y"
         )
 
-        // 动态流体极光特有：光斑 3 (底部深沉氛围) 与 光斑 4 (中部空灵高光)
-        val orb3OffsetX by infiniteTransition.animateFloat(
-            initialValue = -70f,
-            targetValue = 80f,
-            animationSpec = infiniteRepeatable(
-                animation = tween(durationMillis = 14000, easing = FastOutSlowInEasing),
-                repeatMode = RepeatMode.Reverse
-            ),
-            label = "orb3X"
-        )
-        val orb3OffsetY by infiniteTransition.animateFloat(
-            initialValue = 50f,
-            targetValue = -50f,
-            animationSpec = infiniteRepeatable(
-                animation = tween(durationMillis = 13000, easing = FastOutSlowInEasing),
-                repeatMode = RepeatMode.Reverse
-            ),
-            label = "orb3Y"
-        )
-
-        val orb4OffsetX by infiniteTransition.animateFloat(
-            initialValue = 60f,
-            targetValue = -60f,
-            animationSpec = infiniteRepeatable(
-                animation = tween(durationMillis = 10000, easing = FastOutSlowInEasing),
-                repeatMode = RepeatMode.Reverse
-            ),
-            label = "orb4X"
-        )
-        val orb4OffsetY by infiniteTransition.animateFloat(
-            initialValue = -80f,
-            targetValue = 60f,
-            animationSpec = infiniteRepeatable(
-                animation = tween(durationMillis = 9200, easing = FastOutSlowInEasing),
-                repeatMode = RepeatMode.Reverse
-            ),
-            label = "orb4Y"
-        )
-
-        val effectiveDark = isDark
-        val orb1Colors = remember(animatedPrimary, animatedTertiary, effectiveDark) {
-            listOf(
-                animatedPrimary.copy(alpha = if (effectiveDark) 0.68f else 0.45f),
-                animatedTertiary.copy(alpha = if (effectiveDark) 0.32f else 0.18f),
-                Color.Transparent
+        // 动态流体极光特有：关闭极光时不注册 orb3/orb4 无限动画，避免后台空转
+        val zeroMotion = remember { mutableFloatStateOf(0f) }
+        val runDynamicOrbs = isDynamicAurora || previousSnapshot?.isDynamicAurora == true
+        val orb3OffsetX: State<Float>
+        val orb3OffsetY: State<Float>
+        val orb4OffsetX: State<Float>
+        val orb4OffsetY: State<Float>
+        if (runDynamicOrbs) {
+            orb3OffsetX = infiniteTransition.animateFloat(
+                initialValue = -70f,
+                targetValue = 80f,
+                animationSpec = infiniteRepeatable(
+                    animation = tween(durationMillis = 14000, easing = FastOutSlowInEasing),
+                    repeatMode = RepeatMode.Reverse
+                ),
+                label = "orb3X"
             )
-        }
-
-        val orb2Colors = remember(animatedSecondary, animatedPrimary, effectiveDark) {
-            listOf(
-                animatedSecondary.copy(alpha = if (effectiveDark) 0.62f else 0.40f),
-                animatedPrimary.copy(alpha = if (effectiveDark) 0.28f else 0.14f),
-                Color.Transparent
+            orb3OffsetY = infiniteTransition.animateFloat(
+                initialValue = 50f,
+                targetValue = -50f,
+                animationSpec = infiniteRepeatable(
+                    animation = tween(durationMillis = 13000, easing = FastOutSlowInEasing),
+                    repeatMode = RepeatMode.Reverse
+                ),
+                label = "orb3Y"
             )
-        }
-
-        val orb3Colors = remember(animatedTertiary, animatedSecondary, effectiveDark) {
-            listOf(
-                animatedTertiary.copy(alpha = if (effectiveDark) 0.55f else 0.35f),
-                animatedSecondary.copy(alpha = if (effectiveDark) 0.24f else 0.12f),
-                Color.Transparent
+            orb4OffsetX = infiniteTransition.animateFloat(
+                initialValue = 60f,
+                targetValue = -60f,
+                animationSpec = infiniteRepeatable(
+                    animation = tween(durationMillis = 10000, easing = FastOutSlowInEasing),
+                    repeatMode = RepeatMode.Reverse
+                ),
+                label = "orb4X"
             )
-        }
-
-        val orb4Colors = remember(animatedAccent, animatedPrimary, effectiveDark) {
-            listOf(
-                animatedAccent.copy(alpha = if (effectiveDark) 0.50f else 0.30f),
-                animatedPrimary.copy(alpha = if (effectiveDark) 0.20f else 0.10f),
-                Color.Transparent
+            orb4OffsetY = infiniteTransition.animateFloat(
+                initialValue = -80f,
+                targetValue = 60f,
+                animationSpec = infiniteRepeatable(
+                    animation = tween(durationMillis = 9200, easing = FastOutSlowInEasing),
+                    repeatMode = RepeatMode.Reverse
+                ),
+                label = "orb4Y"
             )
+        } else {
+            orb3OffsetX = zeroMotion
+            orb3OffsetY = zeroMotion
+            orb4OffsetX = zeroMotion
+            orb4OffsetY = zeroMotion
         }
 
-        val overlayColors = remember(effectiveDark, animatedBg) {
-            if (effectiveDark) {
-                listOf(
-                    Color.Black.copy(alpha = 0.18f), // 顶部微暗角，保护状态栏与系统图标对比度
-                    Color.Transparent,               // 中部 100% 纯净通透，让极光色彩畅快流淌呼吸
-                    Color.Black.copy(alpha = 0.08f),
-                    Color.Black.copy(alpha = 0.22f)  // 底部柔和衬托，烘托悬浮播控胶囊
-                )
-            } else {
-                listOf(
-                    animatedBg.copy(alpha = 0.30f),
-                    animatedBg.copy(alpha = 0.10f),
-                    animatedBg.copy(alpha = 0.20f),
-                    animatedBg.copy(alpha = 0.32f)
-                )
-            }
-        }
-
-        Box(modifier = modifier.fillMaxSize()) {
+        Box(
+            modifier = modifier
+                .fillMaxSize()
+                .background(if (effectiveDark) Color(0xFF0E0E12) else backgroundColor)
+        ) {
             // 1. 底层：唱片封面微缩下采样与柔化 (微缩 72x72 已由 GPU 双线性过滤自然扩散，20dp 模糊替代 85dp 节省 16x 填充率)
             if (!coverUrl.isNullOrBlank()) {
                 val imageRequest = remember(coverUrl) {
@@ -275,7 +280,11 @@ fun AmbientGlowBackground(
                     modifier = Modifier
                         .fillMaxSize()
                         .graphicsLayer {
-                            alpha = if (effectiveDark) (if (isDynamicAurora) 0.88f else 0.78f) else (if (isDynamicAurora) 0.60f else 0.55f)
+                            alpha = if (effectiveDark) {
+                                if (isDynamicAurora) 0.88f else 0.78f
+                            } else {
+                                if (isDynamicAurora) 0.34f else 0.28f
+                            }
                             scaleX = 1.45f
                             scaleY = 1.45f
                         }
@@ -287,104 +296,197 @@ fun AmbientGlowBackground(
                 )
             }
 
-            // 2. 动态光斑流体弥散层与纵深保护蒙版 (drawWithCache 预缓存静态 Shader + GPU 矩阵变换，每帧 0 对象分配)
-            Box(
-                modifier = Modifier
-                    .fillMaxSize()
-                    .drawWithCache {
-                        val w = size.width.coerceAtLeast(1f)
-                        val h = size.height.coerceAtLeast(1f)
-
-                        val c1 = Offset(w * 0.28f, h * 0.25f)
-                        val c2 = Offset(w * 0.72f, h * 0.65f)
-                        val c3 = Offset(w * 0.45f, h * 0.82f)
-                        val c4 = Offset(w * 0.60f, h * 0.35f)
-
-                        // 仅在切歌换色或画布尺寸改变时创建一次 Native Shader
-                        val brush1 = Brush.radialGradient(
-                            colors = orb1Colors,
-                            center = c1,
-                            radius = w * 0.75f
-                        )
-                        val brush2 = Brush.radialGradient(
-                            colors = orb2Colors,
-                            center = c2,
-                            radius = w * 0.82f
-                        )
-                        val brush3 = Brush.radialGradient(
-                            colors = orb3Colors,
-                            center = c3,
-                            radius = w * 0.78f
-                        )
-                        val brush4 = Brush.radialGradient(
-                            colors = orb4Colors,
-                            center = c4,
-                            radius = w * 0.60f
-                        )
-                        val verticalOverlayBrush = Brush.verticalGradient(colors = overlayColors)
-
-                        // 预留 150px 边界冗余，防止光斑平移时矩形边缘在画布内露馅
-                        val bleed = 150f
-                        val expandedTopLeft = Offset(-bleed, -bleed)
-                        val expandedSize = androidx.compose.ui.geometry.Size(w + bleed * 2f, h + bleed * 2f)
-
-                        onDrawBehind {
-                            // 光斑 1 (主色调：平移 + 呼吸缩放)
-                            withTransform({
-                                translate(left = orb1OffsetX, top = orb1OffsetY)
-                                scale(scaleX = orb1Scale, scaleY = orb1Scale, pivot = c1)
-                            }) {
-                                drawRect(
-                                    brush = brush1,
-                                    topLeft = expandedTopLeft,
-                                    size = expandedSize,
-                                    alpha = if (effectiveDark) 0.65f else 0.40f
-                                )
-                            }
-
-                            // 光斑 2 (副色调：平移)
-                            withTransform({
-                                translate(left = orb2OffsetX, top = orb2OffsetY)
-                            }) {
-                                drawRect(
-                                    brush = brush2,
-                                    topLeft = expandedTopLeft,
-                                    size = expandedSize,
-                                    alpha = if (effectiveDark) 0.55f else 0.35f
-                                )
-                            }
-
-                            if (isDynamicAurora) {
-                                // 光斑 3 (深沉氛围)
-                                withTransform({
-                                    translate(left = orb3OffsetX, top = orb3OffsetY)
-                                }) {
-                                    drawRect(
-                                        brush = brush3,
-                                        topLeft = expandedTopLeft,
-                                        size = expandedSize,
-                                        alpha = if (effectiveDark) 0.50f else 0.30f
-                                    )
-                                }
-
-                                // 光斑 4 (空灵浮动点缀)
-                                withTransform({
-                                    translate(left = orb4OffsetX, top = orb4OffsetY)
-                                }) {
-                                    drawRect(
-                                        brush = brush4,
-                                        topLeft = expandedTopLeft,
-                                        size = expandedSize,
-                                        alpha = if (effectiveDark) 0.45f else 0.25f
-                                    )
-                                }
-                            }
-
-                            // 纵深渐变遮罩
-                            drawRect(brush = verticalOverlayBrush)
+            // 2. 动态光斑流体弥散层：稳态单层直出；切歌/切主题过渡时 GPU Alpha 交叉溶解，过渡期 0 次 Shader 重建
+            val prev = previousSnapshot
+            if (prev != null) {
+                AuroraOrbsLayer(
+                    snapshot = prev,
+                    orb1OffsetX = orb1OffsetX,
+                    orb1OffsetY = orb1OffsetY,
+                    orb1Scale = orb1Scale,
+                    orb2OffsetX = orb2OffsetX,
+                    orb2OffsetY = orb2OffsetY,
+                    orb3OffsetX = orb3OffsetX,
+                    orb3OffsetY = orb3OffsetY,
+                    orb4OffsetX = orb4OffsetX,
+                    orb4OffsetY = orb4OffsetY,
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .graphicsLayer {
+                            compositingStrategy = CompositingStrategy.Offscreen
+                            alpha = 1f - fadeProgress.value
                         }
-                    }
+                )
+                AuroraOrbsLayer(
+                    snapshot = currentSnapshot,
+                    orb1OffsetX = orb1OffsetX,
+                    orb1OffsetY = orb1OffsetY,
+                    orb1Scale = orb1Scale,
+                    orb2OffsetX = orb2OffsetX,
+                    orb2OffsetY = orb2OffsetY,
+                    orb3OffsetX = orb3OffsetX,
+                    orb3OffsetY = orb3OffsetY,
+                    orb4OffsetX = orb4OffsetX,
+                    orb4OffsetY = orb4OffsetY,
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .graphicsLayer {
+                            compositingStrategy = CompositingStrategy.Offscreen
+                            alpha = fadeProgress.value
+                        }
+                )
+            } else {
+                AuroraOrbsLayer(
+                    snapshot = currentSnapshot,
+                    orb1OffsetX = orb1OffsetX,
+                    orb1OffsetY = orb1OffsetY,
+                    orb1Scale = orb1Scale,
+                    orb2OffsetX = orb2OffsetX,
+                    orb2OffsetY = orb2OffsetY,
+                    orb3OffsetX = orb3OffsetX,
+                    orb3OffsetY = orb3OffsetY,
+                    orb4OffsetX = orb4OffsetX,
+                    orb4OffsetY = orb4OffsetY,
+                    modifier = Modifier.fillMaxSize()
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun AuroraOrbsLayer(
+    snapshot: AuroraRenderSnapshot,
+    orb1OffsetX: State<Float>,
+    orb1OffsetY: State<Float>,
+    orb1Scale: State<Float>,
+    orb2OffsetX: State<Float>,
+    orb2OffsetY: State<Float>,
+    orb3OffsetX: State<Float>,
+    orb3OffsetY: State<Float>,
+    orb4OffsetX: State<Float>,
+    orb4OffsetY: State<Float>,
+    modifier: Modifier = Modifier
+) {
+    val effectiveDark = snapshot.effectiveDark
+    val orb1Colors = remember(snapshot.primary, snapshot.tertiary, effectiveDark) {
+        listOf(
+            snapshot.primary.copy(alpha = if (effectiveDark) 0.68f else 0.42f),
+            snapshot.tertiary.copy(alpha = if (effectiveDark) 0.32f else 0.16f),
+            Color.Transparent
+        )
+    }
+    val orb2Colors = remember(snapshot.secondary, snapshot.primary, effectiveDark) {
+        listOf(
+            snapshot.secondary.copy(alpha = if (effectiveDark) 0.62f else 0.36f),
+            snapshot.primary.copy(alpha = if (effectiveDark) 0.28f else 0.14f),
+            Color.Transparent
+        )
+    }
+    val orb3Colors = remember(snapshot.tertiary, snapshot.secondary, effectiveDark) {
+        listOf(
+            snapshot.tertiary.copy(alpha = if (effectiveDark) 0.55f else 0.32f),
+            snapshot.secondary.copy(alpha = if (effectiveDark) 0.24f else 0.12f),
+            Color.Transparent
+        )
+    }
+    val orb4Colors = remember(snapshot.accent, snapshot.primary, effectiveDark) {
+        listOf(
+            snapshot.accent.copy(alpha = if (effectiveDark) 0.50f else 0.28f),
+            snapshot.primary.copy(alpha = if (effectiveDark) 0.20f else 0.10f),
+            Color.Transparent
+        )
+    }
+    val overlayColors = remember(effectiveDark, snapshot.backgroundColor) {
+        if (effectiveDark) {
+            listOf(
+                Color.Black.copy(alpha = 0.18f), // 顶部微暗角，保护状态栏与系统图标对比度
+                Color.Transparent,               // 中部通透，让极光色彩自然流淌
+                Color.Black.copy(alpha = 0.08f),
+                Color.Black.copy(alpha = 0.22f)  // 底部柔和衬托，烘托悬浮播控胶囊
+            )
+        } else {
+            val bg = snapshot.backgroundColor
+            listOf(
+                bg.copy(alpha = 0.42f),
+                bg.copy(alpha = 0.16f),
+                bg.copy(alpha = 0.24f),
+                bg.copy(alpha = 0.44f)
             )
         }
     }
+
+    Box(
+        modifier = modifier.drawWithCache {
+            val w = size.width.coerceAtLeast(1f)
+            val h = size.height.coerceAtLeast(1f)
+
+            val c1 = Offset(w * 0.28f, h * 0.25f)
+            val c2 = Offset(w * 0.72f, h * 0.65f)
+            val c3 = Offset(w * 0.45f, h * 0.82f)
+            val c4 = Offset(w * 0.60f, h * 0.35f)
+
+            // 仅在稳态调色板或画布尺寸改变时创建一次 Native Shader
+            val brush1 = Brush.radialGradient(colors = orb1Colors, center = c1, radius = w * 0.75f)
+            val brush2 = Brush.radialGradient(colors = orb2Colors, center = c2, radius = w * 0.82f)
+            val brush3 = Brush.radialGradient(colors = orb3Colors, center = c3, radius = w * 0.78f)
+            val brush4 = Brush.radialGradient(colors = orb4Colors, center = c4, radius = w * 0.60f)
+            val verticalOverlayBrush = Brush.verticalGradient(colors = overlayColors)
+
+            val bleed = 150f
+            val expandedTopLeft = Offset(-bleed, -bleed)
+            val expandedSize = Size(w + bleed * 2f, h + bleed * 2f)
+
+            onDrawBehind {
+                withTransform({
+                    translate(left = orb1OffsetX.value, top = orb1OffsetY.value)
+                    scale(scaleX = orb1Scale.value, scaleY = orb1Scale.value, pivot = c1)
+                }) {
+                    drawRect(
+                        brush = brush1,
+                        topLeft = expandedTopLeft,
+                        size = expandedSize,
+                        alpha = if (effectiveDark) 0.65f else 0.42f
+                    )
+                }
+
+                withTransform({
+                    translate(left = orb2OffsetX.value, top = orb2OffsetY.value)
+                }) {
+                    drawRect(
+                        brush = brush2,
+                        topLeft = expandedTopLeft,
+                        size = expandedSize,
+                        alpha = if (effectiveDark) 0.55f else 0.36f
+                    )
+                }
+
+                if (snapshot.isDynamicAurora) {
+                    withTransform({
+                        translate(left = orb3OffsetX.value, top = orb3OffsetY.value)
+                    }) {
+                        drawRect(
+                            brush = brush3,
+                            topLeft = expandedTopLeft,
+                            size = expandedSize,
+                            alpha = if (effectiveDark) 0.50f else 0.30f
+                        )
+                    }
+
+                    withTransform({
+                        translate(left = orb4OffsetX.value, top = orb4OffsetY.value)
+                    }) {
+                        drawRect(
+                            brush = brush4,
+                            topLeft = expandedTopLeft,
+                            size = expandedSize,
+                            alpha = if (effectiveDark) 0.45f else 0.25f
+                        )
+                    }
+                }
+
+                drawRect(brush = verticalOverlayBrush)
+            }
+        }
+    )
 }
