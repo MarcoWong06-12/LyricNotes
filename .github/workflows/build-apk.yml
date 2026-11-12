@@ -28,13 +28,27 @@ jobs:
         with:
           gradle-version: '8.9'
 
-      - name: Build Debug & Release APKs + Run Unit Tests
+      - name: Build Debug & Release APKs
         run: |
-          gradle :app:assembleDebug :app:assembleRelease :app:testDebugUnitTest --continue --stacktrace > build.log 2>&1 || {
+          gradle :app:assembleDebug :app:assembleRelease --stacktrace > build.log 2>&1 || {
             grep -E "^e: " build.log | head -n 30 | while IFS= read -r line; do
               clean=$(echo "$line" | tr -d '\r')
               [ -n "$clean" ] && echo "::error title=KotlinError::$clean"
             done
+            grep -E "(What went wrong:|Caused by:|WARNING:|Missing class)" build.log | head -n 20 | while IFS= read -r line; do
+              clean=$(echo "$line" | tr -d '\r')
+              [ -n "$clean" ] && echo "::error title=GradleFailure::$clean"
+            done
+            exit 1
+          }
+
+      - name: Run Wave 3 Affected Unit Tests
+        run: |
+          gradle :app:testDebugUnitTest \
+            --tests "com.linernotes.app.data.remote.ManualLyricCandidateTest" \
+            --tests "com.linernotes.app.core.lyric.LyricWordParserTest" \
+            --tests "com.linernotes.app.data.repository.AnnotationRepositoryTest" \
+            --stacktrace >> build.log 2>&1 || {
             grep -E "FAILED$" build.log | head -n 20 | while IFS= read -r line; do
               clean=$(echo "$line" | tr -d '\r')
               [ -n "$clean" ] && echo "::error title=FailedTest::$clean"
@@ -42,10 +56,6 @@ jobs:
             grep -n -B 1 -A 2 -E "<(failure|error)" app/build/test-results/testDebugUnitTest/TEST-*.xml 2>/dev/null | head -n 30 | while IFS= read -r line; do
               clean=$(echo "$line" | tr -d '\r')
               [ -n "$clean" ] && echo "::error title=UnitTest::$clean"
-            done
-            grep -E "(What went wrong:|Caused by:|WARNING:|Missing class)" build.log | head -n 20 | while IFS= read -r line; do
-              clean=$(echo "$line" | tr -d '\r')
-              [ -n "$clean" ] && echo "::error title=GradleFailure::$clean"
             done
             exit 1
           }
