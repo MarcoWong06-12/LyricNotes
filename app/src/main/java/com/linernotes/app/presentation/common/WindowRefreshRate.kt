@@ -9,6 +9,7 @@ import android.view.Display
 import android.view.View
 import android.view.ViewTreeObserver
 import android.view.Window
+import android.view.WindowManager
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.ui.platform.LocalView
@@ -66,10 +67,33 @@ fun LockWindowRefreshRateEffect() {
 private fun applyMaxRefreshRate(view: View) {
     try {
         val window = findWindow(view) ?: return
+        val display = resolveDisplay(view, window) ?: return
+        val attrs = window.attributes
+        if (applyMaxRefreshRateToLayoutParams(window.context, attrs, display)) {
+            window.attributes = attrs
+        }
+    } catch (_: Throwable) {
+        // 防止特定 OEM 在窗口切换过渡态抛出 Error 或 UnsupportedOperationException
+    }
+}
+
+/**
+ * 将 WindowManager.LayoutParams 锁定至指定（或默认）屏幕同分辨率最高可用刷新率，
+ * 供 Activity / Dialog 与系统悬浮窗 WindowManager 复用（已处于目标模式时零变更）。
+ */
+fun applyMaxRefreshRateToLayoutParams(
+    context: Context,
+    attrs: WindowManager.LayoutParams,
+    display: Display? = null
+): Boolean {
+    return try {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
-            val display = resolveDisplay(view, window) ?: return
-            val currentMode = display.mode
-            val supportedModes = display.supportedModes
+            val targetDisplay = display
+                ?: (context.getSystemService(Context.DISPLAY_SERVICE) as? DisplayManager)
+                    ?.getDisplay(Display.DEFAULT_DISPLAY)
+                ?: return false
+            val currentMode = targetDisplay.mode
+            val supportedModes = targetDisplay.supportedModes
             val maxMode = supportedModes
                 .filter { mode ->
                     currentMode == null || (
@@ -80,19 +104,22 @@ private fun applyMaxRefreshRate(view: View) {
                 .maxByOrNull { it.refreshRate }
                 ?: supportedModes.maxByOrNull { it.refreshRate }
 
-            if (maxMode != null) {
-                val attrs = window.attributes
-                if (attrs.preferredDisplayModeId != maxMode.modeId ||
-                    attrs.preferredRefreshRate != maxMode.refreshRate
-                ) {
-                    attrs.preferredDisplayModeId = maxMode.modeId
-                    attrs.preferredRefreshRate = maxMode.refreshRate
-                    window.attributes = attrs
-                }
+            if (maxMode != null &&
+                (attrs.preferredDisplayModeId != maxMode.modeId ||
+                    attrs.preferredRefreshRate != maxMode.refreshRate)
+            ) {
+                attrs.preferredDisplayModeId = maxMode.modeId
+                attrs.preferredRefreshRate = maxMode.refreshRate
+                true
+            } else {
+                false
             }
+        } else {
+            false
         }
     } catch (_: Throwable) {
-        // 防止特定 OEM 在窗口切换过渡态抛出 Error 或 UnsupportedOperationException
+        // 防止特定 OEM 在窗口切换或非 Visual Context 场景抛出 Error / UnsupportedOperationException
+        false
     }
 }
 

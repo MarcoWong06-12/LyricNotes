@@ -265,12 +265,12 @@ fun AmbientGlowBackground(
                 .fillMaxSize()
                 .background(if (effectiveDark) Color(0xFF0E0E12) else backgroundColor)
         ) {
-            // 1. 底层：唱片封面微缩下采样与柔化 (微缩 72x72 已由 GPU 双线性过滤自然扩散，20dp 模糊替代 85dp 节省 16x 填充率)
+            // 1. 底层：唱片封面中等缩略采样与轻柔高斯感模糊（160x160 + 双轮 r=3 在保留柔和轮廓与极低开销间取得平衡）
             if (!coverUrl.isNullOrBlank()) {
                 val imageRequest = remember(coverUrl) {
                     ImageRequest.Builder(context)
                         .data(coverUrl)
-                        .size(72, 72)
+                        .size(160, 160)
                         .allowHardware(false)
                         .transformations(AuroraThumbnailBlurTransformation)
                         .crossfade(false)
@@ -284,12 +284,12 @@ fun AmbientGlowBackground(
                         .fillMaxSize()
                         .graphicsLayer {
                             alpha = if (effectiveDark) {
-                                if (isDynamicAurora) 0.88f else 0.78f
+                                if (isDynamicAurora) 0.90f else 0.82f
                             } else {
-                                if (isDynamicAurora) 0.34f else 0.28f
+                                if (isDynamicAurora) 0.56f else 0.48f
                             }
-                            scaleX = 1.45f
-                            scaleY = 1.45f
+                            scaleX = 1.15f
+                            scaleY = 1.15f
                         }
                 )
             }
@@ -365,29 +365,29 @@ private fun AuroraOrbsLayer(
     val effectiveDark = snapshot.effectiveDark
     val orb1Colors = remember(snapshot.primary, snapshot.tertiary, effectiveDark) {
         listOf(
-            snapshot.primary.copy(alpha = if (effectiveDark) 0.68f else 0.42f),
-            snapshot.tertiary.copy(alpha = if (effectiveDark) 0.32f else 0.16f),
+            snapshot.primary.copy(alpha = if (effectiveDark) 0.68f else 0.24f),
+            snapshot.tertiary.copy(alpha = if (effectiveDark) 0.32f else 0.11f),
             Color.Transparent
         )
     }
     val orb2Colors = remember(snapshot.secondary, snapshot.primary, effectiveDark) {
         listOf(
-            snapshot.secondary.copy(alpha = if (effectiveDark) 0.62f else 0.36f),
-            snapshot.primary.copy(alpha = if (effectiveDark) 0.28f else 0.14f),
+            snapshot.secondary.copy(alpha = if (effectiveDark) 0.62f else 0.20f),
+            snapshot.primary.copy(alpha = if (effectiveDark) 0.28f else 0.09f),
             Color.Transparent
         )
     }
     val orb3Colors = remember(snapshot.tertiary, snapshot.secondary, effectiveDark) {
         listOf(
-            snapshot.tertiary.copy(alpha = if (effectiveDark) 0.55f else 0.32f),
-            snapshot.secondary.copy(alpha = if (effectiveDark) 0.24f else 0.12f),
+            snapshot.tertiary.copy(alpha = if (effectiveDark) 0.55f else 0.18f),
+            snapshot.secondary.copy(alpha = if (effectiveDark) 0.24f else 0.08f),
             Color.Transparent
         )
     }
     val orb4Colors = remember(snapshot.accent, snapshot.primary, effectiveDark) {
         listOf(
-            snapshot.accent.copy(alpha = if (effectiveDark) 0.50f else 0.28f),
-            snapshot.primary.copy(alpha = if (effectiveDark) 0.20f else 0.10f),
+            snapshot.accent.copy(alpha = if (effectiveDark) 0.50f else 0.16f),
+            snapshot.primary.copy(alpha = if (effectiveDark) 0.20f else 0.07f),
             Color.Transparent
         )
     }
@@ -402,10 +402,10 @@ private fun AuroraOrbsLayer(
         } else {
             val bg = snapshot.backgroundColor
             listOf(
-                bg.copy(alpha = 0.42f),
-                bg.copy(alpha = 0.16f),
+                bg.copy(alpha = 0.36f),
+                bg.copy(alpha = 0.20f),
                 bg.copy(alpha = 0.24f),
-                bg.copy(alpha = 0.44f)
+                bg.copy(alpha = 0.38f)
             )
         }
     }
@@ -491,10 +491,11 @@ private fun AuroraOrbsLayer(
 }
 
 /**
- * 72x72 極光縮圖後台一次性多輪 Box Blur，完全消除 UI 主線程 / RenderThread 全螢幕 20dp 高斯模糊開銷。
+ * 160x160 封面後台一次性雙輪小半徑 Box Blur（radius = 3, repeat = 2）：
+ * 既消除主線程 / RenderThread 全螢幕模糊開銷，又保留清晰可辨的唱片構圖與色彩層次。
  */
 private object AuroraThumbnailBlurTransformation : Transformation {
-    override val cacheKey: String = "aurora_thumbnail_blur_r6_p3"
+    override val cacheKey: String = "aurora_cover_blur_160_r3_p2"
 
     override suspend fun transform(input: Bitmap, size: CoilSize): Bitmap {
         val w = input.width
@@ -513,10 +514,10 @@ private object AuroraThumbnailBlurTransformation : Transformation {
         }
 
         val temp = IntArray(w * h)
-        val radius = 6.coerceAtMost(minOf(w, h) / 2).coerceAtLeast(1)
+        val radius = 3.coerceAtMost(minOf(w, h) / 2).coerceAtLeast(1)
         val div = radius * 2 + 1
 
-        repeat(3) {
+        repeat(2) {
             // Horizontal pass
             for (y in 0 until h) {
                 val rowOff = y * w

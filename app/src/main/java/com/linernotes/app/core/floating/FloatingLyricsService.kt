@@ -48,6 +48,7 @@ import com.linernotes.app.core.playback.PlaybackStateManager
 import com.linernotes.app.core.preference.AiPreferences
 import com.linernotes.app.core.preference.FloatingLyricsPreferences
 import com.linernotes.app.data.repository.NowPlayingRepository
+import com.linernotes.app.presentation.common.applyMaxRefreshRateToLayoutParams
 import com.linernotes.app.presentation.floating.FloatingLyricsCapsule
 import dagger.hilt.android.AndroidEntryPoint
 import kotlinx.coroutines.*
@@ -364,6 +365,7 @@ class FloatingLyricsService : Service() {
             gravity = Gravity.TOP or Gravity.START
             x = initialX
             y = initialY
+            applyMaxRefreshRateToLayoutParams(this@FloatingLyricsService, this)
         }
 
         composeView = ComposeView(this).apply {

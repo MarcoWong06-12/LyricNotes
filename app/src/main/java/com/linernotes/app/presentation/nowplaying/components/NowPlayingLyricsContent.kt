@@ -20,6 +20,7 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.draw.drawWithContent
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
@@ -27,20 +28,29 @@ import androidx.compose.ui.graphics.BlendMode
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.CompositingStrategy
+import androidx.compose.ui.graphics.TileMode
 import androidx.compose.ui.graphics.TransformOrigin
-import androidx.compose.ui.graphics.drawscope.clipRect
 import androidx.compose.ui.graphics.drawscope.translate
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
+import androidx.compose.ui.layout.Layout
+import androidx.compose.ui.layout.MeasurePolicy
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalHapticFeedback
+import androidx.compose.ui.text.TextLayoutResult
+import androidx.compose.ui.text.TextMeasurer
 import androidx.compose.ui.text.TextStyle
+import androidx.compose.ui.text.drawText
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.rememberTextMeasurer
 import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.unit.Constraints
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.TextUnit
+import androidx.compose.ui.unit.constrainHeight
+import androidx.compose.ui.unit.constrainWidth
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.linernotes.app.core.i18n.LocalStrings
@@ -264,15 +274,27 @@ fun NowPlayingLyricsContent(
     val coroutineScope = rememberCoroutineScope()
 
     // 120Hz/90Hz/60Hz VSYNC 高精度硬件級播放進度採樣 (只在 drawWithContent 階段讀取，重組率為 0)
+    val hasWordLevelLyrics = remember(lyrics) { lyrics.any { it.words.isNotEmpty() } }
     val currentPositionState = remember { mutableLongStateOf(0L) }
-    LaunchedEffect(isPlaying, trackState.trackEpoch, trackState.title, trackState.artist, lyricOffsetMs, isWordByWordEnabled) {
-        if (isPlaying && isWordByWordEnabled) {
+    LaunchedEffect(
+        isPlaying,
+        trackState.trackEpoch,
+        trackState.title,
+        trackState.artist,
+        lyricOffsetMs,
+        isWordByWordEnabled,
+        hasWordLevelLyrics
+    ) {
+        if (!isWordByWordEnabled || !hasWordLevelLyrics) {
+            return@LaunchedEffect
+        }
+        if (isPlaying) {
             while (isActive) {
                 withFrameMillis {
                     currentPositionState.longValue = (positionProvider() + lyricOffsetMs).coerceAtLeast(0L)
                 }
             }
-        } else if (isWordByWordEnabled) {
+        } else {
             snapshotFlow { positionProvider() }.collect { basePos ->
                 currentPositionState.longValue = (basePos + lyricOffsetMs).coerceAtLeast(0L)
             }
@@ -354,9 +376,14 @@ fun NowPlayingLyricsContent(
         }
     }
 
-    LaunchedEffect(visibleFocalIndex, currentLineIndex, isUserDragging) {
-        if (!isUserDragging && !listState.isScrollInProgress && userScrolledAway && currentLineIndex >= 0 && visibleFocalIndex == currentLineIndex) {
-            userScrolledAway = false
+    LaunchedEffect(listState, currentLineIndex, isUserDragging, userScrolledAway) {
+        if (!isUserDragging && userScrolledAway && currentLineIndex >= 0) {
+            snapshotFlow { visibleFocalIndex to listState.isScrollInProgress }
+                .collect { (visFocal, scrolling) ->
+                    if (!scrolling && userScrolledAway && visFocal == currentLineIndex) {
+                        userScrolledAway = false
+                    }
+                }
         }
     }
 
@@ -366,28 +393,26 @@ fun NowPlayingLyricsContent(
     } else {
         if (currentLineIndex in lyrics.indices) currentLineIndex else 0
     }
-    SideEffect {
-        if (waveState.focalLineIndex != focalIndex) {
-            waveState.focalLineIndex = focalIndex
-        }
-    }
 
     var lastSongKey by remember { mutableStateOf("") }
-    var lastLyricsIdentity by remember { mutableIntStateOf(0) }
-    val lyricsIdentity = System.identityHashCode(lyrics)
+    var lastLyricsStructureKey by remember { mutableIntStateOf(0) }
+    val lyricsStructureKey = remember(lyrics) {
+        if (lyrics.isEmpty()) 0 else (lyrics.size * 31 + (lyrics.firstOrNull()?.startTimeMs?.hashCode() ?: 0))
+    }
 
     // 視口中心動態平滑追蹤 + Apple Music 零死區多米諾波浪引擎
-    LaunchedEffect(currentLineIndex, userScrolledAway, lyricsIdentity, songKey) {
+    LaunchedEffect(currentLineIndex, userScrolledAway, lyricsStructureKey, songKey) {
         if (userScrolledAway || lyrics.isEmpty()) {
             return@LaunchedEffect
         }
         val targetIndex = if (currentLineIndex in lyrics.indices) currentLineIndex else 0
-        val isSongChanged = songKey != lastSongKey || lyricsIdentity != lastLyricsIdentity
+        val isSongChanged = songKey != lastSongKey || lyricsStructureKey != lastLyricsStructureKey
 
         if (isSongChanged) {
             lastSongKey = songKey
-            lastLyricsIdentity = lyricsIdentity
+            lastLyricsStructureKey = lyricsStructureKey
             waveState.clearAll()
+            waveState.focalLineIndex = targetIndex
             listState.scrollToItem(targetIndex, scrollOffset = 0)
             return@LaunchedEffect
         }
@@ -411,6 +436,7 @@ fun NowPlayingLyricsContent(
             }
 
             waveState.snapshotResiduals()
+            waveState.focalLineIndex = targetIndex
             waveState.baseDurationMs = dynamicBaseDurationMs
             val totalWaveMs = dynamicBaseDurationMs + MAX_DOMINO_FORWARD_ROWS * (DOMINO_STEP_DELAY_MS + DOMINO_ROW_DURATION_STEP_MS) + DOMINO_SETTLE_TAIL_MS
             waveState.totalDurationMs = totalWaveMs
@@ -549,7 +575,10 @@ fun NowPlayingLyricsContent(
         ) {
             itemsIndexed(
                 items = lyrics,
-                key = { index, line -> "${index}_${line.startTimeMs ?: -1L}" }
+                key = { index, line ->
+                    (index.toLong() shl 42) or ((line.startTimeMs ?: -1L) and 0x3FFFFFFFFFFL)
+                },
+                contentType = { _, line -> if (line.words.isNotEmpty()) 1 else 0 }
             ) { index, line ->
                 val isActive = (index == currentLineIndex)
                 val isFocal = (index == focalIndex)
@@ -727,9 +756,9 @@ fun LyricLineRow(
         isVisuallyActive -> 1.0f
         else -> when (distance) {
             0 -> 1.0f
-            1 -> 0.46f
-            2 -> 0.25f
-            else -> 0.14f
+            1 -> if (isDark) 0.46f else 0.52f
+            2 -> if (isDark) 0.25f else 0.32f
+            else -> if (isDark) 0.14f else 0.20f
         }
     }
 
@@ -820,6 +849,15 @@ fun LyricLineRow(
         else -> if (isTablet) 22.sp else 28.sp
     }
 
+    val rippleColor = if (isDark) {
+        Color.White.copy(alpha = 0.22f)
+    } else {
+        MaterialTheme.colorScheme.primary.copy(alpha = 0.18f)
+    }
+    val rowIndication = remember(rippleColor) {
+        ripple(bounded = true, color = rippleColor)
+    }
+
     Column(
         modifier = Modifier
             .fillMaxWidth()
@@ -886,10 +924,7 @@ fun LyricLineRow(
             )
             .clickable(
                 interactionSource = interactionSource,
-                indication = ripple(
-                    bounded = true,
-                    color = if (isDark) Color.White.copy(alpha = 0.22f) else MaterialTheme.colorScheme.primary.copy(alpha = 0.18f)
-                ),
+                indication = rowIndication,
                 onClick = {
                     try {
                         haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
@@ -1053,6 +1088,21 @@ fun AppleMusicDualLayerLyricLine(
         return
     }
 
+    val textMeasurer = rememberTextMeasurer(cacheSize = 32)
+    val baseLocalStyle = LocalTextStyle.current
+    val wordStyle = remember(baseLocalStyle, fontSize, lineHeight) {
+        baseLocalStyle.merge(
+            TextStyle(
+                color = Color.Unspecified,
+                fontSize = fontSize,
+                fontWeight = FontWeight.Bold,
+                fontFamily = FontFamily.SansSerif,
+                lineHeight = lineHeight,
+                letterSpacing = (-0.5).sp
+            )
+        )
+    }
+
     FlowRow(
         horizontalArrangement = if (isAlignLeft) Arrangement.Start else Arrangement.Center,
         verticalArrangement = Arrangement.Center,
@@ -1065,11 +1115,15 @@ fun AppleMusicDualLayerLyricLine(
                 lyricColor = lyricColor,
                 isActive = isActive,
                 fontSize = fontSize,
-                lineHeight = lineHeight
+                lineHeight = lineHeight,
+                textMeasurer = textMeasurer,
+                wordStyle = wordStyle
             )
         }
     }
 }
+
+private class WordTextLayoutHolder(var result: TextLayoutResult? = null)
 
 @Composable
 private fun DualLayerWordBox(
@@ -1081,86 +1135,62 @@ private fun DualLayerWordBox(
     currentPositionMsProvider: () -> Long,
     lyricColor: Color,
     isActive: Boolean,
-    fontSize: TextUnit,
-    lineHeight: TextUnit,
+    textMeasurer: TextMeasurer,
+    wordStyle: TextStyle,
     modifier: Modifier = Modifier
 ) {
-    val eraseGradientBrush = remember(fadeWidthPx) {
-        Brush.horizontalGradient(
-            colors = listOf(Color.Transparent, Color.White),
-            startX = 0f,
-            endX = fadeWidthPx
-        )
-    }
-
-    Box(modifier = modifier, contentAlignment = Alignment.TopStart) {
-        Text(
-            text = visibleToken,
-            color = if (isActive) lyricColor.copy(alpha = 0.45f) else lyricColor,
-            fontSize = fontSize,
-            fontWeight = FontWeight.Bold,
-            fontFamily = FontFamily.SansSerif,
-            lineHeight = lineHeight,
-            letterSpacing = (-0.5).sp
-        )
-
-        if (isActive) {
-            Text(
+    val mutedColor = remember(lyricColor) { lyricColor.copy(alpha = 0.45f) }
+    val gradientColors = remember(lyricColor, mutedColor) { listOf(lyricColor, mutedColor) }
+    val layoutHolder = remember { WordTextLayoutHolder() }
+    val measurePolicy = remember(visibleToken, wordStyle, textMeasurer, layoutHolder) {
+        MeasurePolicy { _, constraints ->
+            val measured = textMeasurer.measure(
                 text = visibleToken,
-                color = lyricColor,
-                fontSize = fontSize,
-                fontWeight = FontWeight.Bold,
-                fontFamily = FontFamily.SansSerif,
-                lineHeight = lineHeight,
-                letterSpacing = (-0.5).sp,
-                modifier = Modifier
-                    .graphicsLayer {
-                        val now = currentPositionMsProvider()
-                        compositingStrategy = if (now in start until end) {
-                            CompositingStrategy.Offscreen
-                        } else {
-                            CompositingStrategy.Auto
-                        }
-                    }
-                    .drawWithContent {
-                        val now = currentPositionMsProvider()
-                        if (now < start) {
-                            return@drawWithContent
-                        }
-                        if (now >= end) {
-                            drawContent()
-                            return@drawWithContent
-                        }
-
-                        val progress = ((now - start).toFloat() / duration.toFloat()).coerceIn(0f, 1f)
-                        val sweepStart = progress * (size.width + fadeWidthPx) - fadeWidthPx
-                        val sweepEnd = sweepStart + fadeWidthPx
-
-                        drawContent()
-                        clipRect {
-                            if (sweepStart < size.width && sweepEnd > 0f) {
-                                translate(left = sweepStart) {
-                                    drawRect(
-                                        brush = eraseGradientBrush,
-                                        size = Size(fadeWidthPx, size.height),
-                                        blendMode = BlendMode.DstOut
-                                    )
-                                }
-                            }
-                            if (sweepEnd < size.width) {
-                                val tailStart = sweepEnd.coerceAtLeast(0f)
-                                drawRect(
-                                    color = Color.White,
-                                    topLeft = Offset(tailStart, 0f),
-                                    size = Size(size.width - tailStart, size.height),
-                                    blendMode = BlendMode.DstOut
-                                )
-                            }
-                        }
-                    }
+                style = wordStyle,
+                constraints = Constraints(maxWidth = constraints.maxWidth)
             )
+            layoutHolder.result = measured
+            val width = constraints.constrainWidth(measured.size.width)
+            val height = constraints.constrainHeight(measured.size.height)
+            layout(width, height) {}
         }
     }
+
+    Layout(
+        content = {},
+        modifier = modifier.drawBehind {
+            val layoutResult = layoutHolder.result ?: return@drawBehind
+            if (!isActive) {
+                drawText(textLayoutResult = layoutResult, color = lyricColor)
+                return@drawBehind
+            }
+
+            val now = currentPositionMsProvider()
+            when {
+                now < start -> {
+                    drawText(textLayoutResult = layoutResult, color = mutedColor)
+                }
+                now >= end -> {
+                    drawText(textLayoutResult = layoutResult, color = lyricColor)
+                }
+                else -> {
+                    val progress = ((now - start).toFloat() / duration.toFloat()).coerceIn(0f, 1f)
+                    val sweepStart = progress * (size.width + fadeWidthPx) - fadeWidthPx
+                    val sweepEnd = (sweepStart + fadeWidthPx).coerceAtLeast(sweepStart + 1f)
+                    drawText(
+                        textLayoutResult = layoutResult,
+                        brush = Brush.horizontalGradient(
+                            colors = gradientColors,
+                            startX = sweepStart,
+                            endX = sweepEnd,
+                            tileMode = TileMode.Clamp
+                        )
+                    )
+                }
+            }
+        },
+        measurePolicy = measurePolicy
+    )
 }
 
 @Composable
@@ -1170,7 +1200,9 @@ fun AppleMusicWordUnit(
     lyricColor: Color,
     isActive: Boolean = true,
     fontSize: TextUnit = 34.sp,
-    lineHeight: TextUnit = 44.sp
+    lineHeight: TextUnit = 44.sp,
+    textMeasurer: TextMeasurer? = null,
+    wordStyle: TextStyle? = null
 ) {
     val wordText = word.text
     val trimmedWord = wordText.trimEnd()
@@ -1190,6 +1222,22 @@ fun AppleMusicWordUnit(
     }
 
     if (trimmedWord.isNotEmpty()) {
+        val resolvedMeasurer = textMeasurer ?: rememberTextMeasurer(cacheSize = 8)
+        val resolvedStyle = wordStyle ?: run {
+            val baseLocalStyle = LocalTextStyle.current
+            remember(baseLocalStyle, fontSize, lineHeight) {
+                baseLocalStyle.merge(
+                    TextStyle(
+                        color = Color.Unspecified,
+                        fontSize = fontSize,
+                        fontWeight = FontWeight.Bold,
+                        fontFamily = FontFamily.SansSerif,
+                        lineHeight = lineHeight,
+                        letterSpacing = (-0.5).sp
+                    )
+                )
+            }
+        }
         DualLayerWordBox(
             visibleToken = trimmedWord,
             start = start,
@@ -1199,8 +1247,8 @@ fun AppleMusicWordUnit(
             currentPositionMsProvider = currentPositionMsProvider,
             lyricColor = lyricColor,
             isActive = isActive,
-            fontSize = fontSize,
-            lineHeight = lineHeight,
+            textMeasurer = resolvedMeasurer,
+            wordStyle = resolvedStyle,
             modifier = if (spaceGapDp > 0.dp) Modifier.padding(end = spaceGapDp) else Modifier
         )
     } else if (trailingSpace.isNotEmpty()) {

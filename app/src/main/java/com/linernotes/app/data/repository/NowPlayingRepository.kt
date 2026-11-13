@@ -428,7 +428,7 @@ class NowPlayingRepository @Inject constructor(
             prevStart = st
         }
         return if (nextTriggerMs != null) {
-            (((nextTriggerMs - currentPosMs) / playbackSpeed).toLong() + 4L).coerceIn(20L, 450L)
+            (((nextTriggerMs - currentPosMs) / playbackSpeed).toLong() + 4L).coerceIn(5L, 450L)
         } else {
             500L
         }
