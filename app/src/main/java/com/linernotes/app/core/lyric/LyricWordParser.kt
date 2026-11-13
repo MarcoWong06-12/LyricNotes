@@ -17,8 +17,8 @@ object LyricWordParser {
     private val CLEAN_PAREN_TS_REGEX = Regex("""\(\d+,\d+(?:,\d+)?\)""")
     private val CLEAN_ANGLED_TS_REGEX = Regex("""<\d{1,2}:\d{2}(?:\.\d{1,3})?>""")
 
-    // 智能语元匹配：CJK 字符单字切分，欧美/拉丁单词保留词尾空格作为整体单元
-    private val TOKEN_REGEX = Regex("""([\u4e00-\u9fa5\u3040-\u30ff\uac00-\ud7af]|(?:[^\s\u4e00-\u9fa5\u3040-\u30ff\uac00-\ud7af]+\s*))""")
+    // 智能语元匹配：CJK 字符单字切分（保留后随空白以防混排黏连），欧美/拉丁单词保留词尾空格作为整体单元
+    private val TOKEN_REGEX = Regex("""([\u4e00-\u9fa5\u3040-\u30ff\uac00-\ud7af]\s*|(?:[^\s\u4e00-\u9fa5\u3040-\u30ff\uac00-\ud7af]+\s*))""")
 
     /**
      * 清洗行内包含的逐字时间戳标签，还原纯净人眼可读歌词文本
@@ -48,7 +48,8 @@ object LyricWordParser {
             val words = mutableListOf<LyricWord>()
             for (match in parenMatches) {
                 val start = match.groupValues[1].toLongOrNull() ?: startTimeMs
-                val duration = match.groupValues[2].toLongOrNull() ?: 200L
+                val rawDur = match.groupValues[2].toLongOrNull()
+                val duration = if (rawDur == null) 200L else if (rawDur <= 0L) 60L else rawDur
                 val text = match.groupValues[3]
                 if (text.isNotEmpty()) {
                     words.add(LyricWord(text = text, startTimeMs = start, durationMs = duration))
@@ -91,7 +92,7 @@ object LyricWordParser {
                     endTimeMs ?: (wordStart + 400L)
                 }
 
-                val duration = (nextStart - wordStart).coerceIn(80L, 4000L)
+                val duration = (nextStart - wordStart).coerceIn(80L, 8000L)
                 if (text.isNotEmpty()) {
                     words.add(LyricWord(text = text, startTimeMs = wordStart, durationMs = duration))
                 }
@@ -142,12 +143,13 @@ object LyricWordParser {
         }
 
         val totalWeight = weights.sum().coerceAtLeast(0.1f)
+        val minWordDurationMs = minOf(60L, (totalLineDuration / tokens.size).coerceAtLeast(25L))
         val words = mutableListOf<LyricWord>()
         var currentStart = startTimeMs
 
         for (i in tokens.indices) {
             val token = tokens[i]
-            val duration = ((weights[i] / totalWeight) * totalLineDuration).toLong().coerceAtLeast(60L)
+            val duration = ((weights[i] / totalWeight) * totalLineDuration).toLong().coerceAtLeast(minWordDurationMs)
             words.add(
                 LyricWord(
                     text = token,

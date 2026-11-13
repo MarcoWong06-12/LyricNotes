@@ -327,10 +327,11 @@ object AiAnnotationCurator {
     }
 
     private fun findMatchingLine(lines: List<String>, keywords: List<String>): String? {
-        for (line in lines) {
-            val cleanLine = line.replace(PUNCT_CLEAN_REGEX, " ").lowercase()
-            for (kw in keywords) {
-                val cleanKw = kw.replace(PUNCT_CLEAN_REGEX, " ").lowercase().trim()
+        for (kw in keywords) {
+            val cleanKw = kw.replace(PUNCT_CLEAN_REGEX, " ").lowercase().trim()
+            if (cleanKw.isEmpty()) continue
+            for (line in lines) {
+                val cleanLine = line.replace(PUNCT_CLEAN_REGEX, " ").lowercase()
                 if (cleanLine.contains(cleanKw)) {
                     return line.trim()
                 }

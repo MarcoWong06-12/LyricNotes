@@ -249,8 +249,11 @@ class MediaPlaybackSyncService : NotificationListenerService(), MediaControlActi
     private fun inspectAndAttachController(controllers: List<MediaController>?) {
         if (controllers.isNullOrEmpty()) return
 
-        val chosen = controllers.firstOrNull { it.packageName == "com.spotify.music" }
+        val chosen = controllers.firstOrNull {
+            it.packageName == "com.spotify.music" && it.playbackState?.state == PlaybackState.STATE_PLAYING
+        }
             ?: controllers.firstOrNull { it.playbackState?.state == PlaybackState.STATE_PLAYING }
+            ?: controllers.firstOrNull { it.packageName == "com.spotify.music" }
             ?: controllers.firstOrNull()
 
         if (chosen != null && chosen != activeController) {

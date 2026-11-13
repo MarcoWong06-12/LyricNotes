@@ -372,6 +372,7 @@ class ShanlingBluetoothManager @Inject constructor(
             isTrackSwitching = true
             try {
                 // 1. Determine current hardware queue index BEFORE updating _cdState
+                val prevPositionMs = _cdState.value.currentPositionMs
                 val current = if (_cdState.value.currentQueueIndex >= 0) {
                     _cdState.value.currentQueueIndex
                 } else if (fromQueueIndex != null && fromQueueIndex >= 0) {
@@ -409,8 +410,7 @@ class ShanlingBluetoothManager @Inject constructor(
                     } else {
                         // Standard Red Book CD behavior: if current track has played for > 1.5s,
                         // the first PREV resets current track to 00:00, requiring abs(delta) + 1 pulses.
-                        val currentPosMs = _cdState.value.currentPositionMs
-                        val needExtraPulse = currentPosMs > 1500L
+                        val needExtraPulse = prevPositionMs > 1500L
                         val pulses = kotlin.math.abs(delta) + (if (needExtraPulse) 1 else 0)
                         for (i in 0 until pulses) {
                             sendFrame(

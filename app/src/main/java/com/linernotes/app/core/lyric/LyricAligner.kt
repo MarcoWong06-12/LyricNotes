@@ -147,8 +147,9 @@ object LyricAligner {
 
         // 展开单行多时间戳 (如 [00:10.00][01:10.00] 唱词)，并按时间轴重排保证时间单调递增
         val expandedOriginal = expandMultiTimestampLines(cleanOriginal)
+        val expandedTranslated = expandMultiTimestampLines(safeTranslated)
         val rawOrigLines = expandedOriginal.lines()
-        val rawTransLines = safeTranslated.lines()
+        val rawTransLines = expandedTranslated.lines()
 
         val origLines = rawOrigLines.map { cleanLine(it) }
         val transLines = rawTransLines.map { cleanLine(it) }
@@ -239,7 +240,14 @@ object LyricAligner {
                 emptyMap()
             }
 
-            if (anchorMap.size >= (timedTransCount * 0.65f).toInt().coerceAtLeast(1)) {
+            val isEqualCountDrifted = nonBlankOrig.size == nonBlankTrans.size &&
+                hasReliableTransTimestamps &&
+                anchorMap.size < nonBlankOrig.size &&
+                hasConsistentTimestampDrift(nonBlankOrig, nonBlankTrans)
+
+            val requiredAnchors = kotlin.math.ceil(timedTransCount * 0.65).toInt().coerceAtLeast(1)
+
+            if (!isEqualCountDrifted && anchorMap.size >= requiredAnchors) {
                 // 毫秒级时间戳锚定通道 (Timestamp-Anchored Alignment)：
                 // 当译文携带有效时间标签时（如双轨 LRC 或带时间戳的 AI 译文），直接按时间戳最近邻 + 前瞻防抢占锁死对应行，
                 // 即使部分语气词/伴奏行没有译文导致行数不等，也绝不会发生跨行错位！
@@ -248,7 +256,7 @@ object LyricAligner {
                 }
             } else if (nonBlankOrig.size == nonBlankTrans.size) {
                 // 黄金对齐通道 (1:1 顺序映射)：
-                // 当双方非空唱词行数一致时（无时间戳纯文本逐行翻译场景），直接进行 1:1 单调对齐。
+                // 当双方非空唱词行数一致时（无时间戳纯文本逐行翻译，或存在平台整体时间偏移漂移），直接进行 1:1 单调对齐。
                 for (k in nonBlankOrig.indices) {
                     val origIdx = nonBlankOrig[k].index
                     matchedTrans[origIdx] = nonBlankTrans[k].text
@@ -257,7 +265,16 @@ object LyricAligner {
                 // 动态规划序列对齐 (Needleman-Wunsch / Monotonic Sequence Alignment)：
                 // 支持行数不完全一致（如原歌词有伴奏重复句，或译文合并/拆分行），
                 // 综合时间戳邻近度与全曲相对进度百分比，寻找全局单调递增最优解，彻底消除多米诺骨牌式错位！
-                val matchMap = alignSequencesDP(nonBlankOrig, nonBlankTrans)
+                val dpMatch = alignSequencesDP(nonBlankOrig, nonBlankTrans, useTimestamps = true)
+                val matchMap = if (
+                    dpMatch.size < kotlin.math.ceil(nonBlankTrans.size * 0.35).toInt().coerceAtLeast(1) &&
+                    nonBlankOrig.size >= 2 && nonBlankTrans.size >= 2
+                ) {
+                    // 若平台整体时间偏移超过 650ms 导致 DP 误删绝大多数译文，退化为纯序列进度单调对齐
+                    alignSequencesDP(nonBlankOrig, nonBlankTrans, useTimestamps = false)
+                } else {
+                    dpMatch
+                }
                 for ((origIdx, transText) in matchMap) {
                     matchedTrans[origIdx] = transText
                 }
@@ -350,13 +367,35 @@ object LyricAligner {
     }
 
     /**
+     * 判断等行数双语歌词是否存在平台间一致的整体时间偏移（如第三方 LRC 全体延后 2~3 秒），
+     * 避免偶然邻近行 (<650ms) 抢占导致整首逐行错位。
+     */
+    private fun hasConsistentTimestampDrift(
+        origList: List<AlignIndexedLine>,
+        transList: List<AlignIndexedLine>
+    ): Boolean {
+        if (origList.size != transList.size || origList.isEmpty()) return false
+        val signedShifts = origList.indices.mapNotNull { k ->
+            val ot = origList[k].timeMs
+            val tt = transList[k].timeMs
+            if (ot != null && tt != null) tt - ot else null
+        }.sorted()
+        if (signedShifts.size < (origList.size + 1) / 2) return false
+        val medianShift = signedShifts[signedShifts.size / 2]
+        if (kotlin.math.abs(medianShift) <= 650L) return false
+        val consistentCount = signedShifts.count { kotlin.math.abs(it - medianShift) <= 650L }
+        return consistentCount >= kotlin.math.ceil(signedShifts.size * 0.70).toInt()
+    }
+
+    /**
      * 单调递增序列动态规划对齐引擎：
      * 针对原歌词与翻译行数不完全一致的边界场景，在时间戳差值与全篇相对进度双重惩罚约束下，
      * 求解全局代价最小的单调匹配路径，绝不倒退、绝不交错。
      */
     private fun alignSequencesDP(
         origList: List<AlignIndexedLine>,
-        transList: List<AlignIndexedLine>
+        transList: List<AlignIndexedLine>,
+        useTimestamps: Boolean = true
     ): Map<Int, String> {
         val n = origList.size
         val m = transList.size
@@ -397,7 +436,7 @@ object LyricAligner {
                     val ot = origList[i - 1].timeMs
                     val tt = transList[j - 1].timeMs
 
-                    val timeCost = if (ot != null && tt != null) {
+                    val timeCost = if (useTimestamps && ot != null && tt != null) {
                         val absDiff = kotlin.math.abs(ot - tt)
                         // 若双方均有时间戳且偏差超过 650ms，施加 > 2 倍跳过代价 (1100f+) 的重罚，
                         // 迫使 DP 跳过无译文行而非强行挪用下一句译文！
@@ -474,13 +513,21 @@ object LyricAligner {
         }
         if (!hasMulti) return lrc
 
-        val timed = mutableListOf<Pair<Long?, String>>()
-        for (line in result) {
+        data class SortEntry(val sortMs: Long, val originalOrder: Int, val line: String)
+        val entries = ArrayList<SortEntry>(result.size)
+        var lastTimeMs = -1L
+        for ((idx, line) in result.withIndex()) {
             val time = extractTimestampMs(line)
-            timed.add(time to line)
+            if (time != null) {
+                lastTimeMs = time
+                entries.add(SortEntry(time, idx, line))
+            } else {
+                // 将空行/段落分隔保持在紧邻前一句的时间之后，避免全部被排到文件末尾
+                entries.add(SortEntry(if (lastTimeMs >= 0L) lastTimeMs else Long.MAX_VALUE, idx, line))
+            }
         }
-        val sorted = timed.sortedWith(compareBy(nullsLast()) { it.first })
-        return sorted.joinToString("\n") { it.second }
+        val sorted = entries.sortedWith(compareBy<SortEntry>({ it.sortMs }, { it.originalOrder }))
+        return sorted.joinToString("\n") { it.line }
     }
 
     private fun splitIntoParagraphs(lines: List<String>): List<List<String>> {

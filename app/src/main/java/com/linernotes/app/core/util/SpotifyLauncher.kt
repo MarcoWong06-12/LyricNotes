@@ -66,10 +66,12 @@ object SpotifyLauncher {
                 }
                 context.startActivity(playStoreWebIntent)
             } catch (_: Exception) {
-                val webIntent = Intent(Intent.ACTION_VIEW, Uri.parse("https://open.spotify.com")).apply {
-                    addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-                }
-                context.startActivity(webIntent)
+                try {
+                    val webIntent = Intent(Intent.ACTION_VIEW, Uri.parse("https://open.spotify.com")).apply {
+                        addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                    }
+                    context.startActivity(webIntent)
+                } catch (_: Exception) {}
             }
         }
     }

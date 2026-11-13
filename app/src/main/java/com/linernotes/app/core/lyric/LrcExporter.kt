@@ -14,24 +14,26 @@ object LrcExporter {
     ): String {
         val builder = StringBuilder()
 
-        title?.let { builder.append("[ti:$it]\n") }
-        artist?.let { builder.append("[ar:$it]\n") }
-        album?.let { builder.append("[al:$it]\n") }
+        title?.takeIf { it.isNotBlank() }?.let { builder.append("[ti:${it.trim()}]\n") }
+        artist?.takeIf { it.isNotBlank() }?.let { builder.append("[ar:${it.trim()}]\n") }
+        album?.takeIf { it.isNotBlank() }?.let { builder.append("[al:${it.trim()}]\n") }
 
         lines.forEach { line ->
+            val cleanOriginal = line.original.replace('\r', ' ').replace('\n', ' ')
+            val cleanTranslation = line.translation.replace('\r', ' ').replace('\n', ' ')
             val timestamp = line.startTimeMs
             if (timestamp != null) {
                 val adjustedTimestamp = (timestamp + offsetMs).coerceAtLeast(0L)
                 val timeStr = formatTimestamp(adjustedTimestamp)
                 
-                builder.append("[$timeStr]${line.original}\n")
-                if (line.translation.isNotBlank()) {
-                    builder.append("[$timeStr]${line.translation}\n")
+                builder.append("[$timeStr]$cleanOriginal\n")
+                if (cleanTranslation.isNotBlank()) {
+                    builder.append("[$timeStr]$cleanTranslation\n")
                 }
             } else {
-                builder.append("${line.original}\n")
-                if (line.translation.isNotBlank()) {
-                    builder.append("${line.translation}\n")
+                builder.append("$cleanOriginal\n")
+                if (cleanTranslation.isNotBlank()) {
+                    builder.append("$cleanTranslation\n")
                 }
             }
         }

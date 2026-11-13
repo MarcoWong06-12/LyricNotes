@@ -134,9 +134,9 @@ object LinerNotesHttpClient {
 
                 call.enqueue(object : Callback {
                     override fun onResponse(call: Call, response: Response) {
-                        if (!continuation.isActive) return
                         try {
                             response.use { res ->
+                                if (!continuation.isActive) return
                                 val body = if (res.isSuccessful) res.body?.string() else null
                                 if (continuation.isActive) {
                                     continuation.resume(body)
@@ -199,9 +199,9 @@ object LinerNotesHttpClient {
 
             call.enqueue(object : Callback {
                 override fun onResponse(call: Call, response: Response) {
-                    if (!continuation.isActive) return
                     try {
                         response.use { res ->
+                            if (!continuation.isActive) return
                             val body = if (res.isSuccessful) res.body?.string() else null
                             if (continuation.isActive) {
                                 continuation.resume(body)

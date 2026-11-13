@@ -215,6 +215,7 @@ object LyricFragmentMatcher {
         if (candidate.isVerified && !current.isVerified) return true
         if (!candidate.isVerified && current.isVerified) return false
         if (candidateScore > currentScore + 0.15f) return true
+        if (currentScore > candidateScore + 0.15f) return false
         if (candidate.votesTotal > current.votesTotal + 10) return true
         return candidateScore > currentScore
     }

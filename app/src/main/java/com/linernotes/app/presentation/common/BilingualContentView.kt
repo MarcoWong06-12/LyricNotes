@@ -96,7 +96,10 @@ fun BilingualContentView(
         else translatedText
     }
 
-    val hasTranslation = !effectiveTranslation.isNullOrBlank() && (isAlreadyChinese || Regex("""[\u4e00-\u9fa5]""").containsMatchIn(effectiveTranslation))
+    val hasTranslation = !effectiveTranslation.isNullOrBlank() && (
+        isAlreadyChinese ||
+            (effectiveTranslation.trim() != originalText.trim() && effectiveTranslation.any { it.isLetterOrDigit() })
+    )
 
     var selectedTab by remember(originalText, hasTranslation) {
         mutableStateOf(if (hasTranslation) BilingualDisplayTab.PARALLEL else BilingualDisplayTab.ORIGINAL)

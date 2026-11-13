@@ -1,5 +1,6 @@
 package com.linernotes.app.presentation.common
 
+import android.graphics.Bitmap
 import android.os.Build
 import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.CubicBezierEasing
@@ -24,7 +25,6 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.blur
 import androidx.compose.ui.draw.drawWithCache
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
@@ -38,6 +38,8 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import coil.compose.AsyncImage
 import coil.request.ImageRequest
+import coil.size.Size as CoilSize
+import coil.transform.Transformation
 import com.linernotes.app.core.util.AlbumColorExtractor
 
 private val SineEaseInOut = CubicBezierEasing(0.37f, 0.0f, 0.63f, 1.0f)
@@ -270,6 +272,8 @@ fun AmbientGlowBackground(
                     ImageRequest.Builder(context)
                         .data(coverUrl)
                         .size(72, 72)
+                        .allowHardware(false)
+                        .transformations(AuroraThumbnailBlurTransformation)
                         .crossfade(false)
                         .build()
                 }
@@ -288,11 +292,6 @@ fun AmbientGlowBackground(
                             scaleX = 1.45f
                             scaleY = 1.45f
                         }
-                        .then(
-                            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
-                                Modifier.blur(20.dp)
-                            } else Modifier
-                        )
                 )
             }
 
@@ -489,4 +488,94 @@ private fun AuroraOrbsLayer(
             }
         }
     )
+}
+
+/**
+ * 72x72 極光縮圖後台一次性多輪 Box Blur，完全消除 UI 主線程 / RenderThread 全螢幕 20dp 高斯模糊開銷。
+ */
+private object AuroraThumbnailBlurTransformation : Transformation {
+    override val cacheKey: String = "aurora_thumbnail_blur_r6_p3"
+
+    override suspend fun transform(input: Bitmap, size: CoilSize): Bitmap {
+        val w = input.width
+        val h = input.height
+        if (w <= 1 || h <= 1) return input
+
+        val readable = if (input.config == Bitmap.Config.ARGB_8888) {
+            input
+        } else {
+            input.copy(Bitmap.Config.ARGB_8888, false)
+        }
+        val pixels = IntArray(w * h)
+        readable.getPixels(pixels, 0, w, 0, 0, w, h)
+        if (readable !== input) {
+            readable.recycle()
+        }
+
+        val temp = IntArray(w * h)
+        val radius = 6.coerceAtMost(minOf(w, h) / 2).coerceAtLeast(1)
+        val div = radius * 2 + 1
+
+        repeat(3) {
+            // Horizontal pass
+            for (y in 0 until h) {
+                val rowOff = y * w
+                var aSum = 0
+                var rSum = 0
+                var gSum = 0
+                var bSum = 0
+                for (dx in -radius..radius) {
+                    val c = pixels[rowOff + dx.coerceIn(0, w - 1)]
+                    aSum += (c ushr 24) and 0xFF
+                    rSum += (c ushr 16) and 0xFF
+                    gSum += (c ushr 8) and 0xFF
+                    bSum += c and 0xFF
+                }
+                for (x in 0 until w) {
+                    temp[rowOff + x] = ((aSum / div) shl 24) or
+                        ((rSum / div) shl 16) or
+                        ((gSum / div) shl 8) or
+                        (bSum / div)
+                    val remIdx = (x - radius).coerceIn(0, w - 1)
+                    val addIdx = (x + radius + 1).coerceIn(0, w - 1)
+                    val cRem = pixels[rowOff + remIdx]
+                    val cAdd = pixels[rowOff + addIdx]
+                    aSum += ((cAdd ushr 24) and 0xFF) - ((cRem ushr 24) and 0xFF)
+                    rSum += ((cAdd ushr 16) and 0xFF) - ((cRem ushr 16) and 0xFF)
+                    gSum += ((cAdd ushr 8) and 0xFF) - ((cRem ushr 8) and 0xFF)
+                    bSum += (cAdd and 0xFF) - (cRem and 0xFF)
+                }
+            }
+            // Vertical pass
+            for (x in 0 until w) {
+                var aSum = 0
+                var rSum = 0
+                var gSum = 0
+                var bSum = 0
+                for (dy in -radius..radius) {
+                    val c = temp[dy.coerceIn(0, h - 1) * w + x]
+                    aSum += (c ushr 24) and 0xFF
+                    rSum += (c ushr 16) and 0xFF
+                    gSum += (c ushr 8) and 0xFF
+                    bSum += c and 0xFF
+                }
+                for (y in 0 until h) {
+                    pixels[y * w + x] = ((aSum / div) shl 24) or
+                        ((rSum / div) shl 16) or
+                        ((gSum / div) shl 8) or
+                        (bSum / div)
+                    val remY = (y - radius).coerceIn(0, h - 1)
+                    val addY = (y + radius + 1).coerceIn(0, h - 1)
+                    val cRem = temp[remY * w + x]
+                    val cAdd = temp[addY * w + x]
+                    aSum += ((cAdd ushr 24) and 0xFF) - ((cRem ushr 24) and 0xFF)
+                    rSum += ((cAdd ushr 16) and 0xFF) - ((cRem ushr 16) and 0xFF)
+                    gSum += ((cAdd ushr 8) and 0xFF) - ((cRem ushr 8) and 0xFF)
+                    bSum += (cAdd and 0xFF) - (cRem and 0xFF)
+                }
+            }
+        }
+
+        return Bitmap.createBitmap(pixels, w, h, Bitmap.Config.ARGB_8888)
+    }
 }

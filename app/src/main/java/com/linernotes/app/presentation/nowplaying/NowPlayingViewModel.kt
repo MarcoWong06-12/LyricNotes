@@ -371,13 +371,24 @@ class NowPlayingViewModel @Inject constructor(
         }
     }
 
+    private fun matchesExpectedTargetScript(text: String, targetIso: String): Boolean {
+        return when {
+            targetIso.startsWith("zh", ignoreCase = true) -> CJK_REGEX.containsMatchIn(text)
+            targetIso.equals("ja", ignoreCase = true) -> JA_SCRIPT_REGEX.containsMatchIn(text)
+            targetIso.equals("ko", ignoreCase = true) -> KO_SCRIPT_REGEX.containsMatchIn(text)
+            else -> text.any { it.isLetter() }
+        }
+    }
+
     private fun isTranslationNeeded(original: String, translation: String?): Boolean {
-        if (original.isBlank() || AiAnnotationCurator.isAlreadyChinese(original)) return false
+        val targetIso = TranslationTargetLanguage.fromCode(aiPreferences.targetLanguage).fallbackIso
+        val isChineseTarget = targetIso.startsWith("zh", ignoreCase = true)
+        if (original.isBlank() || (isChineseTarget && AiAnnotationCurator.isAlreadyChinese(original))) return false
         if (translation.isNullOrBlank()) return true
         val cleanOrig = original.trim()
         val cleanTrans = translation.trim()
         if (cleanOrig.equals(cleanTrans, ignoreCase = true)) return true
-        if (!CJK_REGEX.containsMatchIn(cleanTrans)) return true
+        if (!matchesExpectedTargetScript(cleanTrans, targetIso)) return true
         val origParas = cleanOrig.split(PARA_SPLIT_REGEX).filter { it.isNotBlank() }
         val transParas = cleanTrans.split(PARA_SPLIT_REGEX).filter { it.isNotBlank() }
         if (origParas.size > 1 && transParas.size < origParas.size) return true
@@ -385,17 +396,22 @@ class NowPlayingViewModel @Inject constructor(
         // 检查末尾段落是否疑似被截断吞句 (例如原文长段但译文畸短如“这条线”、“但这并不是全部”)
         val lastOrig = origParas.lastOrNull() ?: ""
         val lastTrans = transParas.lastOrNull() ?: ""
-        if (lastOrig.length >= 35 && lastTrans.length < 12) return true
-        if (lastOrig.length >= 70 && lastTrans.length < 22) return true
-        if (lastOrig.length >= 120 && lastTrans.length < (lastOrig.length * 0.16).toInt()) return true
+        if (isChineseTarget) {
+            if (lastOrig.length >= 35 && lastTrans.length < 12) return true
+            if (lastOrig.length >= 70 && lastTrans.length < 22) return true
+            if (lastOrig.length >= 120 && lastTrans.length < (lastOrig.length * 0.16).toInt()) return true
+        }
 
         return false
     }
 
     fun openGeniusAnnotation(annotation: LyricAnnotationEntity) {
         annotationTransJob?.cancel()
+        val targetIso = TranslationTargetLanguage.fromCode(aiPreferences.targetLanguage).fallbackIso
+        val isChineseTarget = targetIso.startsWith("zh", ignoreCase = true)
         val needsExplanationTrans = isTranslationNeeded(annotation.explanationText, annotation.explanationTranslation)
-        val needsLyricTrans = annotation.lyricTranslation.isNullOrBlank() && !AiAnnotationCurator.isAlreadyChinese(annotation.lyricFragment)
+        val needsLyricTrans = annotation.lyricTranslation.isNullOrBlank() &&
+            !(isChineseTarget && AiAnnotationCurator.isAlreadyChinese(annotation.lyricFragment))
         val needsTrans = needsExplanationTrans || needsLyricTrans
 
         _uiState.update {
@@ -681,7 +697,9 @@ class NowPlayingViewModel @Inject constructor(
     }
 
     companion object {
-        private val CJK_REGEX = Regex("""[\u4e00-\u9fa5]""")
+        private val CJK_REGEX = Regex("""[\u4e00-\u9fff]""")
+        private val JA_SCRIPT_REGEX = Regex("""[\u3040-\u30ff\u4e00-\u9fff]""")
+        private val KO_SCRIPT_REGEX = Regex("""[\uac00-\ud7af]""")
         private val PARA_SPLIT_REGEX = Regex("""(?:\r?\n\s*){2,}""")
     }
 }

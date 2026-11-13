@@ -46,6 +46,12 @@ class SpotifyBroadcastReceiver : BroadcastReceiver() {
             }
             ACTION_PLAYBACK_STATE_CHANGED -> {
                 val playing = intent.getBooleanExtra("playing", false)
+                val isSpotifyActiveSource = current.packageName == "com.spotify.music" ||
+                    current.sourceApp == MediaSourceApp.SPOTIFY ||
+                    current.title.isBlank()
+                if (!isSpotifyActiveSource && (!playing || current.isPlaying)) {
+                    return
+                }
                 val position = intent.getIntExtra("playbackPosition", -1).takeIf { it >= 0 }?.toLong()
                     ?: intent.getLongExtra("playbackPosition", -1L).takeIf { it >= 0L }
                     ?: current.currentPositionMs

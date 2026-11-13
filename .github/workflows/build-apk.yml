@@ -42,18 +42,14 @@ jobs:
             exit 1
           }
 
-      - name: Run Wave 3 Affected Unit Tests
+      - name: Run All Unit Tests
         run: |
-          gradle :app:testDebugUnitTest \
-            --tests "com.linernotes.app.data.remote.ManualLyricCandidateTest" \
-            --tests "com.linernotes.app.core.lyric.LyricWordParserTest" \
-            --tests "com.linernotes.app.data.repository.AnnotationRepositoryTest" \
-            --stacktrace >> build.log 2>&1 || {
-            grep -E "FAILED$" build.log | head -n 20 | while IFS= read -r line; do
+          gradle :app:testDebugUnitTest --continue --stacktrace >> build.log 2>&1 || {
+            grep -E "FAILED$" build.log | head -n 40 | while IFS= read -r line; do
               clean=$(echo "$line" | tr -d '\r')
               [ -n "$clean" ] && echo "::error title=FailedTest::$clean"
             done
-            grep -n -B 1 -A 2 -E "<(failure|error)" app/build/test-results/testDebugUnitTest/TEST-*.xml 2>/dev/null | head -n 30 | while IFS= read -r line; do
+            grep -n -B 1 -A 2 -E "<(failure|error)" app/build/test-results/testDebugUnitTest/TEST-*.xml 2>/dev/null | head -n 60 | while IFS= read -r line; do
               clean=$(echo "$line" | tr -d '\r')
               [ -n "$clean" ] && echo "::error title=UnitTest::$clean"
             done

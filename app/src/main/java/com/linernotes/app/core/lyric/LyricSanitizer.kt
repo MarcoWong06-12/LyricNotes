@@ -55,10 +55,10 @@ object LyricSanitizer {
     )
 
     private val RADIO_CLEAN_DETECTION_REGEX = Regex(
-        """(?i)\b(?:little\s+sucker|mother\s+trucker|mother\s+sucker|shut\s+the\s+freak\s+up|what\s+the\s+freak|give\s+a\s+freak|don['’]?t\s+embarrass\s+me[\s,]+(?:little|little\s+sucker))\b"""
+        """(?i)\b(?:little\s+sucker|mother\s+trucker|mother\s+sucker|monster\s+monster|brother\s+brother|(?:what|who|where|how|why)\s+the\s+freak|shut\s+the\s+freak\s+up|get\s+the\s+freak\s+out|(?:don['’]?t\s+)?give\s+a\s+freak|as\s+freak|don['’]?t\s+embarrass\s+me[\s,]+(?:little\s+sucker|little(?!\s+(?:girl|boy|man|woman|one|kid|thing|bit))))\b"""
     )
 
-    private val CENSOR_CHECK_REGEX = Regex("""[a-zA-Z]*\*+[a-zA-Z]*|\*{2,}""")
+    private val CENSOR_CHECK_REGEX = Regex("""(?<![\w*])(?:[a-zA-Z]+\*{2,}[a-zA-Z]*|[a-zA-Z]+\*[a-zA-Z]+|\*{2,}[a-zA-Z]*)(?![\w*])""")
     private val WORD_TOKEN_REGEX = Regex("""[\w'’*]+""")
     private val TIMESTAMP_REGEX = Regex("""\[\d{1,2}:\d{2}(?:\.\d{1,3})?\]""")
 
@@ -85,8 +85,8 @@ object LyricSanitizer {
      */
     private val COMMON_PHRASE_RULES = listOf(
         // Sabrina Carpenter - Please Please Please 及流行副歌惯用语
-        Regex("""(?i)\bdon['’]?t\s+embarrass\s+me[\s,]*(?:mother\*+ers?|mother\s*trucker|little\s+sucker|little|\*+)""") to "don't embarrass me, motherfucker",
-        Regex("""(?i)\bembarrass\s+me[\s,]*(?:mother\*+ers?|mother\s*trucker|little\s+sucker|little|\*+)""") to "embarrass me, motherfucker",
+        Regex("""(?i)\bdon['’]?t\s+embarrass\s+me[\s,]*(?:mother\*+ers?|mother\s*trucker|little\s+sucker|little(?!\s+(?:girl|boy|man|woman|one|kid|thing|bit))|\*+)""") to "don't embarrass me, motherfucker",
+        Regex("""(?i)\bembarrass\s+me[\s,]*(?:mother\*+ers?|mother\s*trucker|little\s+sucker|little(?!\s+(?:girl|boy|man|woman|one|kid|thing|bit))|\*+)""") to "embarrass me, motherfucker",
 
         // Motherfucker 各类掩码与变体全覆盖
         Regex("""(?i)\bmother\s*\*+ers\b""") to "motherfuckers",
@@ -105,7 +105,7 @@ object LyricSanitizer {
         Regex("""(?i)\bK\s*Dot\s+back\s+in\s+the\s+hood[\s,]*(?<!\*)\*{4,6}(?!\*)""") to "K Dot back in the hood nigga",
         Regex("""(?i)\bwhere\s+you\s+when\s+I\s+was\s+walkin['’]?[\s,]*(?<!\*)\*{4,6}(?!\*)""") to "where you when I was walkin' bitch",
 
-        // 通用英语俗语与 Hip-Hop 惯用短语 - Bitch / Fuck / Shit 动宾搭配
+        // 通用高置信多词俗语
         Regex("""(?i)\blife['’]?s\s+a\s+(?<!\*)\*{4,6}(?!\*)""") to "life's a bitch",
         Regex("""(?i)\bson\s+of\s+a\s+(?<!\*)\*{4,6}(?!\*)""") to "son of a bitch",
         Regex("""(?i)\bain['’]?t\s+that\s+a\s+(?<!\*)\*{4,6}(?!\*)""") to "ain't that a bitch",
@@ -120,7 +120,6 @@ object LyricSanitizer {
         Regex("""(?i)\bdon['’]?t\s+give\s+a\s+(?<!\*)\*{4}(?!\*)""") to "don't give a fuck",
         Regex("""(?i)\bgive\s+two\s+(?<!\*)\*{4,6}s?(?!\*)""") to "give two fucks",
 
-        // "that shit" 及其衍生的各类动宾短语 (极其高频，如 Drake Family Matters: "get that shit down")
         Regex("""(?i)\bget\s+that\s+(?<!\*)\*{4}(?!\*)""") to "get that shit",
         Regex("""(?i)\bget\s+this\s+(?<!\*)\*{4}(?!\*)""") to "get this shit",
         Regex("""(?i)\btalk(?:ing)?\s+that\s+(?<!\*)\*{4}(?!\*)""") to "talk that shit",
@@ -129,32 +128,17 @@ object LyricSanitizer {
         Regex("""(?i)\bplay\s+that\s+(?<!\*)\*{4}(?!\*)""") to "play that shit",
         Regex("""(?i)\bstop\s+that\s+(?<!\*)\*{4}(?!\*)""") to "stop that shit",
         Regex("""(?i)\bwith\s+that\s+(?<!\*)\*{4}(?!\*)""") to "with that shit",
-        Regex("""(?i)\bwith\s+this\s+(?<!\*)\*{4}(?!\*)""") to "with this shit",
-        Regex("""(?i)\bon\s+that\s+(?<!\*)\*{4}(?!\*)""") to "on that shit",
-        Regex("""(?i)\bon\s+this\s+(?<!\*)\*{4}(?!\*)""") to "on this shit",
-        Regex("""(?i)\ball\s+that\s+(?<!\*)\*{4}(?!\*)""") to "all that shit",
-        Regex("""(?i)\ball\s+this\s+(?<!\*)\*{4}(?!\*)""") to "all this shit",
-        Regex("""(?i)\bthat\s+(?<!\*)\*{4}(?!\*)""") to "that shit",
-        Regex("""(?i)\bthis\s+(?<!\*)\*{4}(?!\*)""") to "this shit",
-        Regex("""(?i)\bsome\s+(?<!\*)\*{4}(?!\*)""") to "some shit",
-        Regex("""(?i)\bon\s+some\s+(?<!\*)\*{4}(?!\*)""") to "on some shit",
-
         Regex("""(?i)\bholy\s+(?<!\*)\*{4}(?!\*)""") to "holy shit",
         Regex("""(?i)\boh\s+(?<!\*)\*{4}(?!\*)""") to "oh shit",
         Regex("""(?i)\bpiece\s+of\s+(?<!\*)\*{4}(?!\*)""") to "piece of shit",
         Regex("""(?i)\bfull\s+of\s+(?<!\*)\*{4}(?!\*)""") to "full of shit",
         Regex("""(?i)\bsame\s+old\s+(?<!\*)\*{4}(?!\*)""") to "same old shit",
-        Regex("""(?i)\bsame\s+(?<!\*)\*{4}(?!\*)""") to "same shit",
         Regex("""(?i)\bdeep\s+(?<!\*)\*{4}(?!\*)""") to "deep shit",
         Regex("""(?i)\btake\s+a\s+(?<!\*)\*{4}(?!\*)""") to "take a shit",
-        Regex("""(?i)\breal\s+(?<!\*)\*{4}(?!\*)""") to "real shit",
         Regex("""(?i)\bno\s+(?<!\*)\*{4}(?!\*)""") to "no shit",
         Regex("""(?i)\bain['’]?t\s+(?<!\*)\*{4}(?!\*)""") to "ain't shit",
         Regex("""(?i)\bain['’]?t\s+on\s+(?<!\*)\*{4}(?!\*)""") to "ain't on shit",
         Regex("""(?i)\bfeel\s+like\s+(?<!\*)\*{4}(?!\*)""") to "feel like shit",
-        Regex("""(?i)\blike\s+(?<!\*)\*{4}(?!\*)""") to "like shit",
-        Regex("""(?i)\beat\s+(?<!\*)\*{4}(?!\*)""") to "eat shit",
-        Regex("""(?i)\bworth\s+(?<!\*)\*{4}(?!\*)""") to "worth shit",
         Regex("""(?i)\bworth\s+a\s+(?<!\*)\*{4}(?!\*)""") to "worth a shit",
 
         Regex("""(?i)\bkiss\s+my\s+(?<!\*)\*{3}(?!\*)""") to "kiss my ass",
@@ -166,8 +150,6 @@ object LyricSanitizer {
         Regex("""(?i)\blame\s+(?<!\*)\*{3}(?!\*)""") to "lame ass",
         Regex("""(?i)\bbitch\s+(?<!\*)\*{3}(?!\*)""") to "bitch ass",
         Regex("""(?i)\bfat\s+(?<!\*)\*{3}(?!\*)""") to "fat ass",
-        Regex("""(?i)\bmy\s+(?<!\*)\*{4,6}(?!\*)""") to "my nigga",
-        Regex("""(?i)\bmy\s+(?<!\*)\*{6,7}(?!\*)""") to "my niggas",
         Regex("""(?i)\ball\s+my\s+(?<!\*)\*{6,7}(?!\*)""") to "all my niggas",
         Regex("""(?i)\breal\s+(?<!\*)\*{5,6}(?!\*)""") to "real nigga",
         Regex("""(?i)\breal\s+(?<!\*)\*{6,7}(?!\*)""") to "real niggas",
@@ -182,9 +164,43 @@ object LyricSanitizer {
         Regex("""(?i)(?<!\*)\*{4}\s+with\b""") to "fuck with",
         Regex("""(?i)(?<!\*)\*{4}\s+up\b""") to "fuck up",
         Regex("""(?i)(?<!\*)\*{4}\s+no\b""") to "fuck no",
-        Regex("""(?i)(?<!\*)\*{4}\s+yeah\b""") to "fuck yeah",
+        Regex("""(?i)(?<!\*)\*{4}\s+yeah\b""") to "fuck yeah"
+    )
+
+    /**
+     * 低特异度双词短语兜底（必须在参考行与译文线索之后执行，避免 "this ****" / "that ****" 在有译文明确指向 fuck 时被过早强转 shit）
+     */
+    private val WEAK_CONTEXT_PHRASE_RULES = listOf(
+        Regex("""(?i)\bwith\s+this\s+(?<!\*)\*{4}(?!\*)""") to "with this shit",
+        Regex("""(?i)\bon\s+that\s+(?<!\*)\*{4}(?!\*)""") to "on that shit",
+        Regex("""(?i)\bon\s+this\s+(?<!\*)\*{4}(?!\*)""") to "on this shit",
+        Regex("""(?i)\ball\s+that\s+(?<!\*)\*{4}(?!\*)""") to "all that shit",
+        Regex("""(?i)\ball\s+this\s+(?<!\*)\*{4}(?!\*)""") to "all this shit",
+        Regex("""(?i)\bon\s+some\s+(?<!\*)\*{4}(?!\*)""") to "on some shit",
+        Regex("""(?i)\bthat\s+(?<!\*)\*{4}(?!\*)""") to "that shit",
+        Regex("""(?i)\bthis\s+(?<!\*)\*{4}(?!\*)""") to "this shit",
+        Regex("""(?i)\bsome\s+(?<!\*)\*{4}(?!\*)""") to "some shit",
+        Regex("""(?i)\bsame\s+(?<!\*)\*{4}(?!\*)""") to "same shit",
+        Regex("""(?i)\breal\s+(?<!\*)\*{4}(?!\*)""") to "real shit",
+        Regex("""(?i)\blike\s+(?<!\*)\*{4}(?!\*)""") to "like shit",
+        Regex("""(?i)\beat\s+(?<!\*)\*{4}(?!\*)""") to "eat shit",
+        Regex("""(?i)\bworth\s+(?<!\*)\*{4}(?!\*)""") to "worth shit",
+        Regex("""(?i)\bmy\s+(?<!\*)\*{6,7}(?!\*)""") to "my niggas",
+        Regex("""(?i)\bmy\s+(?<!\*)\*{4,5}(?!\*)""") to "my nigga",
         Regex("""(?i)\bas\s+(?<!\*)\*{4}(?!\*)""") to "as fuck"
     )
+
+    private fun replacePhrasePreservingCase(input: String, regex: Regex, replacement: String): String {
+        return regex.replace(input) { match ->
+            val matched = match.value
+            val letters = matched.filter { it.isLetter() }
+            when {
+                letters.isNotEmpty() && letters.all { it.isUpperCase() } -> replacement.uppercase()
+                matched.firstOrNull()?.isUpperCase() == true -> replacement.replaceFirstChar { it.uppercase() }
+                else -> replacement
+            }
+        }
+    }
 
     private fun preserveCase(template: String, word: String): String {
         val letters = template.filter { it.isLetter() }
@@ -203,10 +219,9 @@ object LyricSanitizer {
         if (!token.contains('*')) return null
         val letters = token.filter { it.isLetter() }
 
-        // 若含有部分可见字母，使用字母通配精准匹配
+        // 若含有部分可见字母，使用安全转义的字母通配精准匹配
         if (letters.isNotEmpty()) {
-            val clean = token.lowercase()
-            val regexStr = "^" + clean.replace("*", ".") + "$"
+            val regexStr = buildWildcardPattern(token.lowercase())
             val pattern = Pattern.compile(regexStr)
 
             val candidates = PROFANITY_LIST.filter { pattern.matcher(it).matches() }
@@ -241,6 +256,15 @@ object LyricSanitizer {
         return guessed?.let { preserveCase(token, it) }
     }
 
+    private fun buildWildcardPattern(lowerMaskedToken: String): String {
+        val sb = StringBuilder("^")
+        for (ch in lowerMaskedToken) {
+            if (ch == '*') sb.append('.') else sb.append(Pattern.quote(ch.toString()))
+        }
+        sb.append('$')
+        return sb.toString()
+    }
+
     /**
      * 单行英文歌词或标题反和谐
      * @param censoredLine 包含掩码或审查用语的行 (如 "I beg you, don't embarrass me, mother****er, oh")
@@ -271,13 +295,12 @@ object LyricSanitizer {
             return if (tsPrefix != null) "$tsPrefix $stageText" else stageText
         }
 
-        // 阶段 1：优先匹配已知高置信度经典短语规则 (如 Sabrina Carpenter 标志性副歌、monkey-mouth motherfuckers、get that shit 等)
+        // 阶段 1：优先匹配高置信多词短语规则并保留首字母/全大写大小写形态
         for ((regex, replacement) in COMMON_PHRASE_RULES) {
-            stageText = stageText.replace(regex, replacement)
+            stageText = replacePhrasePreservingCase(stageText, regex, replacement)
         }
 
-        // 阶段 2：针对包含部分字母的掩码词 (如 mother****er, b***h, s***, ****ing, n****s)，
-        // 本地词典匹配具有绝对语义权威，绝不容许被未经校验的非脏话参考词（如电台版 little sucker 中的 "little"）错误覆盖！
+        // 阶段 2：针对包含部分字母的掩码词 (如 mother****er, b***h, s***, ****ing, n****s)
         if (stageText.contains('*')) {
             stageText = stageText.replace(CENSOR_CHECK_REGEX) { matchResult ->
                 val tok = matchResult.value
@@ -290,15 +313,21 @@ object LyricSanitizer {
             }
         }
 
-        // 阶段 3：若仍有纯星号（如 ****, *************），且提供了参考行，执行安全锚点对齐与电台反和谐校验
+        // 阶段 3：若仍有纯星号（如 ****, *************），且提供了参考行，执行单调游标安全锚点对齐
         if (stageText.contains('*') && !uncensoredRefLine.isNullOrBlank()) {
             stageText = alignWithReferenceSafe(stageText, uncensoredRefLine)
         }
 
-        // 阶段 4：若仍有星号，结合该行的中文译文线索交叉推导
-        // 例如：中文行中出现 “混蛋” 且英文行长度 10-13 星号 -> 确定为 motherfucker
+        // 阶段 4：若仍有星号，结合该行译文语义线索按出现顺序交叉推导
         if (stageText.contains('*') && !translationHint.isNullOrBlank()) {
             stageText = resolveFromTranslationHint(stageText, translationHint)
+        }
+
+        // 阶段 4.5：在参考行与译文线索之后再执行双词弱上下文补全 (this ****, that **** 等)
+        if (stageText.contains('*')) {
+            for ((regex, replacement) in WEAK_CONTEXT_PHRASE_RULES) {
+                stageText = replacePhrasePreservingCase(stageText, regex, replacement)
+            }
         }
 
         // 阶段 5：剩余未知单个星号词由词典/长度确定性推导
@@ -322,9 +351,9 @@ object LyricSanitizer {
                 .replace(Regex("""\*{1,2}"""), "")
         }
 
-        // 阶段 7：还原残留的电台审查净版短语 (如 little sucker -> motherfucker, what the freak -> what the fuck)
+        // 阶段 7：还原残留的电台审查净版短语并保留原有大小写 (如 Why the freak -> Why the fuck)
         for ((regex, replacement) in RADIO_CLEAN_PAIRS) {
-            stageText = stageText.replace(regex, replacement)
+            stageText = replacePhrasePreservingCase(stageText, regex, replacement)
         }
 
         return if (tsPrefix != null) "$tsPrefix $stageText" else stageText
@@ -427,6 +456,7 @@ object LyricSanitizer {
         val stageMatches = WORD_TOKEN_REGEX.findAll(stageText).toList()
         val sb = StringBuilder()
         var lastEnd = 0
+        var refCursor = 0
 
         for ((idx, wordMatch) in stageMatches.withIndex()) {
             sb.append(stageText.substring(lastEnd, wordMatch.range.first))
@@ -436,13 +466,19 @@ object LyricSanitizer {
                 val prevAnchor = stageMatches.subList(0, idx).lastOrNull { !it.value.contains('*') }?.value
                 val nextAnchor = stageMatches.subList(idx + 1, stageMatches.size).firstOrNull { !it.value.contains('*') }?.value
 
-                val candidate = resolveCandidateFromRef(word, prevAnchor, nextAnchor, refWords, idx)
+                val (candidate, newCursor) = resolveCandidateFromRef(word, prevAnchor, nextAnchor, refWords, idx, refCursor)
+                refCursor = newCursor
                 if (candidate != null) {
                     sb.append(preserveCase(word, candidate))
                 } else {
                     sb.append(word)
                 }
             } else {
+                val foundIdx = refWords.subList(refCursor, refWords.size)
+                    .indexOfFirst { it.equals(word, ignoreCase = true) }
+                if (foundIdx != -1) {
+                    refCursor += foundIdx + 1
+                }
                 sb.append(word)
             }
             lastEnd = wordMatch.range.last + 1
@@ -458,18 +494,26 @@ object LyricSanitizer {
         prevAnchor: String?,
         nextAnchor: String?,
         refWords: List<String>,
-        wordIdx: Int
-    ): String? {
-        // 1. 基于前后锚点搜寻候选词切片
+        wordIdx: Int,
+        minRefCursor: Int
+    ): Pair<String?, Int> {
+        val prevSearchStart = (minRefCursor - 2).coerceAtLeast(0)
+        // 1. 优先从单调游标位置向后基于前后锚点搜寻候选词切片，防止重复虚词锚点回跳行首
         val prevIdx = if (prevAnchor != null) {
-            refWords.indexOfFirst { it.equals(prevAnchor, ignoreCase = true) }
+            val localRel = refWords.subList(prevSearchStart, refWords.size)
+                .indexOfFirst { it.equals(prevAnchor, ignoreCase = true) }
+            if (localRel != -1) prevSearchStart + localRel
+            else refWords.indexOfFirst { it.equals(prevAnchor, ignoreCase = true) }
         } else -1
         val nextIdx = if (nextAnchor != null && prevIdx != -1) {
             refWords.subList(prevIdx + 1, refWords.size).indexOfFirst { it.equals(nextAnchor, ignoreCase = true) }.let {
                 if (it != -1) prevIdx + 1 + it else -1
             }
         } else if (nextAnchor != null) {
-            refWords.indexOfFirst { it.equals(nextAnchor, ignoreCase = true) }
+            val localRel = refWords.subList(minRefCursor.coerceAtMost(refWords.size), refWords.size)
+                .indexOfFirst { it.equals(nextAnchor, ignoreCase = true) }
+            if (localRel != -1) minRefCursor + localRel
+            else refWords.indexOfFirst { it.equals(nextAnchor, ignoreCase = true) }
         } else -1
 
         val candidateSlice = if (prevIdx != -1 && nextIdx != -1 && nextIdx > prevIdx + 1) {
@@ -484,13 +528,19 @@ object LyricSanitizer {
             emptyList()
         }
 
-        if (candidateSlice.isEmpty()) return null
+        if (candidateSlice.isEmpty()) return null to minRefCursor
+
+        val advancedCursor = when {
+            nextIdx != -1 -> nextIdx
+            prevIdx != -1 -> (prevIdx + 2).coerceAtMost(refWords.size)
+            else -> minRefCursor
+        }
 
         // 校验 A：检查候选切片是否构成电台版净词组合（如 "little sucker" -> "motherfucker"）
         val sliceCombined = candidateSlice.joinToString(" ").lowercase()
         for ((regex, replacement) in RADIO_CLEAN_PAIRS) {
             if (regex.containsMatchIn(sliceCombined)) {
-                return replacement
+                return replacement to advancedCursor
             }
         }
 
@@ -501,22 +551,24 @@ object LyricSanitizer {
                 // 若原词带字母通配，还需验证字母吻合
                 val letters = maskedWord.filter { it.isLetter() }
                 if (letters.isNotEmpty()) {
-                    val pattern = Pattern.compile("^" + maskedWord.lowercase().replace("*", ".") + "$")
+                    val pattern = Pattern.compile(buildWildcardPattern(maskedWord.lowercase()))
                     if (pattern.matcher(lower).matches()) {
-                        return cand
+                        return cand to advancedCursor
                     }
                 } else {
-                    return cand
+                    return cand to advancedCursor
                 }
             }
         }
 
         // 严格拒绝非脏话普通单词替代星号！
-        return null
+        return null to minRefCursor
     }
 
+    private data class CueOccurrence(val index: Int, val englishWord: String, val endIndex: Int)
+
     /**
-     * 根据中文翻译行语义线索反推英文星号词
+     * 根据中文翻译行语义线索按出现先后顺序交叉反推英文星号词
      */
     private fun resolveFromTranslationHint(stageText: String, transHint: String): String {
         val hasPluralMotherfucker = transHint.contains("混蛋们") || transHint.contains("混蛋們") || transHint.contains("雜種們") || transHint.contains("杂种们")
@@ -526,9 +578,63 @@ object LyricSanitizer {
         val hasBitch = transHint.contains("婊子") || transHint.contains("贱人") || transHint.contains("賤人")
         val hasNigga = transHint.contains("兄弟") || transHint.contains("黑鬼")
 
+        val cueDefs = listOf(
+            "混蛋们" to "motherfuckers", "混蛋們" to "motherfuckers", "雜種們" to "motherfuckers", "杂种们" to "motherfuckers",
+            "混蛋" to "motherfucker", "混帳" to "motherfucker", "混账" to "motherfucker", "雜種" to "motherfucker", "杂种" to "motherfucker",
+            "他妈的" to "fuck", "他媽的" to "fuck", "去你的" to "fuck", "该死" to "fuck", "該死" to "fuck",
+            "狗屎" to "shit", "废话" to "shit", "廢話" to "shit", "破事" to "shit",
+            "婊子" to "bitch", "贱人" to "bitch", "賤人" to "bitch",
+            "黑鬼" to "nigga", "兄弟们" to "niggas", "兄弟們" to "niggas", "兄弟" to "nigga"
+        )
+
+        val orderedCues = mutableListOf<CueOccurrence>()
+        var searchPos = 0
+        while (searchPos < transHint.length) {
+            var bestDef: Pair<String, String>? = null
+            var bestIdx = Int.MAX_VALUE
+            for (def in cueDefs) {
+                val idx = transHint.indexOf(def.first, startIndex = searchPos)
+                if (idx != -1 && (idx < bestIdx || (idx == bestIdx && def.first.length > (bestDef?.first?.length ?: 0)))) {
+                    bestIdx = idx
+                    bestDef = def
+                }
+            }
+            if (bestDef == null) break
+            orderedCues.add(CueOccurrence(bestIdx, bestDef.second, bestIdx + bestDef.first.length))
+            searchPos = bestIdx + bestDef.first.length
+        }
+
+        fun cueMatchesLength(word: String, len: Int): Boolean = when (word) {
+            "motherfuckers" -> len >= 11
+            "motherfucker" -> len in 9..13
+            "fucking" -> len in 6..8
+            "bitch" -> len == 5
+            "nigga" -> len in 4..6
+            "niggas" -> len in 5..7
+            "shit" -> len == 4
+            "fuck" -> len == 4
+            else -> false
+        }
+
+        var tokenIdx = 0
         return stageText.replace(CENSOR_CHECK_REGEX) { match ->
             val tok = match.value
             val len = tok.length
+            val seqCue = orderedCues.getOrNull(tokenIdx)?.englishWord
+            tokenIdx++
+
+            if (seqCue != null) {
+                val adapted = when {
+                    seqCue == "fuck" && len in 6..8 -> "fucking"
+                    seqCue == "shit" && len in 7..8 -> "bullshit"
+                    cueMatchesLength(seqCue, len) -> seqCue
+                    else -> null
+                }
+                if (adapted != null) {
+                    return@replace preserveCase(tok, adapted)
+                }
+            }
+
             when {
                 len >= 11 && hasPluralMotherfucker -> preserveCase(tok, "motherfuckers")
                 len in 9..13 && hasMotherfucker -> preserveCase(tok, "motherfucker")
@@ -634,7 +740,8 @@ object LyricSanitizer {
      */
     fun decensorLyrics(censoredLyrics: String, refLines: List<String>): String {
         val unescaped = HtmlUtils.unescapeHtml(censoredLyrics)
-        if (!hasCensorship(unescaped)) return unescaped
+        val hasPotentialBlankGap = refLines.any { containsProfanityToken(it) }
+        if (!hasCensorship(unescaped) && !hasPotentialBlankGap) return unescaped
         if (refLines.isEmpty()) return decensorLyrics(unescaped, null as String?)
 
         val flattenedRef = refLines.flatMap { it.lines() }.map { HtmlUtils.unescapeHtml(it).trim() }.filter { it.isNotBlank() }
@@ -642,7 +749,7 @@ object LyricSanitizer {
 
         val sanitizedLines = cLines.map { cl ->
             val clClean = cl.replace(TIMESTAMP_REGEX, "").trim()
-            if (!hasCensorship(clClean)) return@map cl
+            if (!hasCensorship(clClean) && !hasPotentialBlankGap) return@map cl
 
             val normCl = clClean.replace(Regex("""[^\w\s]"""), "").lowercase()
             val bestRef = flattenedRef.maxByOrNull { rl ->
@@ -654,10 +761,28 @@ object LyricSanitizer {
                 bestRef
             } else null
 
+            if (!hasCensorship(clClean) && (chosenRef == null || !containsProfanityToken(chosenRef))) {
+                return@map cl
+            }
+
             decensorLine(cl, chosenRef)
         }
 
         return sanitizedLines.joinToString("\n")
+    }
+
+    private fun parseTimestampMs(tag: String): Long? {
+        val m = Regex("""\[(\d{1,2}):(\d{2})(?:\.(\d{1,3}))?\]""").find(tag) ?: return null
+        val min = m.groupValues[1].toLongOrNull() ?: return null
+        val sec = m.groupValues[2].toLongOrNull() ?: return null
+        val fracStr = m.groupValues[3]
+        val ms = when (fracStr.length) {
+            0 -> 0L
+            1 -> (fracStr.toLongOrNull() ?: 0L) * 100L
+            2 -> (fracStr.toLongOrNull() ?: 0L) * 10L
+            else -> fracStr.take(3).toLongOrNull() ?: 0L
+        }
+        return min * 60_000L + sec * 1000L + ms
     }
 
     /**
@@ -672,58 +797,75 @@ object LyricSanitizer {
         translationLyrics: String? = null
     ): String {
         val unescaped = HtmlUtils.unescapeHtml(censoredLyrics)
-        if (!hasCensorship(unescaped)) return unescaped
+        val refHasProfanity = !uncensoredRefLyrics.isNullOrBlank() && containsProfanityToken(uncensoredRefLyrics)
+        if (!hasCensorship(unescaped) && !refHasProfanity) return unescaped
 
         val cLines = unescaped.lines()
 
         val rLines = uncensoredRefLyrics?.let { HtmlUtils.unescapeHtml(it).lines() } ?: emptyList()
         val tLines = translationLyrics?.let { HtmlUtils.unescapeHtml(it).lines() } ?: emptyList()
 
-        val refMapByTimestamp = mutableMapOf<String, String>()
+        val refTimed = mutableListOf<Pair<Long, String>>()
         val pureRefLines = mutableListOf<String>()
         for (rl in rLines) {
-            val tsMatch = TIMESTAMP_REGEX.find(rl)
-            if (tsMatch != null) {
-                refMapByTimestamp[tsMatch.value] = rl
-            }
             val cleaned = rl.replace(TIMESTAMP_REGEX, "").trim()
-            if (cleaned.isNotBlank()) {
-                pureRefLines.add(cleaned)
+            if (cleaned.isBlank()) continue
+            val tsMatch = TIMESTAMP_REGEX.find(rl)
+            val tsMs = tsMatch?.value?.let { parseTimestampMs(it) }
+            if (tsMs != null) {
+                refTimed.add(tsMs to rl)
             }
+            pureRefLines.add(cleaned)
         }
 
-        val transMapByTimestamp = mutableMapOf<String, String>()
+        val transTimed = mutableListOf<Pair<Long, String>>()
         val pureTransLines = mutableListOf<String>()
         for (tl in tLines) {
-            val tsMatch = TIMESTAMP_REGEX.find(tl)
-            if (tsMatch != null) {
-                transMapByTimestamp[tsMatch.value] = tl
-            }
             val cleaned = tl.replace(TIMESTAMP_REGEX, "").trim()
-            if (cleaned.isNotBlank()) {
-                pureTransLines.add(cleaned)
+            if (cleaned.isBlank()) continue
+            val tsMatch = TIMESTAMP_REGEX.find(tl)
+            val tsMs = tsMatch?.value?.let { parseTimestampMs(it) }
+            if (tsMs != null) {
+                transTimed.add(tsMs to tl)
             }
+            pureTransLines.add(cleaned)
         }
 
         var pureRefIdx = 0
         var pureTransIdx = 0
 
         val sanitizedLines = cLines.map { cl ->
-            val tsMatch = TIMESTAMP_REGEX.find(cl)
-            val refLine = if (tsMatch != null && refMapByTimestamp.containsKey(tsMatch.value)) {
-                refMapByTimestamp[tsMatch.value]
-            } else if (cl.replace(TIMESTAMP_REGEX, "").trim().isNotBlank() && pureRefIdx < pureRefLines.size) {
-                pureRefLines[pureRefIdx++]
-            } else {
-                null
+            val clClean = cl.replace(TIMESTAMP_REGEX, "").trim()
+            val clMs = TIMESTAMP_REGEX.find(cl)?.value?.let { parseTimestampMs(it) }
+
+            val timedRef = if (clMs != null && refTimed.isNotEmpty()) {
+                refTimed.minByOrNull { kotlin.math.abs(it.first - clMs) }
+                    ?.takeIf { kotlin.math.abs(it.first - clMs) <= 350L }
+                    ?.second
+            } else null
+
+            val refLine = when {
+                timedRef != null -> {
+                    if (pureRefIdx < pureRefLines.size) pureRefIdx++
+                    timedRef
+                }
+                clClean.isNotBlank() && pureRefIdx < pureRefLines.size -> pureRefLines[pureRefIdx++]
+                else -> null
             }
 
-            val transLine = if (tsMatch != null && transMapByTimestamp.containsKey(tsMatch.value)) {
-                transMapByTimestamp[tsMatch.value]
-            } else if (cl.replace(TIMESTAMP_REGEX, "").trim().isNotBlank() && pureTransIdx < pureTransLines.size) {
-                pureTransLines[pureTransIdx++]
-            } else {
-                null
+            val timedTrans = if (clMs != null && transTimed.isNotEmpty()) {
+                transTimed.minByOrNull { kotlin.math.abs(it.first - clMs) }
+                    ?.takeIf { kotlin.math.abs(it.first - clMs) <= 350L }
+                    ?.second
+            } else null
+
+            val transLine = when {
+                timedTrans != null -> {
+                    if (pureTransIdx < pureTransLines.size) pureTransIdx++
+                    timedTrans
+                }
+                clClean.isNotBlank() && pureTransIdx < pureTransLines.size -> pureTransLines[pureTransIdx++]
+                else -> null
             }
 
             decensorLine(cl, refLine, transLine)

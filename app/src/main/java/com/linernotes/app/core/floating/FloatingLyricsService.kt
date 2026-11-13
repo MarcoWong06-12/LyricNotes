@@ -102,9 +102,13 @@ class FloatingLyricsService : Service() {
 
     override fun onCreate() {
         super.onCreate()
+        createNotificationChannel()
+        startForeground(NOTIFICATION_ID, buildNotification(floatingPreferences.isLocked))
+
         if (!Settings.canDrawOverlays(this)) {
             _isRunningFlow.value = false
             floatingPreferences.isEnabled = false
+            FloatingLyricsTileService.requestSync(this)
             stopSelf()
             return
         }
@@ -112,15 +116,17 @@ class FloatingLyricsService : Service() {
         _isRunningFlow.value = true
         floatingPreferences.isEnabled = true
         FloatingLyricsTileService.requestSync(this)
-        createNotificationChannel()
-        startForeground(NOTIFICATION_ID, buildNotification(floatingPreferences.isLocked))
 
         try {
             val filter = IntentFilter().apply {
                 addAction(Intent.ACTION_SCREEN_OFF)
                 addAction(Intent.ACTION_SCREEN_ON)
             }
-            registerReceiver(screenStateReceiver, filter)
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+                registerReceiver(screenStateReceiver, filter, Context.RECEIVER_NOT_EXPORTED)
+            } else {
+                registerReceiver(screenStateReceiver, filter)
+            }
         } catch (e: Exception) {
             e.printStackTrace()
         }

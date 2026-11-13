@@ -46,8 +46,11 @@ fun LockWindowRefreshRateEffect() {
 
                 if (maxMode != null) {
                     val attrs = window.attributes
-                    if (attrs.preferredDisplayModeId != maxMode.modeId) {
+                    if (attrs.preferredDisplayModeId != maxMode.modeId ||
+                        attrs.preferredRefreshRate != maxMode.refreshRate
+                    ) {
                         attrs.preferredDisplayModeId = maxMode.modeId
+                        attrs.preferredRefreshRate = maxMode.refreshRate
                         window.attributes = attrs
                     }
                     appliedModeId[0] = maxMode.modeId

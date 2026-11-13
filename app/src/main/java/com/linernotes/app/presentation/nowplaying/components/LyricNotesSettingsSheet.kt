@@ -736,7 +736,7 @@ fun LyricNotesSettingsSheet(
                         fontWeight = FontWeight.Medium
                     )
                     Text(
-                        text = "${(currentFontScale * 100).toInt()}%",
+                        text = "${kotlin.math.round(currentFontScale * 100f).toInt()}%",
                         color = if (isDark) Color(0xFF64B5F6) else Color(0xFF1976D2),
                         fontSize = 13.sp,
                         fontWeight = FontWeight.Bold

@@ -72,10 +72,14 @@ object BilingualSentenceAligner {
 
             for ((pIdx, oSentList) in origSentencesPerPara.withIndex()) {
                 val isLastPara = (pIdx == origSentencesPerPara.lastIndex)
+                val remainingParasAfterThis = origSentencesPerPara.lastIndex - pIdx
+                val remainingSentences = (allTransSentences.size - zhSentIdx).coerceAtLeast(0)
                 val needZhCount = if (isLastPara) {
-                    (allTransSentences.size - zhSentIdx).coerceAtLeast(1)
+                    remainingSentences
                 } else {
-                    ((oSentList.size.toFloat() / totalOrigSentences) * allTransSentences.size).toInt().coerceAtLeast(1)
+                    val proportional = ((oSentList.size.toFloat() / totalOrigSentences) * allTransSentences.size).toInt().coerceAtLeast(1)
+                    val maxAllowed = (remainingSentences - remainingParasAfterThis).coerceAtLeast(if (remainingSentences > 0) 1 else 0)
+                    proportional.coerceAtMost(maxAllowed)
                 }
                 val allocatedZh = mutableListOf<String>()
                 repeat(needZhCount) {
@@ -114,7 +118,7 @@ object BilingualSentenceAligner {
         val origClean = originalPara.trim()
         val transClean = translationPara.trim()
 
-        if (transClean.isBlank() || !CHINESE_CHAR_REGEX.containsMatchIn(transClean)) {
+        if (transClean.isBlank() || !transClean.any { it.isLetterOrDigit() }) {
             return AlignedBilingualParagraph(listOf(AlignedSentenceUnit(chinese = "", original = origClean)))
         }
 
@@ -177,13 +181,20 @@ object BilingualSentenceAligner {
     }
 
     /**
-     * 中文句子拆分器（按句号、感叹号、问号拆分并保留标点）
+     * 译文句子拆分器（中文按句号、感叹号、问号拆分并保留标点；非CJK语种按换行及西文句末标点拆分）
      */
     fun splitZhSentences(text: String): List<String> {
         val trimmed = text.trim()
         if (trimmed.isBlank()) return emptyList()
 
-        val pattern = Regex("""(?<=[。！？\n])\s*""")
-        return trimmed.split(pattern).map { it.trim() }.filter { it.isNotBlank() }
+        return if (Regex("""[。！？]""").containsMatchIn(trimmed)) {
+            val pattern = Regex("""(?<=[。！？\n])\s*""")
+            trimmed.split(pattern).map { it.trim() }.filter { it.isNotBlank() }
+        } else {
+            trimmed.lines()
+                .map { it.trim() }
+                .filter { it.isNotBlank() }
+                .flatMap { splitEnSentences(it) }
+        }
     }
 }

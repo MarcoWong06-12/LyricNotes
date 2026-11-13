@@ -26,7 +26,6 @@ object FuriganaEngine {
         "光" to "ひかり",
         "風" to "かぜ",
         "花" to "はな",
-        "空" to "そら",
         "道" to "みち",
         "手" to "て",
         "目" to "め",
@@ -58,7 +57,6 @@ object FuriganaEngine {
         "影" to "かげ",
         "形" to "かたち",
         "翼" to "つばさ",
-        "空" to "そら",
         "中" to "なか",
         "人" to "ひと",
         "生" to "せい",
@@ -100,7 +98,7 @@ object FuriganaEngine {
         return text.any {
             it in '\u3040'..'\u309F' || // Hiragana
             it in '\u30A0'..'\u30FF'    // Katakana
-        } || (text.contains("(") && parseInlineReadings(text).any { it.reading != null })
+        } || ((text.contains("(") || text.contains("（")) && parseInlineReadings(text).any { it.reading != null })
     }
 
     fun katakanaToHiragana(text: String): String {
@@ -116,7 +114,7 @@ object FuriganaEngine {
     }
 
     fun hiraganaToRomaji(text: String): String {
-        var result = ""
+        val result = StringBuilder(text.length * 2)
         var i = 0
         var gemination = false
         
@@ -134,33 +132,33 @@ object FuriganaEngine {
             if (romajiMap.containsKey(combo)) {
                 val romaji = romajiMap[combo]!!
                 if (gemination) {
-                    result += romaji.first() + romaji
+                    result.append(romaji.first()).append(romaji)
                     gemination = false
                 } else {
-                    result += romaji
+                    result.append(romaji)
                 }
                 i += 2
             } else if (romajiMap.containsKey(char)) {
                 val romaji = romajiMap[char]!!
                 if (gemination) {
-                    result += romaji.first() + romaji
+                    result.append(romaji.first()).append(romaji)
                     gemination = false
                 } else {
-                    result += romaji
+                    result.append(romaji)
                 }
                 i++
             } else {
-                result += char
+                result.append(char)
                 gemination = false
                 i++
             }
         }
-        return result
+        return result.toString()
     }
 
     fun segmentText(text: String): List<FuriganaSegment> {
         val inlineReadings = parseInlineReadings(text)
-        if (inlineReadings.isNotEmpty() && inlineReadings.size > 1) { // If it actually split something
+        if (inlineReadings.any { it.reading != null }) {
             return inlineReadings
         }
 
@@ -213,7 +211,7 @@ object FuriganaEngine {
     }
 
     fun parseInlineReadings(text: String): List<FuriganaSegment> {
-        val regex = Regex("([\\u4E00-\\u9FFF]+)\\(([\\u3040-\\u309F]+)\\)")
+        val regex = Regex("([\\u4E00-\\u9FFF]+)[\\(（]([\\u3040-\\u309F]+)[\\)）]")
         val segments = mutableListOf<FuriganaSegment>()
         
         var lastIndex = 0

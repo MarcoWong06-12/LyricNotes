@@ -271,14 +271,18 @@ object LyricSearchCleaner {
      */
     fun extractLastTimestampMs(lyric: String): Long {
         if (lyric.isBlank()) return 0L
-        val matches = TIMESTAMP_PARSER_REGEX.findAll(lyric).toList()
-        if (matches.isEmpty()) return 0L
-        val lastMatch = matches.last()
-        val minutes = lastMatch.groupValues[1].toLongOrNull() ?: 0L
-        val seconds = lastMatch.groupValues[2].toLongOrNull() ?: 0L
-        val msStr = lastMatch.groupValues.getOrNull(3).orEmpty()
-        val ms = msStr.padEnd(3, '0').take(3).toLongOrNull() ?: 0L
-        return (minutes * 60L + seconds) * 1000L + ms
+        var maxMs = 0L
+        for (match in TIMESTAMP_PARSER_REGEX.findAll(lyric)) {
+            val minutes = match.groupValues[1].toLongOrNull() ?: 0L
+            val seconds = match.groupValues[2].toLongOrNull() ?: 0L
+            val msStr = match.groupValues.getOrNull(3).orEmpty()
+            val ms = msStr.padEnd(3, '0').take(3).toLongOrNull() ?: 0L
+            val totalMs = (minutes * 60L + seconds) * 1000L + ms
+            if (totalMs > maxMs) {
+                maxMs = totalMs
+            }
+        }
+        return maxMs
     }
 
     /**
