@@ -210,6 +210,17 @@ class FloatingLyricsPreferences @Inject constructor(
             _textAlignmentFlow.value = value
         }
 
+    // 14. 桌面悬浮歌词逐字高亮动效 (默认开启，独立于应用内逐字开关)
+    private val _isWordByWordEnabledFlow = MutableStateFlow(prefs.getBoolean(KEY_WORD_BY_WORD, true))
+    val isWordByWordEnabledFlow: StateFlow<Boolean> = _isWordByWordEnabledFlow.asStateFlow()
+
+    var isWordByWordEnabled: Boolean
+        get() = _isWordByWordEnabledFlow.value
+        set(value) {
+            prefs.edit().putBoolean(KEY_WORD_BY_WORD, value).apply()
+            _isWordByWordEnabledFlow.value = value
+        }
+
     companion object {
         const val STYLE_PURE_LYRICS = 0
         const val STYLE_CAPSULE_CARD = 1
@@ -239,6 +250,7 @@ class FloatingLyricsPreferences @Inject constructor(
         private const val KEY_FLOATING_STYLE = "floating_style"
         private const val KEY_HIDE_IN_FOREGROUND = "floating_hide_in_foreground"
         private const val KEY_TEXT_ALIGNMENT = "floating_text_alignment"
+        private const val KEY_WORD_BY_WORD = "floating_word_by_word"
 
         fun get(context: Context): FloatingLyricsPreferences {
             return EntryPointAccessors.fromApplication(

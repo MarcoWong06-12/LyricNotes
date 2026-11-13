@@ -656,6 +656,7 @@ fun LyricNotesSettingsSheet(
             val hideInForeground by floatingPrefs.hideWhenAppInForegroundFlow.collectAsState(initial = floatingPrefs.hideWhenAppInForeground)
             val currentFontScale by floatingPrefs.fontScaleFlow.collectAsState(initial = floatingPrefs.fontScale)
             val currentTextAlignment by floatingPrefs.textAlignmentFlow.collectAsState(initial = floatingPrefs.textAlignment)
+            val isFloatingWordByWord by floatingPrefs.isWordByWordEnabledFlow.collectAsState(initial = floatingPrefs.isWordByWordEnabled)
 
             SettingsGroupCard(
                 title = strings.floatingLyricsTitle,
@@ -1043,6 +1044,16 @@ fun LyricNotesSettingsSheet(
                     checked = hideInForeground,
                     isDark = isDark,
                     onCheckedChange = { floatingPrefs.hideWhenAppInForeground = !hideInForeground }
+                )
+
+                SettingsCardDivider(dividerColor)
+
+                SettingsSwitchRow(
+                    title = strings.floatingWordByWordLabel,
+                    subtitle = strings.floatingWordByWordDesc,
+                    checked = isFloatingWordByWord,
+                    isDark = isDark,
+                    onCheckedChange = { floatingPrefs.isWordByWordEnabled = !isFloatingWordByWord }
                 )
             }
 

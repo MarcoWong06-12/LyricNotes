@@ -410,7 +410,7 @@ class FloatingLyricsService : Service() {
                     val lyricsContent by nowPlayingRepository.lyricsContentFlow.collectAsState()
                     val activeIndex by nowPlayingRepository.currentLineIndexFlow.collectAsState()
                     val lyricOffsetMs by nowPlayingRepository.lyricOffsetMsFlow.collectAsState()
-                    val isWordByWordEnabled by nowPlayingRepository.isWordByWordEnabledFlow.collectAsState()
+                    val isWordByWordEnabled by floatingPreferences.isWordByWordEnabledFlow.collectAsState()
                     val isLocked by floatingPreferences.isLockedFlow.collectAsState()
                     val isBilingual by floatingPreferences.isBilingualFlow.collectAsState()
                     val bgAlpha by floatingPreferences.backgroundAlphaFlow.collectAsState()
