@@ -139,4 +139,35 @@ class TranslationServiceTest {
         assertEquals("ko", service.detectLineScriptBucket("오늘 밤도 너를 생각해"))
         assertEquals("auto", service.detectLineScriptBucket("Canción de amor"))
     }
+
+    @Test
+    fun testBuildProseBatchChunks_splitsByMaxItemsAndMaxChars() {
+        val service = TranslationService()
+        assertTrue(service.buildProseBatchChunks(emptyList()).isEmpty())
+
+        val fifteenShort = List(15) { "Paragraph $it" }
+        val itemSplit = service.buildProseBatchChunks(fifteenShort, maxItems = 12, maxTotalChars = 3200)
+        assertEquals(2, itemSplit.size)
+        assertEquals((0 until 12).toList(), itemSplit[0])
+        assertEquals((12 until 15).toList(), itemSplit[1])
+
+        val longParagraphs = listOf("a".repeat(1500), "b".repeat(1500), "c".repeat(1500), "d".repeat(3600))
+        val charSplit = service.buildProseBatchChunks(longParagraphs, maxItems = 12, maxTotalChars = 3200)
+        assertEquals(listOf(listOf(0, 1), listOf(2), listOf(3)), charSplit)
+    }
+
+    @Test
+    fun testIsTranslationTruncated_allowsConciseChineseProseAndRejectsStubs() {
+        val service = TranslationService()
+        assertTrue(service.isTranslationTruncated("Hello world", "   "))
+
+        // 英文 390 字译成紧凑中文 ~117 字（0.30 字符比）属正常精炼翻译，不应误判截断
+        val orig390 = "SZA expresses her deep devotion and attachment to someone who has been supportive and loving towards her. ".repeat(3) +
+            "The repetition reinforces her lasting affection across the chorus."
+        val zh117 = "她在歌词中倾诉了对这位一直支持并深爱着她的人的炽热依恋与深情托付，即使在面对人生低谷或分离抉择时也依然如此，反复吟唱着敞开心扉的句子强化了这份深刻的情感纽带与安全感，令全曲的情绪层层递进愈发浓烈动人。"
+        assertFalse(service.isTranslationTruncated(orig390, zh117))
+
+        // 超长英文若仅产出极短 10 字残句，必须判定为异常截断以触发容灾重试
+        assertTrue(service.isTranslationTruncated(orig390, "她深爱着那个人。"))
+    }
 }

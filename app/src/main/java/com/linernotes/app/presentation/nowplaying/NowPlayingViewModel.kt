@@ -23,6 +23,7 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.update
+import kotlinx.coroutines.flow.updateAndGet
 import kotlinx.coroutines.launch
 import javax.inject.Inject
 
@@ -121,7 +122,9 @@ class NowPlayingViewModel @Inject constructor(
 
         viewModelScope.launch {
             nowPlayingRepository.lyricsContentFlow.collect { content ->
-                _uiState.update { current ->
+                val wasAnnotationTranslating = _uiState.value.isAnnotationTranslating
+                val wasStoryTranslating = _uiState.value.isSongStoryTranslating
+                val nextState = _uiState.updateAndGet { current ->
                     val updatedSelected = if (current.selectedAnnotation != null) {
                         content.annotatedLines.values.find {
                             (it.id > 0L && it.id == current.selectedAnnotation.id) ||
@@ -129,10 +132,22 @@ class NowPlayingViewModel @Inject constructor(
                         } ?: current.selectedAnnotation
                     } else null
 
+                    val annotationDone = updatedSelected != null && !isAnnotationTranslationPending(updatedSelected)
+                    val storyDone = content.songStory != null &&
+                        !isTranslationNeeded(content.songStory.descriptionPlain, content.songStory.descriptionTranslation)
+
                     current.copy(
                         lyricsContent = content,
-                        selectedAnnotation = updatedSelected
+                        selectedAnnotation = updatedSelected,
+                        isAnnotationTranslating = if (current.isAnnotationTranslating && annotationDone) false else current.isAnnotationTranslating,
+                        isSongStoryTranslating = if (current.isSongStoryTranslating && storyDone) false else current.isSongStoryTranslating
                     )
+                }
+                if (wasAnnotationTranslating && !nextState.isAnnotationTranslating) {
+                    annotationTransJob?.cancel()
+                }
+                if (wasStoryTranslating && !nextState.isSongStoryTranslating) {
+                    songStoryTransJob?.cancel()
                 }
             }
         }
@@ -405,14 +420,18 @@ class NowPlayingViewModel @Inject constructor(
         return false
     }
 
-    fun openGeniusAnnotation(annotation: LyricAnnotationEntity) {
-        annotationTransJob?.cancel()
+    private fun isAnnotationTranslationPending(annotation: LyricAnnotationEntity): Boolean {
         val targetIso = TranslationTargetLanguage.fromCode(aiPreferences.targetLanguage).fallbackIso
         val isChineseTarget = targetIso.startsWith("zh", ignoreCase = true)
         val needsExplanationTrans = isTranslationNeeded(annotation.explanationText, annotation.explanationTranslation)
         val needsLyricTrans = annotation.lyricTranslation.isNullOrBlank() &&
             !(isChineseTarget && AiAnnotationCurator.isAlreadyChinese(annotation.lyricFragment))
-        val needsTrans = needsExplanationTrans || needsLyricTrans
+        return needsExplanationTrans || needsLyricTrans
+    }
+
+    fun openGeniusAnnotation(annotation: LyricAnnotationEntity) {
+        annotationTransJob?.cancel()
+        val needsTrans = isAnnotationTranslationPending(annotation)
 
         _uiState.update {
             it.copy(

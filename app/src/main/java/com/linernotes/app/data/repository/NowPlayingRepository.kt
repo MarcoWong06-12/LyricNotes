@@ -34,7 +34,9 @@ import com.linernotes.app.data.remote.UnifiedLyricsService
 import com.linernotes.app.domain.model.BilingualLyricLine
 import kotlinx.coroutines.*
 import kotlinx.coroutines.flow.*
+import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.Semaphore
+import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.sync.withPermit
 import androidx.compose.runtime.Immutable
 import javax.inject.Inject
@@ -195,6 +197,218 @@ class NowPlayingRepository @Inject constructor(
         } else {
             cleaned.any { it.isLetter() }
         }
+    }
+
+    private data class ProseTranslationSpec(
+        val targetIso: String,
+        val isChineseTarget: Boolean,
+        val isTraditionalTarget: Boolean
+    )
+
+    private fun currentProseTranslationSpec(): ProseTranslationSpec {
+        val prefCode = aiPreferences.targetLanguage
+        val resolved = TranslationTargetLanguage.fromCode(prefCode)
+        val targetIso = resolved.fallbackIso
+        val isChineseTarget = isChineseTargetIso(targetIso)
+        val isTraditionalTarget = isChineseTarget && (
+            prefCode == "zh-TW" ||
+                resolved == TranslationTargetLanguage.ZH_TW ||
+                aiPreferences.isTraditionalChinese
+            )
+        return ProseTranslationSpec(targetIso, isChineseTarget, isTraditionalTarget)
+    }
+
+    private fun finalizeTranslatedProse(
+        rawTranslation: String?,
+        sourceText: String,
+        spec: ProseTranslationSpec
+    ): String? {
+        if (!isValidTranslatedText(rawTranslation, sourceText, spec.targetIso)) return null
+        val cleaned = HtmlUtils.cleanTranslationOutput(rawTranslation!!)
+        return if (spec.isTraditionalTarget) ChineseConverter.toTraditional(cleaned) else cleaned
+    }
+
+    private fun needsProseTranslation(
+        sourceText: String,
+        existingTranslation: String?,
+        spec: ProseTranslationSpec
+    ): Boolean {
+        if (sourceText.isBlank()) return false
+        if (spec.isChineseTarget && AiAnnotationCurator.isAlreadyChinese(sourceText)) return false
+        return existingTranslation.isNullOrBlank() ||
+            !isValidTranslatedText(existingTranslation, sourceText, spec.targetIso)
+    }
+
+    private fun mergeAnnotationsPreservingProgress(
+        baseMatched: Map<Int, LyricAnnotationEntity>,
+        liveMap: Map<Int, LyricAnnotationEntity>?
+    ): Map<Int, LyricAnnotationEntity> {
+        if (liveMap.isNullOrEmpty()) return baseMatched
+        return baseMatched.mapValues { (lineIdx, item) ->
+            val existing = liveMap[lineIdx]
+            if (existing != null &&
+                existing.lyricFragment == item.lyricFragment &&
+                existing.explanationText == item.explanationText
+            ) {
+                item.copy(
+                    lyricTranslation = item.lyricTranslation ?: existing.lyricTranslation,
+                    explanationTranslation = if (!item.explanationTranslation.isNullOrBlank()) {
+                        item.explanationTranslation
+                    } else {
+                        existing.explanationTranslation
+                    }
+                )
+            } else {
+                item
+            }
+        }
+    }
+
+    private fun mergeStoryPreservingProgress(
+        candidate: SongStoryEntity?,
+        existing: SongStoryEntity?
+    ): SongStoryEntity? {
+        if (candidate == null) return existing
+        if (existing != null &&
+            existing.descriptionPlain == candidate.descriptionPlain &&
+            candidate.descriptionTranslation.isNullOrBlank() &&
+            !existing.descriptionTranslation.isNullOrBlank()
+        ) {
+            return candidate.copy(descriptionTranslation = existing.descriptionTranslation)
+        }
+        return candidate
+    }
+
+    private fun publishGeniusTranslationProgress(
+        trackEpoch: Long,
+        cacheKey: String,
+        lyrics: List<BilingualLyricLine>,
+        story: SongStoryEntity?,
+        annotations: List<LyricAnnotationEntity>,
+        failureNotice: String?
+    ) {
+        val rawMatched = if (lyrics.isNotEmpty() && annotations.isNotEmpty()) {
+            LyricFragmentMatcher.matchAnnotationsToLines(lyrics, annotations)
+        } else {
+            emptyMap()
+        }
+
+        if (lyrics.isNotEmpty()) {
+            synchronized(memoryCache) {
+                val existing = memoryCache[cacheKey]
+                val mergedMatched = mergeAnnotationsPreservingProgress(rawMatched, existing?.annotatedLines)
+                val mergedStory = mergeStoryPreservingProgress(story, existing?.songStory)
+                putMemoryCacheSafely(
+                    cacheKey,
+                    CachedSongData(
+                        lyrics = existing?.lyrics?.takeIf { it.isNotEmpty() } ?: lyrics,
+                        annotatedLines = if (mergedMatched.isNotEmpty()) mergedMatched else (existing?.annotatedLines ?: emptyMap()),
+                        songStory = mergedStory,
+                        geniusNotice = failureNotice ?: existing?.geniusNotice,
+                        hasAttemptedGenius = true
+                    )
+                )
+            }
+        }
+
+        if (trackEpoch == activeTrackEpoch) {
+            _lyricsContentFlow.update { current ->
+                if (current.trackEpoch != trackEpoch) return@update current
+                val mergedMatched = mergeAnnotationsPreservingProgress(rawMatched, current.annotatedLines)
+                val mergedStory = mergeStoryPreservingProgress(story, current.songStory)
+                current.copy(
+                    annotatedLines = if (mergedMatched.isNotEmpty()) mergedMatched else current.annotatedLines,
+                    songStory = mergedStory ?: current.songStory
+                )
+            }
+            syncNowPlayingAggregate(content = _lyricsContentFlow.value)
+        }
+    }
+
+    private suspend fun translateStoryAndAnnotations(
+        initialStory: SongStoryEntity?,
+        initialAnnotations: List<LyricAnnotationEntity>,
+        spec: ProseTranslationSpec,
+        prioritizeInteractive: Boolean,
+        onProgress: (suspend (SongStoryEntity?, List<LyricAnnotationEntity>) -> Unit)? = null
+    ): Pair<SongStoryEntity?, List<LyricAnnotationEntity>> = coroutineScope {
+        var latestStory = initialStory
+        val latestAnnotations = initialAnnotations.toMutableList()
+        val emitMutex = Mutex()
+
+        val storyJob = async {
+            val s = initialStory
+            if (s != null && needsProseTranslation(s.descriptionPlain, s.descriptionTranslation, spec)) {
+                try {
+                    val tr = translationService.translateText(
+                        text = s.descriptionPlain,
+                        targetIso = spec.targetIso,
+                        highPriority = prioritizeInteractive
+                    )
+                    val finalized = finalizeTranslatedProse(tr, s.descriptionPlain, spec)
+                    if (finalized != null) {
+                        val updatedStory = s.copy(descriptionTranslation = finalized)
+                        emitMutex.withLock {
+                            latestStory = updatedStory
+                            onProgress?.invoke(latestStory, latestAnnotations.toList())
+                        }
+                    }
+                } catch (e: CancellationException) {
+                    throw e
+                } catch (_: Exception) {
+                }
+            }
+        }
+
+        val pendingIndices = latestAnnotations.indices.filter { idx ->
+            needsProseTranslation(
+                latestAnnotations[idx].explanationText,
+                latestAnnotations[idx].explanationTranslation,
+                spec
+            )
+        }
+
+        val annotationsJob = async {
+            if (pendingIndices.isEmpty()) return@async
+            val batchChunks = pendingIndices.chunked(6)
+            val batchSemaphore = Semaphore(if (prioritizeInteractive) 3 else 2)
+
+            batchChunks.map { idxGroup ->
+                async {
+                    batchSemaphore.withPermit {
+                        try {
+                            val inputs = idxGroup.map { latestAnnotations[it].explanationText }
+                            val outputs = translationService.translateTextsBatch(
+                                texts = inputs,
+                                targetIso = spec.targetIso,
+                                highPriority = false
+                            )
+                            var changedCount = 0
+                            emitMutex.withLock {
+                                idxGroup.forEachIndexed { pos, origIdx ->
+                                    val origAnnot = latestAnnotations[origIdx]
+                                    val finalized = finalizeTranslatedProse(outputs.getOrNull(pos), origAnnot.explanationText, spec)
+                                    if (finalized != null) {
+                                        latestAnnotations[origIdx] = origAnnot.copy(explanationTranslation = finalized)
+                                        changedCount++
+                                    }
+                                }
+                                if (changedCount > 0) {
+                                    onProgress?.invoke(latestStory, latestAnnotations.toList())
+                                }
+                            }
+                        } catch (e: CancellationException) {
+                            throw e
+                        } catch (_: Exception) {
+                        }
+                    }
+                }
+            }.awaitAll()
+        }
+
+        storyJob.await()
+        annotationsJob.await()
+        latestStory to latestAnnotations.toList()
     }
 
     init {
@@ -675,6 +889,45 @@ class NowPlayingRepository @Inject constructor(
             _lyricsContentFlow.value = content
             _currentLineIndexFlow.value = lineIndex
             syncNowPlayingAggregate(content = content, lineIndex = lineIndex)
+
+            // 若上次切歌打断了阶段二翻译或仍有缺失翻译的背景故事/典故，后台无缝补翻并刷新
+            val proseSpec = currentProseTranslationSpec()
+            val distinctCachedAnnots = cached.annotatedLines.values.distinctBy { "${it.lyricFragment}|${it.explanationText}" }
+            val storyNeedsTrans = cached.songStory?.let {
+                needsProseTranslation(it.descriptionPlain, it.descriptionTranslation, proseSpec)
+            } == true
+            val annotsNeedTrans = distinctCachedAnnots.any {
+                needsProseTranslation(it.explanationText, it.explanationTranslation, proseSpec)
+            }
+            if (storyNeedsTrans || annotsNeedTrans) {
+                dataLoadJob = repositoryScope.launch {
+                    if (trackEpoch != activeTrackEpoch) return@launch
+                    val (finalStory, finalAnnots) = translateStoryAndAnnotations(
+                        initialStory = cached.songStory,
+                        initialAnnotations = distinctCachedAnnots,
+                        spec = proseSpec,
+                        prioritizeInteractive = true,
+                        onProgress = { progStory, progAnnots ->
+                            publishGeniusTranslationProgress(
+                                trackEpoch = trackEpoch,
+                                cacheKey = cacheKey,
+                                lyrics = safeLyrics,
+                                story = progStory,
+                                annotations = progAnnots,
+                                failureNotice = cached.geniusNotice
+                            )
+                        }
+                    )
+                    publishGeniusTranslationProgress(
+                        trackEpoch = trackEpoch,
+                        cacheKey = cacheKey,
+                        lyrics = safeLyrics,
+                        story = finalStory,
+                        annotations = finalAnnots,
+                        failureNotice = cached.geniusNotice
+                    )
+                }
+            }
             return
         }
 
@@ -982,98 +1235,37 @@ class NowPlayingRepository @Inject constructor(
                 }
             }
 
-            // 阶段二：后台受控并发极速补全目标语种对照翻译 (4 协程并行，1.5 秒内全部就绪并平滑刷新界面)
+            // 阶段二：背景故事走高优快车道独立先出 + 典故批量打包翻译（渐进实时刷新，互不阻塞）
             if (fetchedStory != null || fetchedAnnotations.isNotEmpty()) {
-                val targetIso = TranslationTargetLanguage.fromCode(aiPreferences.targetLanguage).fallbackIso
-                val isChineseTarget = isChineseTargetIso(targetIso)
-                val isTraditionalTarget = isChineseTarget && (
-                    aiPreferences.targetLanguage == "zh-TW" ||
-                        TranslationTargetLanguage.fromCode(aiPreferences.targetLanguage) == TranslationTargetLanguage.ZH_TW ||
-                        aiPreferences.isTraditionalChinese
-                    )
-                val transSemaphore = Semaphore(4)
-                coroutineScope {
-                    val storyTransDeferred = async {
-                        val cStory = fetchedStory
-                        if (cStory != null && cStory.descriptionTranslation.isNullOrBlank() &&
-                            cStory.descriptionPlain.isNotBlank() &&
-                            !(isChineseTarget && AiAnnotationCurator.isAlreadyChinese(cStory.descriptionPlain))
-                        ) {
-                            transSemaphore.withPermit {
-                                try {
-                                    val tr = translationService.translateText(cStory.descriptionPlain, targetIso)
-                                    if (isValidTranslatedText(tr, cStory.descriptionPlain, targetIso)) {
-                                        val cleaned = HtmlUtils.cleanTranslationOutput(tr!!)
-                                        val finalStoryTrans = if (isTraditionalTarget) ChineseConverter.toTraditional(cleaned) else cleaned
-                                        fetchedStory = cStory.copy(descriptionTranslation = finalStoryTrans)
-                                    }
-                                } catch (e: CancellationException) {
-                                    throw e
-                                } catch (_: Exception) {
-                                }
-                            }
-                        }
-                    }
-
-                    val annotTransDeferredList = fetchedAnnotations.map { annot ->
-                        async {
-                            if (annot.explanationTranslation.isNullOrBlank() &&
-                                annot.explanationText.isNotBlank() &&
-                                !(isChineseTarget && AiAnnotationCurator.isAlreadyChinese(annot.explanationText))
-                            ) {
-                                transSemaphore.withPermit {
-                                    try {
-                                        val tr = translationService.translateText(annot.explanationText, targetIso)
-                                        if (isValidTranslatedText(tr, annot.explanationText, targetIso)) {
-                                            val cleaned = HtmlUtils.cleanTranslationOutput(tr!!)
-                                            val finalTrans = if (isTraditionalTarget) ChineseConverter.toTraditional(cleaned) else cleaned
-                                            annot.copy(explanationTranslation = finalTrans)
-                                        } else {
-                                            annot
-                                        }
-                                    } catch (e: CancellationException) {
-                                        throw e
-                                    } catch (_: Exception) {
-                                        annot
-                                    }
-                                }
-                            } else {
-                                annot
-                            }
-                        }
-                    }
-
-                    storyTransDeferred.await()
-                    fetchedAnnotations = annotTransDeferredList.awaitAll()
-                }
-
-                val finalMatched = if (fetchedLyrics.isNotEmpty() && fetchedAnnotations.isNotEmpty()) {
-                    LyricFragmentMatcher.matchAnnotationsToLines(fetchedLyrics, fetchedAnnotations)
-                } else {
-                    initialMatched
-                }
-
-                if (fetchedLyrics.isNotEmpty()) {
-                    putMemoryCacheSafely(
-                        cacheKey,
-                        CachedSongData(
+                val proseSpec = currentProseTranslationSpec()
+                val (finalStory, finalAnnots) = translateStoryAndAnnotations(
+                    initialStory = fetchedStory,
+                    initialAnnotations = fetchedAnnotations,
+                    spec = proseSpec,
+                    prioritizeInteractive = true,
+                    onProgress = { progStory, progAnnots ->
+                        publishGeniusTranslationProgress(
+                            trackEpoch = trackEpoch,
+                            cacheKey = cacheKey,
                             lyrics = fetchedLyrics,
-                            annotatedLines = finalMatched,
-                            songStory = fetchedStory,
-                            geniusNotice = failureNotice,
-                            hasAttemptedGenius = true
+                            story = progStory,
+                            annotations = progAnnots,
+                            failureNotice = failureNotice
                         )
-                    )
-                }
+                    }
+                )
+                fetchedStory = finalStory
+                fetchedAnnotations = finalAnnots
 
                 if (trackEpoch == activeTrackEpoch) {
-                    _lyricsContentFlow.update {
-                        it.copy(
-                            annotatedLines = finalMatched,
-                            songStory = fetchedStory
-                        )
-                    }
-                    syncNowPlayingAggregate(content = _lyricsContentFlow.value)
+                    publishGeniusTranslationProgress(
+                        trackEpoch = trackEpoch,
+                        cacheKey = cacheKey,
+                        lyrics = fetchedLyrics,
+                        story = fetchedStory,
+                        annotations = fetchedAnnotations,
+                        failureNotice = failureNotice
+                    )
                 }
             }
         }
@@ -1083,8 +1275,12 @@ class NowPlayingRepository @Inject constructor(
         if (queueItems.isEmpty()) return
         preloadingJob?.cancel()
         preloadingJob = repositoryScope.launch {
-            // 关键：让出前 2.5 秒最高优先级网络带宽与连接池给当前播放曲目！
-            delay(2500L)
+            // 先等待当前歌曲的主加载与阶段二翻译全部完成，再开始静默预加载队列曲目，绝不抢占交互带宽
+            try {
+                dataLoadJob?.join()
+            } catch (_: CancellationException) {
+            }
+            delay(800L)
             val currentKey = currentSongKey
             // 提取待播队列中接下来的 3 首曲目进行深度静默预加载 (含缺翻/残缺缓存自愈)
             val candidates = queueItems.filter { item ->
@@ -1222,66 +1418,16 @@ class NowPlayingRepository @Inject constructor(
                     fetchedAnnotations = annotList
                 }
 
-                // 并发极速翻译
-                val targetIso = TranslationTargetLanguage.fromCode(aiPreferences.targetLanguage).fallbackIso
-                val isChineseTarget = isChineseTargetIso(targetIso)
-                val isTraditionalTarget = isChineseTarget && (
-                    aiPreferences.targetLanguage == "zh-TW" ||
-                        TranslationTargetLanguage.fromCode(aiPreferences.targetLanguage) == TranslationTargetLanguage.ZH_TW ||
-                        aiPreferences.isTraditionalChinese
-                    )
-                val transSemaphore = Semaphore(4)
-                coroutineScope {
-                    val storyTransDeferred = async {
-                        val curStory = fetchedStory
-                        if (curStory != null && curStory.descriptionPlain.isNotBlank() &&
-                            !(isChineseTarget && AiAnnotationCurator.isAlreadyChinese(curStory.descriptionPlain))
-                        ) {
-                            transSemaphore.withPermit {
-                                try {
-                                    val tr = translationService.translateText(curStory.descriptionPlain, targetIso)
-                                    if (isValidTranslatedText(tr, curStory.descriptionPlain, targetIso)) {
-                                        val cleaned = HtmlUtils.cleanTranslationOutput(tr!!)
-                                        val finalTr = if (isTraditionalTarget) ChineseConverter.toTraditional(cleaned) else cleaned
-                                        fetchedStory = curStory.copy(descriptionTranslation = finalTr)
-                                    }
-                                } catch (e: CancellationException) {
-                                    throw e
-                                } catch (e: Exception) { }
-                            }
-                        }
-                    }
-
-                    val annotTransDeferredList = fetchedAnnotations.map { annot ->
-                        async {
-                            if (annot.explanationText.isNotBlank() &&
-                                !(isChineseTarget && AiAnnotationCurator.isAlreadyChinese(annot.explanationText))
-                            ) {
-                                transSemaphore.withPermit {
-                                    try {
-                                        val tr = translationService.translateText(annot.explanationText, targetIso)
-                                        if (isValidTranslatedText(tr, annot.explanationText, targetIso)) {
-                                            val cleaned = HtmlUtils.cleanTranslationOutput(tr!!)
-                                            val finalTr = if (isTraditionalTarget) ChineseConverter.toTraditional(cleaned) else cleaned
-                                            annot.copy(explanationTranslation = finalTr)
-                                        } else {
-                                            annot
-                                        }
-                                    } catch (e: CancellationException) {
-                                        throw e
-                                    } catch (e: Exception) {
-                                        annot
-                                    }
-                                }
-                            } else {
-                                annot
-                            }
-                        }
-                    }
-
-                    storyTransDeferred.await()
-                    fetchedAnnotations = annotTransDeferredList.awaitAll()
-                }
+                // 批量打包极速翻译（与前台阶段二共享同一批量引擎）
+                val proseSpec = currentProseTranslationSpec()
+                val (translatedStory, translatedAnnots) = translateStoryAndAnnotations(
+                    initialStory = fetchedStory,
+                    initialAnnotations = fetchedAnnotations,
+                    spec = proseSpec,
+                    prioritizeInteractive = false
+                )
+                fetchedStory = translatedStory
+                fetchedAnnotations = translatedAnnots
             }
         } catch (e: CancellationException) {
             throw e
@@ -1374,35 +1520,32 @@ class NowPlayingRepository @Inject constructor(
     suspend fun translateSingleAnnotation(annotation: LyricAnnotationEntity): LyricAnnotationEntity = withContext(Dispatchers.IO) {
         val initialSongKey = currentSongKey
         val initialEpoch = activeTrackEpoch
-        val targetIso = TranslationTargetLanguage.fromCode(aiPreferences.targetLanguage).fallbackIso
-        val isChineseTarget = isChineseTargetIso(targetIso)
-        val isTraditionalTarget = isChineseTarget && (
-            aiPreferences.targetLanguage == "zh-TW" ||
-                TranslationTargetLanguage.fromCode(aiPreferences.targetLanguage) == TranslationTargetLanguage.ZH_TW ||
-                aiPreferences.isTraditionalChinese
-            )
-
+        val spec = currentProseTranslationSpec()
         var updated = annotation
 
-        // 1. 若歌词原句本身未翻译且目标语种非中文或原句非中文，异步请求翻译歌词原句
-        if (updated.lyricTranslation.isNullOrBlank() &&
-            !(isChineseTarget && AiAnnotationCurator.isAlreadyChinese(updated.lyricFragment))
-        ) {
-            val transLyric = translationService.translateText(updated.lyricFragment, targetIso)
-            if (isValidTranslatedText(transLyric, updated.lyricFragment, targetIso)) {
-                val cleanedTrans = HtmlUtils.cleanTranslationOutput(transLyric!!)
-                val finalLyric = if (isTraditionalTarget) ChineseConverter.toTraditional(cleanedTrans) else cleanedTrans
-                updated = updated.copy(lyricTranslation = finalLyric)
-            }
-        }
+        val needLyric = updated.lyricTranslation.isNullOrBlank() &&
+            !(spec.isChineseTarget && AiAnnotationCurator.isAlreadyChinese(updated.lyricFragment))
+        val needExpl = !(spec.isChineseTarget && AiAnnotationCurator.isAlreadyChinese(updated.explanationText))
 
-        // 2. 翻译典故解说正文
-        if (!(isChineseTarget && AiAnnotationCurator.isAlreadyChinese(updated.explanationText))) {
-            val tr = translationService.translateText(updated.explanationText, targetIso)
-            if (isValidTranslatedText(tr, updated.explanationText, targetIso)) {
-                val cleaned = HtmlUtils.cleanTranslationOutput(tr!!)
-                val finalTr = if (isTraditionalTarget) ChineseConverter.toTraditional(cleaned) else cleaned
-                updated = updated.copy(explanationTranslation = finalTr)
+        val batchInputs = mutableListOf<String>()
+        val lyricIdx = if (needLyric) batchInputs.size.also { batchInputs.add(updated.lyricFragment) } else -1
+        val explIdx = if (needExpl) batchInputs.size.also { batchInputs.add(updated.explanationText) } else -1
+
+        if (batchInputs.isNotEmpty()) {
+            val batchOutputs = translationService.translateTextsBatch(
+                texts = batchInputs,
+                targetIso = spec.targetIso,
+                highPriority = true
+            )
+            if (lyricIdx >= 0) {
+                finalizeTranslatedProse(batchOutputs.getOrNull(lyricIdx), updated.lyricFragment, spec)?.let {
+                    updated = updated.copy(lyricTranslation = it)
+                }
+            }
+            if (explIdx >= 0) {
+                finalizeTranslatedProse(batchOutputs.getOrNull(explIdx), updated.explanationText, spec)?.let {
+                    updated = updated.copy(explanationTranslation = it)
+                }
             }
         }
 
@@ -1435,21 +1578,18 @@ class NowPlayingRepository @Inject constructor(
     suspend fun translateCurrentStory(story: SongStoryEntity): SongStoryEntity = withContext(Dispatchers.IO) {
         val initialSongKey = currentSongKey
         val initialEpoch = activeTrackEpoch
-        val targetIso = TranslationTargetLanguage.fromCode(aiPreferences.targetLanguage).fallbackIso
-        val isChineseTarget = isChineseTargetIso(targetIso)
-        if (isChineseTarget && AiAnnotationCurator.isAlreadyChinese(story.descriptionPlain)) {
+        val spec = currentProseTranslationSpec()
+        if (spec.isChineseTarget && AiAnnotationCurator.isAlreadyChinese(story.descriptionPlain)) {
             return@withContext story
         }
-        val isTraditionalTarget = isChineseTarget && (
-            aiPreferences.targetLanguage == "zh-TW" ||
-                TranslationTargetLanguage.fromCode(aiPreferences.targetLanguage) == TranslationTargetLanguage.ZH_TW ||
-                aiPreferences.isTraditionalChinese
-            )
 
-        val tr = translationService.translateText(story.descriptionPlain, targetIso)
-        if (isValidTranslatedText(tr, story.descriptionPlain, targetIso)) {
-            val cleaned = HtmlUtils.cleanTranslationOutput(tr!!)
-            val finalTr = if (isTraditionalTarget) ChineseConverter.toTraditional(cleaned) else cleaned
+        val tr = translationService.translateText(
+            text = story.descriptionPlain,
+            targetIso = spec.targetIso,
+            highPriority = true
+        )
+        val finalTr = finalizeTranslatedProse(tr, story.descriptionPlain, spec)
+        if (finalTr != null) {
             val updated = story.copy(descriptionTranslation = finalTr)
 
             if (initialSongKey != null) {
