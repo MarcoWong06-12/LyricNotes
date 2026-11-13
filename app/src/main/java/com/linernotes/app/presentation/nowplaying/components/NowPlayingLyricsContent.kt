@@ -1012,7 +1012,7 @@ fun LyricLineRow(
 
         if (annotation != null) {
             // 保持典故徽章常驻固定布局槽位，仅平滑切换亮暗配色与描边，避免滚动期行高突变抖动
-            Spacer(modifier = Modifier.height(6.dp))
+            Spacer(modifier = Modifier.height(4.dp))
             LyricAnnotationBadge(
                 isActive = isVisuallyActive || (isBrowsing && isFocal),
                 isDark = isDark,
@@ -1266,7 +1266,7 @@ fun AppleMusicWordUnit(
 }
 
 /**
- * 珠寶級香檳金磨砂微圓章典故徽標（純圖示呈現）
+ * 編輯室級磨砂膠囊典故徽標（✦ + 微指引箭頭，純圖示保持極簡呼吸感並兼顧清晰觸控熱區）
  */
 @Composable
 fun LyricAnnotationBadge(
@@ -1276,44 +1276,72 @@ fun LyricAnnotationBadge(
 ) {
     val strings = LocalStrings.current
 
-    val badgeBg = if (isActive) {
-        if (isDark) Color(0xFFFFD54F).copy(alpha = 0.16f) else Color(0xFFFFE082).copy(alpha = 0.35f)
+    val targetBg = if (isActive) {
+        if (isDark) Color(0xFFFFD54F).copy(alpha = 0.14f) else Color(0xFFD97706).copy(alpha = 0.10f)
     } else {
-        if (isDark) Color.White.copy(alpha = 0.08f) else MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.70f)
+        if (isDark) Color.White.copy(alpha = 0.11f) else Color(0xFF1C1C1E).copy(alpha = 0.06f)
     }
-    val badgeBorder = if (isActive) {
-        if (isDark) Color(0xFFFFD54F).copy(alpha = 0.75f) else Color(0xFFFFA000).copy(alpha = 0.75f)
+    val targetBorder = if (isActive) {
+        if (isDark) Color(0xFFFFD54F).copy(alpha = 0.38f) else Color(0xFFB45309).copy(alpha = 0.26f)
     } else {
-        if (isDark) Color.White.copy(alpha = 0.12f) else MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.40f)
+        if (isDark) Color.White.copy(alpha = 0.20f) else Color(0xFF1C1C1E).copy(alpha = 0.14f)
     }
-    val iconTint = if (isActive) {
-        if (isDark) Color(0xFFFFD54F) else Color(0xFFE65100)
+    val targetTint = if (isActive) {
+        if (isDark) Color(0xFFFFD54F) else Color(0xFFB45309)
     } else {
-        if (isDark) Color.White.copy(alpha = 0.70f) else MaterialTheme.colorScheme.onSurfaceVariant
+        if (isDark) Color.White.copy(alpha = 0.85f) else Color(0xFF1C1C1E).copy(alpha = 0.72f)
     }
 
-    Surface(
-        color = badgeBg,
-        shape = RoundedCornerShape(50),
-        border = BorderStroke(1.dp, badgeBorder),
-        modifier = if (isActive) {
-            Modifier.bouncyClickable(pressedScale = 0.92f) { onClick() }
-        } else {
-            Modifier
-                .clip(RoundedCornerShape(50))
-                .clickable(onClick = onClick)
-        }
-    ) {
-        Box(
-            modifier = Modifier.size(26.dp),
-            contentAlignment = Alignment.Center
-        ) {
-            Icon(
-                imageVector = Icons.Default.AutoAwesome,
-                contentDescription = strings.triviaBadge,
-                tint = iconTint,
-                modifier = Modifier.size(13.5.dp)
+    val colorAnimSpec = remember { tween<Color>(durationMillis = 260) }
+    val badgeBg by animateColorAsState(
+        targetValue = targetBg,
+        animationSpec = colorAnimSpec,
+        label = "badgeBg"
+    )
+    val badgeBorder by animateColorAsState(
+        targetValue = targetBorder,
+        animationSpec = colorAnimSpec,
+        label = "badgeBorder"
+    )
+    val iconTint by animateColorAsState(
+        targetValue = targetTint,
+        animationSpec = colorAnimSpec,
+        label = "badgeTint"
+    )
+
+    Box(
+        modifier = Modifier
+            .bouncyClickable(
+                pressedScale = 0.93f,
+                onClick = onClick
             )
+            .padding(vertical = 4.dp)
+    ) {
+        Surface(
+            color = badgeBg,
+            shape = RoundedCornerShape(50),
+            border = BorderStroke(0.5.dp, badgeBorder)
+        ) {
+            Row(
+                modifier = Modifier
+                    .height(32.dp)
+                    .padding(start = 13.dp, end = 9.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(2.dp)
+            ) {
+                Icon(
+                    imageVector = Icons.Default.AutoAwesome,
+                    contentDescription = strings.triviaBadge,
+                    tint = iconTint,
+                    modifier = Modifier.size(16.dp)
+                )
+                Icon(
+                    imageVector = Icons.Default.ChevronRight,
+                    contentDescription = null,
+                    tint = iconTint.copy(alpha = iconTint.alpha * 0.72f),
+                    modifier = Modifier.size(15.dp)
+                )
+            }
         }
     }
 }
