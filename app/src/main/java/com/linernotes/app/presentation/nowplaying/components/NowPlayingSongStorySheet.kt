@@ -8,6 +8,7 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.AutoAwesome
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material3.*
 import androidx.compose.runtime.Composable
@@ -16,6 +17,7 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.layout.ContentScale
@@ -68,6 +70,7 @@ fun NowPlayingSongStorySheet(
 
     val sheetContent = if (isDark) Color.White else Color(0xFF1C1C1E)
     val textSecondary = if (isDark) Color.White.copy(alpha = 0.55f) else Color.Black.copy(alpha = 0.48f)
+    val dividerColor = if (isDark) Color.White.copy(alpha = 0.08f) else Color.Black.copy(alpha = 0.06f)
     val handleColor = if (isDark) Color.White.copy(alpha = 0.22f) else Color.Black.copy(alpha = 0.18f)
     val strings = LocalStrings.current
 
@@ -115,33 +118,50 @@ fun NowPlayingSongStorySheet(
             ) {
                 Column(modifier = Modifier.weight(1f).padding(end = 12.dp)) {
                     Surface(
-                        color = if (isDark) Color(0xFFFFB300).copy(alpha = 0.15f) else Color(0xFFF59E0B).copy(alpha = 0.12f),
-                        shape = RoundedCornerShape(6.dp)
-                    ) {
-                        Text(
-                            text = strings.songStoryTitle,
-                            color = if (isDark) Color(0xFFFFCA28) else Color(0xFFD97706),
-                            fontSize = 11.sp,
-                            fontWeight = FontWeight.Bold,
-                            letterSpacing = 1.1.sp,
-                            fontFamily = FontFamily.SansSerif,
-                            modifier = Modifier.padding(horizontal = 7.dp, vertical = 2.5.dp)
+                        color = if (isDark) Color(0xFFFFC107).copy(alpha = 0.14f) else Color(0xFFF59E0B).copy(alpha = 0.10f),
+                        shape = RoundedCornerShape(50),
+                        border = BorderStroke(
+                            0.5.dp,
+                            if (isDark) Color(0xFFFFC107).copy(alpha = 0.36f) else Color(0xFFD97706).copy(alpha = 0.28f)
                         )
+                    ) {
+                        Row(
+                            modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.5.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(5.dp)
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.AutoAwesome,
+                                contentDescription = null,
+                                tint = if (isDark) Color(0xFFFFCA28) else Color(0xFFB45309),
+                                modifier = Modifier.size(13.dp)
+                            )
+                            Text(
+                                text = strings.songStoryTitle,
+                                color = if (isDark) Color(0xFFFFD54F) else Color(0xFFB45309),
+                                fontSize = 11.sp,
+                                fontWeight = FontWeight.Bold,
+                                letterSpacing = 0.7.sp,
+                                fontFamily = FontFamily.SansSerif
+                            )
+                        }
                     }
-                    Spacer(modifier = Modifier.height(6.dp))
+                    Spacer(modifier = Modifier.height(10.dp))
                     Text(
                         text = displayTitle,
                         color = sheetContent,
-                        fontSize = 20.sp,
+                        fontSize = 21.sp,
                         fontWeight = FontWeight.Bold,
                         fontFamily = FontFamily.SansSerif,
-                        lineHeight = 26.sp
+                        letterSpacing = (-0.2).sp,
+                        lineHeight = 27.sp
                     )
-                    Spacer(modifier = Modifier.height(2.dp))
+                    Spacer(modifier = Modifier.height(3.dp))
                     Text(
                         text = displayArtist,
                         color = textSecondary,
-                        fontSize = 13.5.sp,
+                        fontSize = 14.sp,
+                        fontWeight = FontWeight.Medium,
                         fontFamily = FontFamily.SansSerif
                     )
                 }
@@ -157,7 +177,7 @@ fun NowPlayingSongStorySheet(
                         Icon(
                             imageVector = Icons.Default.Close,
                             contentDescription = strings.closeBtn,
-                            tint = if (isDark) Color.White.copy(alpha = 0.85f) else Color.Black.copy(alpha = 0.75f),
+                            tint = if (isDark) Color.White.copy(alpha = 0.85f) else Color(0xFF1C1C1E).copy(alpha = 0.75f),
                             modifier = Modifier.size(17.dp)
                         )
                     }
@@ -167,20 +187,40 @@ fun NowPlayingSongStorySheet(
             // 2. 专辑/单曲封面海报 (Hero Visual)
             if (!story.headerImageUrl.isNullOrBlank()) {
                 Surface(
+                    color = if (isDark) Color.White.copy(alpha = 0.05f) else Color(0xFFE5E5EA),
                     shape = RoundedCornerShape(16.dp),
                     border = BorderStroke(0.5.dp, cardBorder),
-                    modifier = Modifier.fillMaxWidth()
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(192.dp)
                 ) {
-                    AsyncImage(
-                        model = story.headerImageUrl,
-                        contentDescription = null,
-                        contentScale = ContentScale.Crop,
+                    Box(
                         modifier = Modifier
-                            .fillMaxWidth()
-                            .height(180.dp)
+                            .fillMaxSize()
                             .clip(RoundedCornerShape(16.dp))
-                            .background(if (isDark) Color.White.copy(alpha = 0.05f) else MaterialTheme.colorScheme.surfaceVariant)
-                    )
+                    ) {
+                        AsyncImage(
+                            model = story.headerImageUrl,
+                            contentDescription = null,
+                            alignment = Alignment.TopCenter,
+                            contentScale = ContentScale.Crop,
+                            modifier = Modifier.fillMaxSize()
+                        )
+                        Box(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .height(64.dp)
+                                .align(Alignment.BottomCenter)
+                                .background(
+                                    Brush.verticalGradient(
+                                        colors = listOf(
+                                            Color.Transparent,
+                                            Color.Black.copy(alpha = if (isDark) 0.40f else 0.22f)
+                                        )
+                                    )
+                                )
+                        )
+                    }
                 }
             }
 
@@ -197,47 +237,62 @@ fun NowPlayingSongStorySheet(
                     Row(
                         modifier = Modifier
                             .fillMaxWidth()
-                            .padding(horizontal = 16.dp, vertical = 13.dp),
-                        horizontalArrangement = Arrangement.spacedBy(20.dp)
+                            .height(IntrinsicSize.Min)
+                            .padding(horizontal = 16.dp, vertical = 14.dp),
+                        verticalAlignment = Alignment.CenterVertically
                     ) {
                         story.releaseDate?.takeIf { it.isNotBlank() }?.let { date ->
-                            Column(modifier = Modifier.weight(1f, fill = false)) {
+                            Column(modifier = Modifier.weight(1f)) {
                                 Text(
                                     text = strings.releaseDateLabel.uppercase(),
                                     color = textSecondary,
-                                    fontSize = 11.sp,
-                                    fontWeight = FontWeight.Medium,
-                                    letterSpacing = 0.6.sp,
+                                    fontSize = 10.sp,
+                                    fontWeight = FontWeight.SemiBold,
+                                    letterSpacing = 0.8.sp,
                                     fontFamily = FontFamily.SansSerif
                                 )
-                                Spacer(modifier = Modifier.height(2.5.dp))
+                                Spacer(modifier = Modifier.height(3.dp))
                                 Text(
                                     text = date,
                                     color = sheetContent,
                                     fontSize = 13.5.sp,
                                     fontWeight = FontWeight.SemiBold,
-                                    fontFamily = FontFamily.SansSerif
+                                    fontFamily = FontFamily.SansSerif,
+                                    lineHeight = 18.sp
                                 )
                             }
                         }
+
+                        if (hasReleaseDate && hasProducer) {
+                            Box(
+                                modifier = Modifier
+                                    .padding(horizontal = 14.dp)
+                                    .width(1.dp)
+                                    .fillMaxHeight()
+                                    .padding(vertical = 2.dp)
+                                    .background(dividerColor)
+                            )
+                        }
+
                         story.producerCredits?.takeIf { it.isNotBlank() }?.let { prod ->
                             val displayProd = if (isTraditional) com.linernotes.app.core.util.ChineseConverter.toTraditional(prod) else prod
-                            Column(modifier = Modifier.weight(2f, fill = false)) {
+                            Column(modifier = Modifier.weight(1f)) {
                                 Text(
                                     text = strings.producerLabel.uppercase(),
                                     color = textSecondary,
-                                    fontSize = 11.sp,
-                                    fontWeight = FontWeight.Medium,
-                                    letterSpacing = 0.6.sp,
+                                    fontSize = 10.sp,
+                                    fontWeight = FontWeight.SemiBold,
+                                    letterSpacing = 0.8.sp,
                                     fontFamily = FontFamily.SansSerif
                                 )
-                                Spacer(modifier = Modifier.height(2.5.dp))
+                                Spacer(modifier = Modifier.height(3.dp))
                                 Text(
                                     text = displayProd,
                                     color = sheetContent,
                                     fontSize = 13.5.sp,
                                     fontWeight = FontWeight.SemiBold,
                                     fontFamily = FontFamily.SansSerif,
+                                    lineHeight = 18.sp,
                                     maxLines = 2,
                                     overflow = TextOverflow.Ellipsis
                                 )

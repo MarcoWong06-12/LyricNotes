@@ -21,8 +21,8 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.text.font.FontFamily
-import androidx.compose.ui.text.font.FontStyle
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import coil.compose.AsyncImage
@@ -55,10 +55,24 @@ fun NowPlayingGeniusSheet(
 
     val isDark = MaterialTheme.colorScheme.background.luminance() < 0.5f
     val isPureAmoled = isDark && isAmoledMode
-    val sheetBg = if (isPureAmoled) Color(0xFF0C0C0E) else (if (isDark) Color(0xFF13141B) else MaterialTheme.colorScheme.surface)
-    val sheetContent = if (isDark) Color.White else MaterialTheme.colorScheme.onSurface
-    val cardBg = if (isPureAmoled) Color(0xFF141416) else (if (isDark) Color.White.copy(alpha = 0.05f) else MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.70f))
-    val handleColor = if (isDark) Color.White.copy(alpha = 0.20f) else Color.Black.copy(alpha = 0.20f)
+
+    // Apple Editorial & Grouped Inset 配色体系
+    val sheetBg = if (isDark) {
+        if (isPureAmoled) Color.Black else Color(0xFF121214)
+    } else Color(0xFFF2F2F7)
+
+    val cardBg = if (isDark) {
+        if (isPureAmoled) Color(0xFF0C0C0E) else Color(0xFF1C1C1E)
+    } else Color.White
+
+    val cardBorder = if (isDark) {
+        if (isPureAmoled) Color(0xFF222226) else Color.White.copy(alpha = 0.08f)
+    } else Color.Black.copy(alpha = 0.05f)
+
+    val sheetContent = if (isDark) Color.White else Color(0xFF1C1C1E)
+    val textSecondary = if (isDark) Color.White.copy(alpha = 0.55f) else Color.Black.copy(alpha = 0.48f)
+    val dividerColor = if (isDark) Color.White.copy(alpha = 0.08f) else Color.Black.copy(alpha = 0.06f)
+    val handleColor = if (isDark) Color.White.copy(alpha = 0.22f) else Color.Black.copy(alpha = 0.18f)
     val strings = LocalStrings.current
 
     ModalBottomSheet(
@@ -95,26 +109,31 @@ fun NowPlayingGeniusSheet(
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 Surface(
-                    color = if (isDark) Color(0xFFFFC107).copy(alpha = 0.16f) else Color(0xFFFFECB3).copy(alpha = 0.50f),
-                    shape = RoundedCornerShape(14.dp),
-                    border = BorderStroke(0.5.dp, if (isDark) Color(0xFFFFC107).copy(alpha = 0.45f) else Color(0xFFFFA000).copy(alpha = 0.60f))
+                    color = if (isDark) Color(0xFFFFC107).copy(alpha = 0.14f) else Color(0xFFF59E0B).copy(alpha = 0.10f),
+                    shape = RoundedCornerShape(50),
+                    border = BorderStroke(
+                        0.5.dp,
+                        if (isDark) Color(0xFFFFC107).copy(alpha = 0.36f) else Color(0xFFD97706).copy(alpha = 0.28f)
+                    )
                 ) {
                     Row(
-                        modifier = Modifier.padding(horizontal = 10.dp, vertical = 5.dp),
+                        modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.5.dp),
                         verticalAlignment = Alignment.CenterVertically,
                         horizontalArrangement = Arrangement.spacedBy(5.dp)
                     ) {
                         Icon(
                             imageVector = Icons.Default.CheckCircle,
                             contentDescription = null,
-                            tint = if (isDark) Color(0xFFFFC107) else Color(0xFFE65100),
-                            modifier = Modifier.size(14.dp)
+                            tint = if (isDark) Color(0xFFFFCA28) else Color(0xFFB45309),
+                            modifier = Modifier.size(13.5.dp)
                         )
                         Text(
                             text = if (annotation.isVerified) strings.geniusVerified else strings.geniusAnnotation,
-                            color = if (isDark) Color(0xFFFFD54F) else Color(0xFFC77700),
-                            fontSize = 12.sp,
-                            fontWeight = FontWeight.Bold
+                            color = if (isDark) Color(0xFFFFD54F) else Color(0xFFB45309),
+                            fontSize = 11.5.sp,
+                            fontWeight = FontWeight.Bold,
+                            letterSpacing = 0.4.sp,
+                            fontFamily = FontFamily.SansSerif
                         )
                     }
                 }
@@ -125,17 +144,17 @@ fun NowPlayingGeniusSheet(
                 ) {
                     if (!isTranslating) {
                         Surface(
-                            color = if (isDark) Color.White.copy(alpha = 0.08f) else Color.Black.copy(alpha = 0.06f),
+                            color = if (isDark) Color.White.copy(alpha = 0.10f) else Color.Black.copy(alpha = 0.06f),
                             shape = CircleShape,
                             modifier = Modifier
-                                .size(34.dp)
+                                .size(32.dp)
                                 .bouncyIconClickable(onClick = onRetryTranslation)
                         ) {
                             Box(contentAlignment = Alignment.Center) {
                                 Icon(
                                     imageVector = Icons.Default.Refresh,
                                     contentDescription = strings.retryBtn,
-                                    tint = if (isDark) Color.White.copy(alpha = 0.8f) else MaterialTheme.colorScheme.onSurface,
+                                    tint = if (isDark) Color.White.copy(alpha = 0.85f) else Color(0xFF1C1C1E).copy(alpha = 0.75f),
                                     modifier = Modifier.size(16.dp)
                                 )
                             }
@@ -143,17 +162,17 @@ fun NowPlayingGeniusSheet(
                     }
 
                     Surface(
-                        color = if (isDark) Color.White.copy(alpha = 0.08f) else Color.Black.copy(alpha = 0.06f),
+                        color = if (isDark) Color.White.copy(alpha = 0.10f) else Color.Black.copy(alpha = 0.06f),
                         shape = CircleShape,
                         modifier = Modifier
-                            .size(34.dp)
+                            .size(32.dp)
                             .bouncyIconClickable(onClick = dismissWithAnimation)
                     ) {
                         Box(contentAlignment = Alignment.Center) {
                             Icon(
                                 imageVector = Icons.Default.Close,
                                 contentDescription = strings.closeBtn,
-                                tint = if (isDark) Color.White.copy(alpha = 0.8f) else MaterialTheme.colorScheme.onSurface,
+                                tint = if (isDark) Color.White.copy(alpha = 0.85f) else Color(0xFF1C1C1E).copy(alpha = 0.75f),
                                 modifier = Modifier.size(17.dp)
                             )
                         }
@@ -164,34 +183,51 @@ fun NowPlayingGeniusSheet(
             Spacer(modifier = Modifier.height(16.dp))
 
             // 被引用的歌词原句卡片 (Quoted Lyric Card: 原文下紧随中文翻译)
-            val displayFrag = if (isTraditional) ChineseConverter.toTraditional(annotation.lyricFragment) else annotation.lyricFragment
+            val displayFrag = (if (isTraditional) ChineseConverter.toTraditional(annotation.lyricFragment) else annotation.lyricFragment).trim()
             Surface(
                 color = cardBg,
                 shape = RoundedCornerShape(16.dp),
-                border = BorderStroke(0.5.dp, if (isDark) Color(0xFFFFD54F).copy(alpha = 0.25f) else Color(0xFFFFA000).copy(alpha = 0.35f)),
+                border = BorderStroke(0.5.dp, cardBorder),
                 modifier = Modifier.fillMaxWidth()
             ) {
-                Column(
-                    modifier = Modifier.padding(14.dp),
-                    verticalArrangement = Arrangement.spacedBy(6.dp)
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(IntrinsicSize.Min)
+                        .padding(horizontal = 14.dp, vertical = 14.dp)
                 ) {
-                    Text(
-                        text = "❝ $displayFrag ❞",
-                        color = if (isDark) Color(0xFFFFE082) else Color(0xFFE65100),
-                        fontSize = 15.sp,
-                        fontWeight = FontWeight.SemiBold,
-                        lineHeight = 22.sp
+                    Box(
+                        modifier = Modifier
+                            .width(3.dp)
+                            .fillMaxHeight()
+                            .clip(RoundedCornerShape(50))
+                            .background(Color(0xFFF59E0B))
                     )
-
-                    val displayLyricTrans = lyricTranslation?.takeIf { it.isNotBlank() } ?: annotation.lyricTranslation
-                    if (!displayLyricTrans.isNullOrBlank()) {
-                        val finalTrans = if (isTraditional) ChineseConverter.toTraditional(displayLyricTrans) else displayLyricTrans
+                    Spacer(modifier = Modifier.width(12.dp))
+                    Column(modifier = Modifier.weight(1f)) {
                         Text(
-                            text = finalTrans,
-                            color = if (isDark) Color.White.copy(alpha = 0.85f) else MaterialTheme.colorScheme.onSurface.copy(alpha = 0.85f),
-                            fontSize = 13.5.sp,
-                            lineHeight = 20.sp
+                            text = "“$displayFrag”",
+                            color = sheetContent,
+                            fontSize = 15.5.sp,
+                            fontWeight = FontWeight.SemiBold,
+                            fontFamily = FontFamily.SansSerif,
+                            lineHeight = 23.sp
                         )
+
+                        val displayLyricTrans = lyricTranslation?.takeIf { it.isNotBlank() } ?: annotation.lyricTranslation
+                        if (!displayLyricTrans.isNullOrBlank()) {
+                            val finalTrans = (if (isTraditional) ChineseConverter.toTraditional(displayLyricTrans) else displayLyricTrans).trim()
+                            Spacer(modifier = Modifier.height(10.dp))
+                            HorizontalDivider(thickness = 0.5.dp, color = dividerColor)
+                            Spacer(modifier = Modifier.height(10.dp))
+                            Text(
+                                text = finalTrans,
+                                color = if (isDark) Color.White.copy(alpha = 0.78f) else Color(0xFF1C1C1E).copy(alpha = 0.72f),
+                                fontSize = 13.5.sp,
+                                fontFamily = FontFamily.SansSerif,
+                                lineHeight = 20.sp
+                            )
+                        }
                     }
                 }
             }
@@ -201,8 +237,9 @@ fun NowPlayingGeniusSheet(
             Text(
                 text = strings.geniusDepthAnalysis,
                 color = sheetContent,
-                fontSize = 15.sp,
-                fontWeight = FontWeight.Bold
+                fontSize = 16.sp,
+                fontWeight = FontWeight.Bold,
+                fontFamily = FontFamily.SansSerif
             )
 
             Spacer(modifier = Modifier.height(10.dp))
@@ -220,67 +257,87 @@ fun NowPlayingGeniusSheet(
 
             Spacer(modifier = Modifier.height(18.dp))
 
-            // 底部贡献者信息与点赞
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(top = 4.dp),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically
+            // 底部贡献者信息与点赞 (Apple Grouped Inset Card Row)
+            Surface(
+                color = cardBg,
+                shape = RoundedCornerShape(16.dp),
+                border = BorderStroke(0.5.dp, cardBorder),
+                modifier = Modifier.fillMaxWidth()
             ) {
                 Row(
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 14.dp, vertical = 11.dp),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
                 ) {
-                    if (!annotation.authorAvatarUrl.isNullOrBlank()) {
-                        AsyncImage(
-                            model = annotation.authorAvatarUrl,
-                            contentDescription = null,
-                            modifier = Modifier
-                                .size(24.dp)
-                                .clip(CircleShape)
-                        )
-                    } else {
-                        Box(
-                            modifier = Modifier
-                                .size(24.dp)
-                                .clip(CircleShape)
-                                .background(if (isDark) Color(0xFFFFC107).copy(alpha = 0.25f) else Color(0xFFFFECB3)),
-                            contentAlignment = Alignment.Center
-                        ) {
-                            Text(
-                                text = "G",
-                                color = if (isDark) Color(0xFFFFD54F) else Color(0xFFC77700),
-                                fontSize = 12.sp,
-                                fontWeight = FontWeight.Bold
-                            )
-                        }
-                    }
-                    Text(
-                        text = annotation.authorName ?: strings.geniusAnnotation,
-                        color = if (isDark) Color.White.copy(alpha = 0.70f) else MaterialTheme.colorScheme.onSurfaceVariant,
-                        fontSize = 12.sp
-                    )
-                }
-
-                if (annotation.votesTotal > 0) {
-                    val upvoteColor = if (isDark) Color(0xFFFFD54F) else Color(0xFFC77700)
                     Row(
+                        modifier = Modifier.weight(1f, fill = false),
                         verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(4.dp)
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
                     ) {
-                        Icon(
-                            imageVector = Icons.Default.ThumbUp,
-                            contentDescription = null,
-                            tint = upvoteColor,
-                            modifier = Modifier.size(13.dp)
-                        )
+                        if (!annotation.authorAvatarUrl.isNullOrBlank()) {
+                            AsyncImage(
+                                model = annotation.authorAvatarUrl,
+                                contentDescription = null,
+                                modifier = Modifier
+                                    .size(24.dp)
+                                    .clip(CircleShape)
+                            )
+                        } else {
+                            Box(
+                                modifier = Modifier
+                                    .size(24.dp)
+                                    .clip(CircleShape)
+                                    .background(if (isDark) Color(0xFFFFC107).copy(alpha = 0.18f) else Color(0xFFF59E0B).copy(alpha = 0.14f)),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                Text(
+                                    text = "G",
+                                    color = if (isDark) Color(0xFFFFD54F) else Color(0xFFB45309),
+                                    fontSize = 12.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    fontFamily = FontFamily.SansSerif
+                                )
+                            }
+                        }
                         Text(
-                            text = "${annotation.votesTotal} ${strings.votesCount}",
-                            color = upvoteColor,
-                            fontSize = 12.sp,
-                            fontWeight = FontWeight.Medium
+                            text = annotation.authorName ?: strings.geniusAnnotation,
+                            color = textSecondary,
+                            fontSize = 12.5.sp,
+                            fontWeight = FontWeight.Medium,
+                            fontFamily = FontFamily.SansSerif,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis
                         )
+                    }
+
+                    if (annotation.votesTotal > 0) {
+                        val upvoteColor = if (isDark) Color(0xFFFFD54F) else Color(0xFFB45309)
+                        Surface(
+                            color = if (isDark) Color(0xFFFFC107).copy(alpha = 0.14f) else Color(0xFFF59E0B).copy(alpha = 0.10f),
+                            shape = RoundedCornerShape(50)
+                        ) {
+                            Row(
+                                modifier = Modifier.padding(horizontal = 9.dp, vertical = 4.dp),
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(4.dp)
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Default.ThumbUp,
+                                    contentDescription = null,
+                                    tint = upvoteColor,
+                                    modifier = Modifier.size(12.dp)
+                                )
+                                Text(
+                                    text = "${annotation.votesTotal} ${strings.votesCount}",
+                                    color = upvoteColor,
+                                    fontSize = 12.sp,
+                                    fontWeight = FontWeight.SemiBold,
+                                    fontFamily = FontFamily.SansSerif
+                                )
+                            }
+                        }
                     }
                 }
             }

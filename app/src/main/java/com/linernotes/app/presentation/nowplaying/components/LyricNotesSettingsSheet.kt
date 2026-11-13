@@ -7,8 +7,10 @@ import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.selection.toggleable
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
@@ -20,13 +22,18 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.luminance
+import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalFocusManager
+import androidx.compose.ui.platform.LocalHapticFeedback
+import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.PasswordVisualTransformation
@@ -123,9 +130,10 @@ fun LyricNotesSettingsSheet(
     } else Color.Black.copy(alpha = 0.05f)
 
     val textPrimary = if (isDark) Color.White else Color(0xFF1C1C1E)
-    val textSecondary = if (isDark) Color.White.copy(alpha = 0.50f) else Color.Black.copy(alpha = 0.45f)
-    val dividerColor = if (isDark) Color.White.copy(alpha = 0.08f) else Color.Black.copy(alpha = 0.06f)
+    val textSecondary = if (isDark) Color.White.copy(alpha = 0.50f) else Color.Black.copy(alpha = 0.48f)
+    val dividerColor = if (isDark) Color.White.copy(alpha = 0.08f) else Color.Black.copy(alpha = 0.07f)
     val handleColor = if (isDark) Color.White.copy(alpha = 0.22f) else Color.Black.copy(alpha = 0.18f)
+    val accentBlue = if (isDark) Color(0xFF64B5F6) else Color(0xFF007AFF)
 
     ModalBottomSheet(
         onDismissRequest = onDismiss,
@@ -136,108 +144,188 @@ fun LyricNotesSettingsSheet(
         shape = RoundedCornerShape(topStart = 28.dp, topEnd = 28.dp),
         dragHandle = {
             Surface(
-                modifier = Modifier.padding(top = 12.dp, bottom = 8.dp),
+                modifier = Modifier.padding(top = 10.dp, bottom = 4.dp),
                 color = handleColor,
                 shape = CircleShape
             ) {
-                Box(modifier = Modifier.size(width = 36.dp, height = 4.5.dp))
+                Box(modifier = Modifier.size(width = 36.dp, height = 4.dp))
             }
         }
     ) {
         // 锁定 120Hz 高刷新率，消除弹窗滚动微卡顿
         LockWindowRefreshRateEffect()
 
-        Column(
-            modifier = Modifier
-                .fillMaxWidth()
-                .verticalScroll(rememberScrollState())
-                .padding(horizontal = 16.dp)
-                .padding(bottom = 36.dp),
-            verticalArrangement = Arrangement.spacedBy(16.dp)
-        ) {
-            // 1. 顶部播放曲目卡片 (Now Playing Banner)
-            Surface(
-                color = cardBg,
-                shape = RoundedCornerShape(18.dp),
-                border = BorderStroke(0.5.dp, cardBorder),
-                modifier = Modifier.fillMaxWidth()
+        Column(modifier = Modifier.fillMaxWidth()) {
+            // 顶部紧凑标题栏 + 关闭按钮
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 18.dp)
+                    .padding(top = 2.dp, bottom = 10.dp),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
             ) {
-                Row(
-                    modifier = Modifier.padding(14.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(14.dp)
+                Text(
+                    text = strings.topBarSettings,
+                    color = textPrimary,
+                    fontSize = 18.sp,
+                    fontWeight = FontWeight.Bold,
+                    fontFamily = FontFamily.SansSerif,
+                    letterSpacing = (-0.2).sp,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                    modifier = Modifier.weight(1f).padding(end = 12.dp)
+                )
+                Surface(
+                    color = if (isDark) Color.White.copy(alpha = 0.10f) else Color.Black.copy(alpha = 0.06f),
+                    shape = CircleShape,
+                    border = BorderStroke(0.5.dp, cardBorder),
+                    modifier = Modifier
+                        .size(30.dp)
+                        .bouncyIconClickable(onClick = onDismiss)
                 ) {
-                    if (!trackState.coverUrl.isNullOrBlank()) {
-                        AsyncImage(
-                            model = trackState.coverUrl,
-                            contentDescription = "Cover",
-                            contentScale = ContentScale.Crop,
-                            modifier = Modifier
-                                .size(48.dp)
-                                .clip(RoundedCornerShape(10.dp))
-                        )
-                    } else {
-                        Surface(
-                            color = if (isDark) Color.White.copy(alpha = 0.08f) else Color.Black.copy(alpha = 0.05f),
-                            shape = RoundedCornerShape(10.dp),
-                            modifier = Modifier.size(48.dp)
-                        ) {
-                            Box(contentAlignment = Alignment.Center) {
-                                Icon(
-                                    imageVector = Icons.Default.MusicNote,
-                                    contentDescription = null,
-                                    tint = textSecondary,
-                                    modifier = Modifier.size(22.dp)
-                                )
-                            }
-                        }
-                    }
-
-                    Column(modifier = Modifier.weight(1f)) {
-                        val displayTrackTitle = if (trackState.hasValidTrack) {
-                            if (isTraditionalChinese) com.linernotes.app.core.util.ChineseConverter.toTraditional(trackState.title) else trackState.title
-                        } else strings.noTrackDetected
-                        val displayTrackArtist = if (trackState.hasValidTrack) {
-                            if (isTraditionalChinese) com.linernotes.app.core.util.ChineseConverter.toTraditional(trackState.artist) else trackState.artist
-                        } else strings.waitingForPlaybackTitle
-                        Text(
-                            text = displayTrackTitle,
-                            color = textPrimary,
-                            fontSize = 15.sp,
-                            fontWeight = FontWeight.SemiBold,
-                            fontFamily = FontFamily.SansSerif,
-                            maxLines = 1,
-                            overflow = TextOverflow.Ellipsis
-                        )
-                        Spacer(modifier = Modifier.height(2.dp))
-                        Text(
-                            text = displayTrackArtist,
-                            color = textSecondary,
-                            fontSize = 12.5.sp,
-                            fontFamily = FontFamily.SansSerif,
-                            maxLines = 1,
-                            overflow = TextOverflow.Ellipsis
-                        )
-                    }
-
-                    Surface(
-                        color = if (trackState.isSpotify) Color(0xFF1DB954).copy(alpha = 0.12f) else (if (isDark) Color.White.copy(alpha = 0.08f) else Color.Black.copy(alpha = 0.05f)),
-                        shape = CircleShape,
-                        border = BorderStroke(0.5.dp, if (trackState.isSpotify) Color(0xFF1ED760).copy(alpha = 0.30f) else cardBorder),
-                        modifier = Modifier.bouncyClickable(pressedScale = 0.92f) {
-                            SpotifyLauncher.launchSpotify(context)
-                        }
-                    ) {
-                        Text(
-                            text = trackState.sourceApp.localizedName(strings),
-                            color = if (trackState.isSpotify) Color(0xFF1DB954) else textPrimary,
-                            fontSize = 11.5.sp,
-                            fontWeight = FontWeight.SemiBold,
-                            modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp)
+                    Box(contentAlignment = Alignment.Center) {
+                        Icon(
+                            imageVector = Icons.Default.Close,
+                            contentDescription = strings.closeBtn,
+                            tint = if (isDark) Color.White.copy(alpha = 0.85f) else Color(0xFF1C1C1E).copy(alpha = 0.72f),
+                            modifier = Modifier.size(16.dp)
                         )
                     }
                 }
             }
+
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .verticalScroll(rememberScrollState())
+                    .padding(horizontal = 16.dp)
+                    .padding(top = 2.dp, bottom = 36.dp),
+                verticalArrangement = Arrangement.spacedBy(14.dp)
+            ) {
+                // 1. 顶部播放曲目卡片 (Now Playing Banner)
+                Surface(
+                    color = cardBg,
+                    shape = RoundedCornerShape(18.dp),
+                    border = BorderStroke(0.5.dp, cardBorder),
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Row(
+                        modifier = Modifier.padding(horizontal = 14.dp, vertical = 12.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(12.dp)
+                    ) {
+                        if (!trackState.coverUrl.isNullOrBlank()) {
+                            AsyncImage(
+                                model = trackState.coverUrl,
+                                contentDescription = "Cover",
+                                contentScale = ContentScale.Crop,
+                                modifier = Modifier
+                                    .size(48.dp)
+                                    .clip(RoundedCornerShape(10.dp))
+                                    .border(0.5.dp, cardBorder, RoundedCornerShape(10.dp))
+                            )
+                        } else {
+                            Surface(
+                                color = if (isDark) Color.White.copy(alpha = 0.08f) else Color.Black.copy(alpha = 0.05f),
+                                shape = RoundedCornerShape(10.dp),
+                                border = BorderStroke(0.5.dp, cardBorder),
+                                modifier = Modifier.size(48.dp)
+                            ) {
+                                Box(contentAlignment = Alignment.Center) {
+                                    Icon(
+                                        imageVector = Icons.Default.MusicNote,
+                                        contentDescription = null,
+                                        tint = textSecondary,
+                                        modifier = Modifier.size(22.dp)
+                                    )
+                                }
+                            }
+                        }
+
+                        Column(modifier = Modifier.weight(1f)) {
+                            val displayTrackTitle = if (trackState.hasValidTrack) {
+                                if (isTraditionalChinese) com.linernotes.app.core.util.ChineseConverter.toTraditional(trackState.title) else trackState.title
+                            } else strings.noTrackDetected
+                            val displayTrackArtist = if (trackState.hasValidTrack) {
+                                if (isTraditionalChinese) com.linernotes.app.core.util.ChineseConverter.toTraditional(trackState.artist) else trackState.artist
+                            } else strings.waitingForPlaybackTitle
+                            Text(
+                                text = displayTrackTitle,
+                                color = textPrimary,
+                                fontSize = 15.sp,
+                                fontWeight = FontWeight.SemiBold,
+                                fontFamily = FontFamily.SansSerif,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis
+                            )
+                            Spacer(modifier = Modifier.height(2.dp))
+                            Text(
+                                text = displayTrackArtist,
+                                color = textSecondary,
+                                fontSize = 12.5.sp,
+                                fontFamily = FontFamily.SansSerif,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis
+                            )
+                        }
+
+                        val sourcePillBg = when {
+                            trackState.isSpotify && isDark -> Color(0xFF1DB954).copy(alpha = 0.16f)
+                            trackState.isSpotify -> Color(0xFF16A34A).copy(alpha = 0.10f)
+                            isDark -> Color.White.copy(alpha = 0.08f)
+                            else -> Color.Black.copy(alpha = 0.05f)
+                        }
+                        val sourcePillBorder = when {
+                            trackState.isSpotify && isDark -> Color(0xFF1ED760).copy(alpha = 0.34f)
+                            trackState.isSpotify -> Color(0xFF16A34A).copy(alpha = 0.26f)
+                            else -> cardBorder
+                        }
+                        val sourcePillFg = when {
+                            trackState.isSpotify && isDark -> Color(0xFF1ED760)
+                            trackState.isSpotify -> Color(0xFF128C3D)
+                            else -> textPrimary
+                        }
+                        Surface(
+                            color = sourcePillBg,
+                            shape = CircleShape,
+                            border = BorderStroke(0.5.dp, sourcePillBorder),
+                            modifier = Modifier.bouncyClickable(pressedScale = 0.92f) {
+                                SpotifyLauncher.launchSpotify(context)
+                            }
+                        ) {
+                            Row(
+                                modifier = Modifier.padding(horizontal = 10.dp, vertical = 5.dp),
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(5.dp)
+                            ) {
+                                if (trackState.isPlaying) {
+                                    Icon(
+                                        imageVector = Icons.Default.GraphicEq,
+                                        contentDescription = null,
+                                        tint = sourcePillFg,
+                                        modifier = Modifier.size(13.dp)
+                                    )
+                                } else {
+                                    Box(
+                                        modifier = Modifier
+                                            .size(6.dp)
+                                            .clip(CircleShape)
+                                            .background(sourcePillFg.copy(alpha = 0.85f))
+                                    )
+                                }
+                                Text(
+                                    text = trackState.sourceApp.localizedName(strings),
+                                    color = sourcePillFg,
+                                    fontSize = 11.5.sp,
+                                    fontWeight = FontWeight.SemiBold,
+                                    fontFamily = FontFamily.SansSerif,
+                                    maxLines = 1
+                                )
+                            }
+                        }
+                    }
+                }
 
             // 2. 外观与排版设计 (Appearance & Display)
             SettingsGroupCard(
@@ -250,7 +338,8 @@ fun LyricNotesSettingsSheet(
                     text = strings.themeModeLabel,
                     color = textPrimary,
                     fontSize = 14.5.sp,
-                    fontWeight = FontWeight.SemiBold
+                    fontWeight = FontWeight.SemiBold,
+                    fontFamily = FontFamily.SansSerif
                 )
                 AppleSegmentedControl(
                     items = listOf(
@@ -263,7 +352,7 @@ fun LyricNotesSettingsSheet(
                     isDark = isDark
                 )
 
-                HorizontalDivider(color = dividerColor, thickness = 0.5.dp)
+                SettingsCardDivider(dividerColor)
 
                 SettingsSwitchRow(
                     title = strings.amoledModeLabel,
@@ -274,7 +363,7 @@ fun LyricNotesSettingsSheet(
                     onCheckedChange = { onSetAmoledMode(!isAmoledMode) }
                 )
 
-                HorizontalDivider(color = dividerColor, thickness = 0.5.dp)
+                SettingsCardDivider(dividerColor)
 
                 SettingsSwitchRow(
                     title = strings.dynamicAuroraLabel,
@@ -284,7 +373,7 @@ fun LyricNotesSettingsSheet(
                     onCheckedChange = { onSetDynamicAuroraEnabled(!isDynamicAuroraEnabled) }
                 )
 
-                HorizontalDivider(color = dividerColor, thickness = 0.5.dp)
+                SettingsCardDivider(dividerColor)
 
                 SettingsSwitchRow(
                     title = strings.wordByWordLabel,
@@ -294,7 +383,7 @@ fun LyricNotesSettingsSheet(
                     onCheckedChange = { onSetWordByWordEnabled(!isWordByWordEnabled) }
                 )
 
-                HorizontalDivider(color = dividerColor, thickness = 0.5.dp)
+                SettingsCardDivider(dividerColor)
 
                 SettingsSwitchRow(
                     title = strings.showControlsLabel,
@@ -303,14 +392,15 @@ fun LyricNotesSettingsSheet(
                     onCheckedChange = { onTogglePlaybackControls() }
                 )
 
-                HorizontalDivider(color = dividerColor, thickness = 0.5.dp)
+                SettingsCardDivider(dividerColor)
 
                 // 歌词对齐
                 Text(
                     text = strings.lyricAlignmentLabel,
                     color = textPrimary,
                     fontSize = 14.5.sp,
-                    fontWeight = FontWeight.SemiBold
+                    fontWeight = FontWeight.SemiBold,
+                    fontFamily = FontFamily.SansSerif
                 )
                 AppleSegmentedControl(
                     items = listOf(
@@ -322,14 +412,15 @@ fun LyricNotesSettingsSheet(
                     isDark = isDark
                 )
 
-                HorizontalDivider(color = dividerColor, thickness = 0.5.dp)
+                SettingsCardDivider(dividerColor)
 
                 // 歌词字号
                 Text(
                     text = strings.lyricTextSizeLabel,
                     color = textPrimary,
                     fontSize = 14.5.sp,
-                    fontWeight = FontWeight.SemiBold
+                    fontWeight = FontWeight.SemiBold,
+                    fontFamily = FontFamily.SansSerif
                 )
                 AppleSegmentedControl(
                     items = listOf(
@@ -370,14 +461,15 @@ fun LyricNotesSettingsSheet(
                     fontSize = 11.sp
                 )
 
-                HorizontalDivider(color = dividerColor, thickness = 0.5.dp)
+                SettingsCardDivider(dividerColor)
 
                 // 歌词翻译目标语言
                 Text(
                     text = strings.targetLanguageLabel,
                     color = textPrimary,
                     fontSize = 14.5.sp,
-                    fontWeight = FontWeight.SemiBold
+                    fontWeight = FontWeight.SemiBold,
+                    fontFamily = FontFamily.SansSerif
                 )
                 FlowRow(
                     horizontalArrangement = Arrangement.spacedBy(8.dp),
@@ -394,14 +486,15 @@ fun LyricNotesSettingsSheet(
                     }
                 }
 
-                HorizontalDivider(color = dividerColor, thickness = 0.5.dp)
+                SettingsCardDivider(dividerColor)
 
                 // 歌词与翻译首选源
                 Text(
                     text = strings.lyricsSourceSetting,
                     color = textPrimary,
                     fontSize = 14.5.sp,
-                    fontWeight = FontWeight.SemiBold
+                    fontWeight = FontWeight.SemiBold,
+                    fontFamily = FontFamily.SansSerif
                 )
                 FlowRow(
                     horizontalArrangement = Arrangement.spacedBy(8.dp),
@@ -426,7 +519,7 @@ fun LyricNotesSettingsSheet(
                     }
                 }
 
-                HorizontalDivider(color = dividerColor, thickness = 0.5.dp)
+                SettingsCardDivider(dividerColor)
 
                 SettingsSwitchRow(
                     title = strings.traditionalChineseLabel,
@@ -435,7 +528,7 @@ fun LyricNotesSettingsSheet(
                     onCheckedChange = { onToggleTraditionalChinese() }
                 )
 
-                HorizontalDivider(color = dividerColor, thickness = 0.5.dp)
+                SettingsCardDivider(dividerColor)
 
                 SettingsSwitchRow(
                     title = strings.deCensorLabel,
@@ -444,14 +537,15 @@ fun LyricNotesSettingsSheet(
                     onCheckedChange = { onToggleDeCensor() }
                 )
 
-                HorizontalDivider(color = dividerColor, thickness = 0.5.dp)
+                SettingsCardDivider(dividerColor)
 
                 // 日语假名注音
                 Text(
                     text = strings.furiganaTitle,
                     color = textPrimary,
                     fontSize = 14.5.sp,
-                    fontWeight = FontWeight.SemiBold
+                    fontWeight = FontWeight.SemiBold,
+                    fontFamily = FontFamily.SansSerif
                 )
                 AppleSegmentedControl(
                     items = listOf(
@@ -476,8 +570,9 @@ fun LyricNotesSettingsSheet(
                 Text(
                     text = if (offsetScope == 0) strings.offsetScopeSongTitle else strings.offsetScopeGlobalTitle,
                     color = textPrimary,
-                    fontSize = 15.sp,
-                    fontWeight = FontWeight.SemiBold
+                    fontSize = 14.5.sp,
+                    fontWeight = FontWeight.SemiBold,
+                    fontFamily = FontFamily.SansSerif
                 )
                 AppleSegmentedControl(
                     items = listOf(0 to strings.offsetScopeSong, 1 to strings.offsetScopeGlobal),
@@ -497,6 +592,7 @@ fun LyricNotesSettingsSheet(
                         text = if (offsetScope == 0) strings.offsetScopeSongDesc else strings.offsetScopeGlobalDesc,
                         color = textSecondary,
                         fontSize = 11.5.sp,
+                        fontFamily = FontFamily.SansSerif,
                         modifier = Modifier.weight(1f)
                     )
                     Text(
@@ -504,9 +600,11 @@ fun LyricNotesSettingsSheet(
                             0L -> "0 ms"
                             else -> "${if (currentVal > 0) "+" else ""}${currentVal} ms"
                         },
-                        color = if (currentVal == 0L) Color(0xFF34C759) else (if (isDark) Color(0xFF64B5F6) else Color(0xFF1976D2)),
-                        fontSize = 14.5.sp,
-                        fontWeight = FontWeight.Bold
+                        color = if (currentVal == 0L) Color(0xFF34C759) else accentBlue,
+                        fontSize = 14.sp,
+                        fontWeight = FontWeight.Bold,
+                        fontFamily = FontFamily.SansSerif,
+                        style = LocalTextStyle.current.copy(fontFeatureSettings = "tnum")
                     )
                 }
 
@@ -514,7 +612,8 @@ fun LyricNotesSettingsSheet(
                     Text(
                         text = "${strings.offsetEffectiveLabel}: ${if (lyricOffsetMs > 0) "+" else ""}${lyricOffsetMs} ms (${strings.offsetScopeGlobal}: ${if (globalOffsetMs > 0) "+" else ""}${globalOffsetMs} ms)",
                         color = textSecondary.copy(alpha = 0.8f),
-                        fontSize = 11.sp
+                        fontSize = 11.sp,
+                        fontFamily = FontFamily.SansSerif
                     )
                 }
 
@@ -563,55 +662,62 @@ fun LyricNotesSettingsSheet(
                 isDark = isDark,
                 isPureAmoled = isPureAmoled
             ) {
+                val onToggleFloating: (Boolean) -> Unit = { checked ->
+                    if (checked) {
+                        isOverlayGranted = Settings.canDrawOverlays(context)
+                        launchFloatingLyrics()
+                    } else {
+                        FloatingLyricsService.stop(context)
+                    }
+                }
                 Row(
-                    modifier = Modifier.fillMaxWidth(),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clip(RoundedCornerShape(10.dp))
+                        .bouncyItemClickable(pressedScale = 0.985f) {
+                            onToggleFloating(!isFloatingActive)
+                        }
+                        .padding(vertical = 2.dp),
                     horizontalArrangement = Arrangement.SpaceBetween,
                     verticalAlignment = Alignment.CenterVertically
                 ) {
-                    Column(modifier = Modifier.weight(1f)) {
+                    Column(modifier = Modifier.weight(1f).padding(end = 12.dp)) {
                         Text(
                             text = strings.floatingLyricsTitle,
                             color = textPrimary,
-                            fontSize = 15.sp,
-                            fontWeight = FontWeight.SemiBold
+                            fontSize = 14.5.sp,
+                            fontWeight = FontWeight.SemiBold,
+                            fontFamily = FontFamily.SansSerif
                         )
                         if (!isOverlayGranted) {
                             Spacer(modifier = Modifier.height(2.dp))
                             Text(
                                 text = strings.floatingPermissionDesc,
-                                color = if (isDark) Color(0xFFFFB74D) else Color(0xFFE65100),
-                                fontSize = 11.5.sp
+                                color = if (isDark) Color(0xFFFFB74D) else Color(0xFFD97706),
+                                fontSize = 11.5.sp,
+                                lineHeight = 15.sp,
+                                fontFamily = FontFamily.SansSerif
                             )
                         }
                     }
 
-                    Switch(
+                    AppleToggleSwitch(
                         checked = isFloatingActive,
-                        onCheckedChange = { checked ->
-                            if (checked) {
-                                isOverlayGranted = Settings.canDrawOverlays(context)
-                                launchFloatingLyrics()
-                            } else {
-                                FloatingLyricsService.stop(context)
-                            }
-                        },
-                        colors = SwitchDefaults.colors(
-                            checkedThumbColor = Color.White,
-                            checkedTrackColor = Color(0xFF34C759),
-                            uncheckedThumbColor = if (isDark) Color.LightGray else Color.DarkGray,
-                            uncheckedTrackColor = if (isDark) Color.White.copy(alpha = 0.15f) else Color.Black.copy(alpha = 0.12f)
-                        )
+                        enabled = true,
+                        isDark = isDark,
+                        onCheckedChange = onToggleFloating
                     )
                 }
 
-                HorizontalDivider(color = dividerColor, thickness = 0.5.dp)
+                SettingsCardDivider(dividerColor)
 
                 // 悬浮形态
                 Text(
                     text = strings.floatingStyleLabel,
                     color = textPrimary,
                     fontSize = 14.sp,
-                    fontWeight = FontWeight.Medium
+                    fontWeight = FontWeight.SemiBold,
+                    fontFamily = FontFamily.SansSerif
                 )
                 AppleSegmentedControl(
                     items = listOf(
@@ -623,7 +729,7 @@ fun LyricNotesSettingsSheet(
                     isDark = isDark
                 )
 
-                HorizontalDivider(color = dividerColor, thickness = 0.5.dp)
+                SettingsCardDivider(dividerColor)
 
                 // 背景不透明度
                 Row(
@@ -635,13 +741,16 @@ fun LyricNotesSettingsSheet(
                         text = strings.floatingBgAlphaLabel,
                         color = textPrimary,
                         fontSize = 14.sp,
-                        fontWeight = FontWeight.Medium
+                        fontWeight = FontWeight.SemiBold,
+                        fontFamily = FontFamily.SansSerif
                     )
                     Text(
                         text = "${(currentBgAlpha * 100).toInt()}%",
-                        color = if (isDark) Color(0xFF64B5F6) else Color(0xFF1976D2),
+                        color = accentBlue,
                         fontSize = 13.sp,
-                        fontWeight = FontWeight.Bold
+                        fontWeight = FontWeight.Bold,
+                        fontFamily = FontFamily.SansSerif,
+                        style = LocalTextStyle.current.copy(fontFeatureSettings = "tnum")
                     )
                 }
                 AppleSegmentedControl(
@@ -657,14 +766,15 @@ fun LyricNotesSettingsSheet(
                     isDark = isDark
                 )
 
-                HorizontalDivider(color = dividerColor, thickness = 0.5.dp)
+                SettingsCardDivider(dividerColor)
 
                 // 排版方式
                 Text(
                     text = strings.floatingWrapModeLabel,
                     color = textPrimary,
                     fontSize = 14.sp,
-                    fontWeight = FontWeight.Medium
+                    fontWeight = FontWeight.SemiBold,
+                    fontFamily = FontFamily.SansSerif
                 )
                 AppleSegmentedControl(
                     items = listOf(
@@ -676,14 +786,15 @@ fun LyricNotesSettingsSheet(
                     isDark = isDark
                 )
 
-                HorizontalDivider(color = dividerColor, thickness = 0.5.dp)
+                SettingsCardDivider(dividerColor)
 
                 // 文字对齐
                 Text(
                     text = strings.floatingTextAlignLabel,
                     color = textPrimary,
                     fontSize = 14.sp,
-                    fontWeight = FontWeight.Medium
+                    fontWeight = FontWeight.SemiBold,
+                    fontFamily = FontFamily.SansSerif
                 )
                 AppleSegmentedControl(
                     items = listOf(
@@ -695,7 +806,7 @@ fun LyricNotesSettingsSheet(
                     isDark = isDark
                 )
 
-                HorizontalDivider(color = dividerColor, thickness = 0.5.dp)
+                SettingsCardDivider(dividerColor)
 
                 // 悬浮宽度
                 Row(
@@ -707,13 +818,16 @@ fun LyricNotesSettingsSheet(
                         text = strings.floatingWidthLabel,
                         color = textPrimary,
                         fontSize = 14.sp,
-                        fontWeight = FontWeight.Medium
+                        fontWeight = FontWeight.SemiBold,
+                        fontFamily = FontFamily.SansSerif
                     )
                     Text(
                         text = "${currentCapsuleWidth} dp",
-                        color = if (isDark) Color(0xFF64B5F6) else Color(0xFF1976D2),
+                        color = accentBlue,
                         fontSize = 13.sp,
-                        fontWeight = FontWeight.Bold
+                        fontWeight = FontWeight.Bold,
+                        fontFamily = FontFamily.SansSerif,
+                        style = LocalTextStyle.current.copy(fontFeatureSettings = "tnum")
                     )
                 }
                 AppleSegmentedControl(
@@ -727,7 +841,7 @@ fun LyricNotesSettingsSheet(
                     isDark = isDark
                 )
 
-                HorizontalDivider(color = dividerColor, thickness = 0.5.dp)
+                SettingsCardDivider(dividerColor)
 
                 // 字体缩放
                 Row(
@@ -739,13 +853,16 @@ fun LyricNotesSettingsSheet(
                         text = strings.floatingFontScaleLabel,
                         color = textPrimary,
                         fontSize = 14.sp,
-                        fontWeight = FontWeight.Medium
+                        fontWeight = FontWeight.SemiBold,
+                        fontFamily = FontFamily.SansSerif
                     )
                     Text(
                         text = "${kotlin.math.round(currentFontScale * 100f).toInt()}%",
-                        color = if (isDark) Color(0xFF64B5F6) else Color(0xFF1976D2),
+                        color = accentBlue,
                         fontSize = 13.sp,
-                        fontWeight = FontWeight.Bold
+                        fontWeight = FontWeight.Bold,
+                        fontFamily = FontFamily.SansSerif,
+                        style = LocalTextStyle.current.copy(fontFeatureSettings = "tnum")
                     )
                 }
                 AppleSegmentedControl(
@@ -761,7 +878,7 @@ fun LyricNotesSettingsSheet(
                     isDark = isDark
                 )
 
-                HorizontalDivider(color = dividerColor, thickness = 0.5.dp)
+                SettingsCardDivider(dividerColor)
 
                 // 文字颜色选择与自定义拾色器
                 Row(
@@ -773,7 +890,8 @@ fun LyricNotesSettingsSheet(
                         text = strings.floatingTextColorLabel,
                         color = textPrimary,
                         fontSize = 14.sp,
-                        fontWeight = FontWeight.Medium
+                        fontWeight = FontWeight.SemiBold,
+                        fontFamily = FontFamily.SansSerif
                     )
 
                     // 十六进制颜色代码微胶囊，轻点直接呼出自定义拾色器
@@ -804,13 +922,15 @@ fun LyricNotesSettingsSheet(
                                 text = effectiveHex,
                                 fontSize = 11.5.sp,
                                 fontWeight = FontWeight.Bold,
-                                fontFamily = FontFamily.Monospace,
+                                fontFamily = FontFamily.SansSerif,
+                                style = LocalTextStyle.current.copy(fontFeatureSettings = "tnum"),
                                 color = textPrimary
                             )
                             Text(
                                 text = strings.floatingCustomColorAction,
                                 fontSize = 11.sp,
                                 fontWeight = FontWeight.Medium,
+                                fontFamily = FontFamily.SansSerif,
                                 color = if (isDark) Color(0xFFFFD54F) else Color(0xFFD97706)
                             )
                         }
@@ -907,7 +1027,7 @@ fun LyricNotesSettingsSheet(
                     }
                 }
 
-                HorizontalDivider(color = dividerColor, thickness = 0.5.dp)
+                SettingsCardDivider(dividerColor)
 
                 SettingsSwitchRow(
                     title = strings.floatingLockTouch,
@@ -916,7 +1036,7 @@ fun LyricNotesSettingsSheet(
                     onCheckedChange = { floatingPrefs.isLocked = !isLocked }
                 )
 
-                HorizontalDivider(color = dividerColor, thickness = 0.5.dp)
+                SettingsCardDivider(dividerColor)
 
                 SettingsSwitchRow(
                     title = strings.floatingHideInForeground,
@@ -952,12 +1072,13 @@ fun LyricNotesSettingsSheet(
                             verticalAlignment = Alignment.CenterVertically,
                             horizontalArrangement = Arrangement.spacedBy(10.dp)
                         ) {
-                            Text("💡", fontSize = 18.sp)
+                            Text("💡", fontSize = 18.sp, fontFamily = FontFamily.SansSerif)
                             Text(
                                 text = strings.songStoryTitle,
                                 color = storyColor,
                                 fontSize = 15.sp,
-                                fontWeight = FontWeight.SemiBold
+                                fontWeight = FontWeight.SemiBold,
+                                fontFamily = FontFamily.SansSerif
                             )
                         }
                         Icon(
@@ -984,13 +1105,18 @@ fun LyricNotesSettingsSheet(
                             horizontalArrangement = Arrangement.spacedBy(10.dp),
                             modifier = Modifier.weight(1f)
                         ) {
-                            Text(if (isLoadingGenius) "⏳" else "💡", fontSize = 18.sp)
+                            Text(
+                                text = if (isLoadingGenius) "⏳" else "💡",
+                                fontSize = 18.sp,
+                                fontFamily = FontFamily.SansSerif
+                            )
                             Column {
                                 Text(
                                     text = strings.songStoryAndTrivia,
                                     color = textPrimary,
                                     fontSize = 14.5.sp,
-                                    fontWeight = FontWeight.SemiBold
+                                    fontWeight = FontWeight.SemiBold,
+                                    fontFamily = FontFamily.SansSerif
                                 )
                                 Text(
                                     text = if (isLoadingGenius) {
@@ -999,7 +1125,8 @@ fun LyricNotesSettingsSheet(
                                         geniusNotice?.let { resolveAppMessage(it, strings) } ?: strings.geniusNoticeNotFound
                                     },
                                     color = textSecondary,
-                                    fontSize = 12.sp
+                                    fontSize = 12.sp,
+                                    fontFamily = FontFamily.SansSerif
                                 )
                             }
                         }
@@ -1025,10 +1152,22 @@ fun LyricNotesSettingsSheet(
                                         strokeWidth = 1.8.dp,
                                         color = textPrimary
                                     )
-                                    Text(text = strings.searchingStatus, color = textPrimary, fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
+                                    Text(
+                                        text = strings.searchingStatus,
+                                        color = textPrimary,
+                                        fontSize = 12.sp,
+                                        fontWeight = FontWeight.SemiBold,
+                                        fontFamily = FontFamily.SansSerif
+                                    )
                                 } else {
                                     Icon(imageVector = Icons.Default.Refresh, contentDescription = null, tint = textPrimary, modifier = Modifier.size(13.dp))
-                                    Text(text = strings.retryBtn, color = textPrimary, fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
+                                    Text(
+                                        text = strings.retryBtn,
+                                        color = textPrimary,
+                                        fontSize = 12.sp,
+                                        fontWeight = FontWeight.SemiBold,
+                                        fontFamily = FontFamily.SansSerif
+                                    )
                                 }
                             }
                         }
@@ -1051,7 +1190,8 @@ fun LyricNotesSettingsSheet(
                     text = strings.geniusTokenDesc,
                     color = textSecondary,
                     fontSize = 12.sp,
-                    lineHeight = 16.sp
+                    lineHeight = 16.sp,
+                    fontFamily = FontFamily.SansSerif
                 )
 
                 Row(
@@ -1066,6 +1206,7 @@ fun LyricNotesSettingsSheet(
                             Text(
                                 text = strings.geniusTokenPlaceholder,
                                 fontSize = 12.5.sp,
+                                fontFamily = FontFamily.SansSerif,
                                 maxLines = 1,
                                 overflow = TextOverflow.Ellipsis
                             )
@@ -1113,7 +1254,8 @@ fun LyricNotesSettingsSheet(
                                 text = strings.saveTokenBtn,
                                 color = if (hasUnsavedToken) Color.White else textPrimary,
                                 fontSize = 13.sp,
-                                fontWeight = FontWeight.SemiBold
+                                fontWeight = FontWeight.SemiBold,
+                                fontFamily = FontFamily.SansSerif
                             )
                         }
                     }
@@ -1151,7 +1293,8 @@ fun LyricNotesSettingsSheet(
                             text = strings.searchLyricVersionBtn,
                             fontSize = 13.5.sp,
                             color = textPrimary,
-                            fontWeight = FontWeight.SemiBold
+                            fontWeight = FontWeight.SemiBold,
+                            fontFamily = FontFamily.SansSerif
                         )
                     }
                 }
@@ -1179,7 +1322,13 @@ fun LyricNotesSettingsSheet(
                         ) {
                             Icon(imageVector = Icons.Default.Refresh, contentDescription = null, tint = textPrimary, modifier = Modifier.size(15.dp))
                             Spacer(modifier = Modifier.width(6.dp))
-                            Text(strings.rematchLyricsBtn, fontSize = 13.sp, color = textPrimary, fontWeight = FontWeight.Medium)
+                            Text(
+                                text = strings.rematchLyricsBtn,
+                                fontSize = 13.sp,
+                                color = textPrimary,
+                                fontWeight = FontWeight.Medium,
+                                fontFamily = FontFamily.SansSerif
+                            )
                         }
                     }
 
@@ -1194,10 +1343,17 @@ fun LyricNotesSettingsSheet(
                             }
                     ) {
                         Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                            Text(strings.openMusicAppBtn, fontSize = 13.5.sp, color = Color.Black, fontWeight = FontWeight.Bold)
+                            Text(
+                                text = strings.openMusicAppBtn,
+                                fontSize = 13.5.sp,
+                                color = Color.Black,
+                                fontWeight = FontWeight.Bold,
+                                fontFamily = FontFamily.SansSerif
+                            )
                         }
                     }
                 }
+            }
             }
         }
     }
@@ -1236,7 +1392,7 @@ private fun SettingsGroupCard(
         if (isPureAmoled) Color(0xFF222226) else Color.White.copy(alpha = 0.08f)
     } else Color.Black.copy(alpha = 0.05f)
 
-    val titleColor = if (isDark) Color.White.copy(alpha = 0.45f) else Color.Black.copy(alpha = 0.45f)
+    val titleColor = if (isDark) Color.White.copy(alpha = 0.45f) else Color.Black.copy(alpha = 0.48f)
 
     Column(modifier = modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(6.dp)) {
         if (!title.isNullOrBlank()) {
@@ -1246,7 +1402,8 @@ private fun SettingsGroupCard(
                 fontSize = 12.sp,
                 fontWeight = FontWeight.SemiBold,
                 fontFamily = FontFamily.SansSerif,
-                modifier = Modifier.padding(horizontal = 12.dp, vertical = 2.dp)
+                letterSpacing = 0.2.sp,
+                modifier = Modifier.padding(horizontal = 12.dp, vertical = 1.dp)
             )
         }
         Surface(
@@ -1255,14 +1412,24 @@ private fun SettingsGroupCard(
             border = BorderStroke(0.5.dp, cardBorder),
             modifier = Modifier.fillMaxWidth()
         ) {
+            // 16.dp 水平内边距同时使组内分割线保持 16.dp 左右缩进
             Column(
-                modifier = Modifier.padding(horizontal = 16.dp, vertical = 12.dp),
-                verticalArrangement = Arrangement.spacedBy(10.dp)
+                modifier = Modifier.padding(horizontal = 16.dp, vertical = 10.dp),
+                verticalArrangement = Arrangement.spacedBy(8.dp)
             ) {
                 content()
             }
         }
     }
+}
+
+@Composable
+private fun SettingsCardDivider(color: Color) {
+    HorizontalDivider(
+        modifier = Modifier.padding(vertical = 1.dp),
+        color = color,
+        thickness = 0.5.dp
+    )
 }
 
 @Composable
@@ -1343,13 +1510,14 @@ private fun OffsetButton(
             )
     ) {
         Box(contentAlignment = Alignment.Center) {
-            val textColor = if (isDark) Color.White else MaterialTheme.colorScheme.onSurface
+            val textColor = if (isDark) Color.White else Color(0xFF1C1C1E)
             Text(
                 text = text,
                 color = if (isReset) textColor else textColor.copy(alpha = 0.85f),
                 fontSize = 12.sp,
                 fontWeight = if (isReset) FontWeight.Bold else FontWeight.Medium,
-                fontFamily = FontFamily.SansSerif
+                fontFamily = FontFamily.SansSerif,
+                style = LocalTextStyle.current.copy(fontFeatureSettings = "tnum")
             )
         }
     }
@@ -1364,23 +1532,26 @@ private fun SettingsSwitchRow(
     isDark: Boolean = true,
     onCheckedChange: (Boolean) -> Unit
 ) {
-    val textPrimary = if (isDark) Color.White else MaterialTheme.colorScheme.onSurface
-    val textSecondary = if (isDark) Color.White.copy(alpha = 0.5f) else MaterialTheme.colorScheme.onSurfaceVariant
-    val uncheckedTrack = if (isDark) Color.White.copy(alpha = 0.15f) else Color.Black.copy(alpha = 0.12f)
+    val textPrimary = if (isDark) Color.White else Color(0xFF1C1C1E)
+    val textSecondary = if (isDark) Color.White.copy(alpha = 0.50f) else Color.Black.copy(alpha = 0.48f)
 
     Row(
         modifier = Modifier
             .fillMaxWidth()
-            .alpha(if (enabled) 1f else 0.48f)
-            .clip(RoundedCornerShape(12.dp))
+            .clip(RoundedCornerShape(10.dp))
             .bouncyItemClickable(enabled = enabled, pressedScale = 0.985f) {
                 onCheckedChange(!checked)
             }
-            .padding(vertical = 6.dp, horizontal = 2.dp),
+            .padding(vertical = 2.dp),
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.SpaceBetween
     ) {
-        Column(modifier = Modifier.weight(1f).padding(end = 12.dp)) {
+        Column(
+            modifier = Modifier
+                .weight(1f)
+                .padding(end = 12.dp)
+                .alpha(if (enabled) 1f else 0.45f)
+        ) {
             Text(
                 text = title,
                 color = textPrimary,
@@ -1389,25 +1560,95 @@ private fun SettingsSwitchRow(
                 fontFamily = FontFamily.SansSerif
             )
             if (!subtitle.isNullOrBlank()) {
-                Spacer(modifier = Modifier.height(2.dp))
+                Spacer(modifier = Modifier.height(1.5.dp))
                 Text(
                     text = subtitle,
                     color = textSecondary,
                     fontSize = 11.5.sp,
+                    lineHeight = 15.sp,
                     fontFamily = FontFamily.SansSerif
                 )
             }
         }
-        Switch(
+        AppleToggleSwitch(
             checked = checked,
             enabled = enabled,
-            onCheckedChange = onCheckedChange,
-            colors = SwitchDefaults.colors(
-                checkedThumbColor = Color.White,
-                checkedTrackColor = Color(0xFF34C759),
-                uncheckedThumbColor = if (isDark) Color.LightGray else Color.DarkGray,
-                uncheckedTrackColor = uncheckedTrack
+            isDark = isDark,
+            onCheckedChange = onCheckedChange
+        )
+    }
+}
+
+@Composable
+private fun AppleToggleSwitch(
+    checked: Boolean,
+    enabled: Boolean,
+    isDark: Boolean,
+    onCheckedChange: (Boolean) -> Unit
+) {
+    val haptic = LocalHapticFeedback.current
+    val density = LocalDensity.current
+    val interactionSource = remember { MutableInteractionSource() }
+
+    val trackWidth = 50.dp
+    val trackHeight = 30.dp
+    val thumbSize = 24.dp
+    val thumbInset = 3.dp
+    val maxTravelPx = with(density) { (trackWidth - thumbSize - thumbInset * 2).toPx() }
+
+    val thumbProgress by animateFloatAsState(
+        targetValue = if (checked) 1f else 0f,
+        animationSpec = spring(dampingRatio = 0.78f, stiffness = 580f),
+        label = "appleSwitchThumb"
+    )
+    val trackColor by animateColorAsState(
+        targetValue = when {
+            checked -> Color(0xFF34C759)
+            isDark -> Color(0xFF39393D)
+            else -> Color(0xFFE9E9EA)
+        },
+        animationSpec = spring(stiffness = 620f),
+        label = "appleSwitchTrack"
+    )
+
+    Box(
+        modifier = Modifier
+            .size(width = trackWidth, height = trackHeight)
+            .alpha(if (enabled) 1f else 0.45f)
+            .clip(CircleShape)
+            .background(trackColor)
+            .toggleable(
+                value = checked,
+                enabled = enabled,
+                role = Role.Switch,
+                interactionSource = interactionSource,
+                indication = null,
+                onValueChange = { newValue ->
+                    try {
+                        haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                    } catch (_: Exception) {
+                    }
+                    onCheckedChange(newValue)
+                }
             )
+            .padding(thumbInset),
+        contentAlignment = Alignment.CenterStart
+    ) {
+        Box(
+            modifier = Modifier
+                .graphicsLayer {
+                    translationX = thumbProgress * maxTravelPx
+                }
+                .size(thumbSize)
+                .shadow(
+                    elevation = 2.dp,
+                    shape = CircleShape,
+                    ambientColor = Color.Black.copy(alpha = 0.16f),
+                    spotColor = Color.Black.copy(alpha = 0.22f)
+                )
+                .clip(CircleShape)
+                .background(Color.White)
+                .border(0.5.dp, Color.Black.copy(alpha = 0.06f), CircleShape)
         )
     }
 }

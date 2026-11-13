@@ -23,6 +23,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
@@ -54,11 +55,12 @@ fun <T> AppleSegmentedControl(
     if (items.isEmpty()) return
 
     val haptic = LocalHapticFeedback.current
-    val trackBg = if (isDark) Color.White.copy(alpha = 0.08f) else Color.Black.copy(alpha = 0.06f)
-    val thumbBg = if (isDark) Color(0xFF38383A) else Color.White
-    val thumbBorder = if (isDark) Color.White.copy(alpha = 0.12f) else Color.Black.copy(alpha = 0.04f)
+    val trackBg = if (isDark) Color.White.copy(alpha = 0.09f) else Color.Black.copy(alpha = 0.065f)
+    val thumbBg = if (isDark) Color(0xFF3A3A3C) else Color.White
+    val thumbBorder = if (isDark) Color.White.copy(alpha = 0.12f) else Color.Black.copy(alpha = 0.06f)
     val textPrimary = if (isDark) Color.White else Color(0xFF1C1C1E)
-    val textSecondary = if (isDark) Color.White.copy(alpha = 0.50f) else Color.Black.copy(alpha = 0.45f)
+    val textSecondary = if (isDark) Color.White.copy(alpha = 0.62f) else Color(0xFF1C1C1E).copy(alpha = 0.58f)
+    val thumbShape = RoundedCornerShape(8.dp)
 
     val selectedIndex = items.indexOfFirst { itemsEqual(it.first, selectedItem) }
 
@@ -93,9 +95,21 @@ fun <T> AppleSegmentedControl(
                         }
                         .width(segmentWidth)
                         .fillMaxHeight()
-                        .clip(RoundedCornerShape(8.dp))
+                        .then(
+                            if (!isDark) {
+                                Modifier.shadow(
+                                    elevation = 2.dp,
+                                    shape = thumbShape,
+                                    ambientColor = Color.Black.copy(alpha = 0.08f),
+                                    spotColor = Color.Black.copy(alpha = 0.12f)
+                                )
+                            } else {
+                                Modifier
+                            }
+                        )
+                        .clip(thumbShape)
                         .background(thumbBg)
-                        .border(0.5.dp, thumbBorder, RoundedCornerShape(8.dp))
+                        .border(0.5.dp, thumbBorder, thumbShape)
                 )
             }
 
@@ -116,7 +130,7 @@ fun <T> AppleSegmentedControl(
                         modifier = Modifier
                             .weight(1f)
                             .fillMaxHeight()
-                            .clip(RoundedCornerShape(8.dp))
+                            .clip(thumbShape)
                             .bouncyClickable(pressedScale = 0.96f) {
                                 if (!isSelected) {
                                     haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
@@ -129,7 +143,7 @@ fun <T> AppleSegmentedControl(
                             text = label,
                             color = textColor,
                             fontSize = fontSize,
-                            fontWeight = if (isSelected) FontWeight.SemiBold else FontWeight.Normal,
+                            fontWeight = if (isSelected) FontWeight.SemiBold else FontWeight.Medium,
                             fontFamily = FontFamily.SansSerif,
                             maxLines = 1,
                             overflow = TextOverflow.Ellipsis

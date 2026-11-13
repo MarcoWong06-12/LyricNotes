@@ -3,12 +3,14 @@ package com.linernotes.app.presentation.common
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.animateContentSize
 import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.text.font.FontFamily
@@ -116,10 +118,12 @@ fun BilingualContentView(
 
     val isEffectiveDark = isDark || MaterialTheme.colorScheme.surface.luminance() < 0.5f
 
-    val primaryTextColor = if (isEffectiveDark) Color.White.copy(alpha = 0.95f) else Color(0xFF1C1C1E)
-    val secondaryTextColor = if (isEffectiveDark) Color.White.copy(alpha = 0.55f) else Color.Black.copy(alpha = 0.50f)
-    val quoteBg = if (isEffectiveDark) Color.White.copy(alpha = 0.05f) else Color.Black.copy(alpha = 0.035f)
-    val quoteBorder = if (isEffectiveDark) Color.White.copy(alpha = 0.08f) else Color.Black.copy(alpha = 0.05f)
+    val primaryTextColor = if (isEffectiveDark) Color.White.copy(alpha = 0.92f) else Color(0xFF1C1C1E)
+    val secondaryTextColor = if (isEffectiveDark) Color.White.copy(alpha = 0.66f) else Color(0xFF1C1C1E).copy(alpha = 0.68f)
+    val quoteBg = if (isEffectiveDark) Color.White.copy(alpha = 0.055f) else Color.White
+    val quoteBorder = if (isEffectiveDark) Color.White.copy(alpha = 0.09f) else Color.Black.copy(alpha = 0.06f)
+    val quoteAccentBar = if (isEffectiveDark) Color.White.copy(alpha = 0.24f) else Color.Black.copy(alpha = 0.16f)
+    val quoteEyebrowColor = if (isEffectiveDark) Color.White.copy(alpha = 0.45f) else Color.Black.copy(alpha = 0.42f)
 
     val strings = LocalStrings.current
 
@@ -127,7 +131,7 @@ fun BilingualContentView(
         modifier = modifier
             .fillMaxWidth()
             .animateContentSize(),
-        verticalArrangement = Arrangement.spacedBy(16.dp)
+        verticalArrangement = Arrangement.spacedBy(14.dp)
     ) {
         // 顶部模式切换分段控制器 (AppleSegmentedControl 共享弹簧滑块)
         if (!isSingleLanguageChinese && hasTranslation) {
@@ -139,20 +143,23 @@ fun BilingualContentView(
                 ),
                 selectedItem = selectedTab,
                 onItemSelected = { selectedTab = it },
-                isDark = isEffectiveDark
+                isDark = isEffectiveDark,
+                modifier = Modifier.padding(bottom = 2.dp)
             )
         }
 
         // 正在自动翻译中的轻量状态提示
         AnimatedVisibility(visible = isTranslating) {
             Surface(
-                shape = RoundedCornerShape(10.dp),
+                shape = RoundedCornerShape(12.dp),
                 color = if (isEffectiveDark) Color(0xFFFFD54F).copy(alpha = 0.12f) else Color(0xFFFFF8E1),
                 border = BorderStroke(0.5.dp, if (isEffectiveDark) Color(0xFFFFD54F).copy(alpha = 0.25f) else Color(0xFFFFB300).copy(alpha = 0.35f)),
-                modifier = Modifier.fillMaxWidth()
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(vertical = 2.dp)
             ) {
                 Row(
-                    modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp),
+                    modifier = Modifier.padding(horizontal = 13.dp, vertical = 9.dp),
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
@@ -164,8 +171,10 @@ fun BilingualContentView(
                     Text(
                         text = strings.bilingualTranslatingNotice,
                         fontSize = 12.sp,
+                        lineHeight = 16.sp,
                         color = if (isEffectiveDark) Color(0xFFFFD54F) else Color(0xFFD97706),
-                        fontWeight = FontWeight.Medium
+                        fontWeight = FontWeight.Medium,
+                        fontFamily = FontFamily.SansSerif
                     )
                 }
             }
@@ -175,8 +184,9 @@ fun BilingualContentView(
         if (!isSingleLanguageChinese && !hasTranslation && !isTranslating && onRetryTranslation != null) {
             Surface(
                 shape = RoundedCornerShape(12.dp),
-                color = if (isEffectiveDark) Color.White.copy(alpha = 0.08f) else Color(0xFFE8EBF2),
+                color = if (isEffectiveDark) Color.White.copy(alpha = 0.08f) else Color.White,
                 border = BorderStroke(0.5.dp, if (isEffectiveDark) Color.White.copy(alpha = 0.12f) else Color.Black.copy(alpha = 0.08f)),
+                shadowElevation = if (isEffectiveDark) 0.dp else 0.5.dp,
                 modifier = Modifier
                     .fillMaxWidth()
                     .bouncyClickable(
@@ -189,13 +199,15 @@ fun BilingualContentView(
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.Center
                 ) {
-                    Text("✨", fontSize = 13.sp)
+                    Text("✨", fontSize = 13.sp, fontFamily = FontFamily.SansSerif)
                     Spacer(modifier = Modifier.width(6.dp))
                     Text(
                         text = strings.bilingualGenerateAction,
                         color = primaryTextColor,
                         fontSize = 13.sp,
-                        fontWeight = FontWeight.SemiBold
+                        lineHeight = 18.sp,
+                        fontWeight = FontWeight.SemiBold,
+                        fontFamily = FontFamily.SansSerif
                     )
                 }
             }
@@ -226,7 +238,7 @@ fun BilingualContentView(
                 // 1. 期刊级段落双语对照：中文自然段落主阅读 + 英文原文段落精致卡片收纳
                 Column(verticalArrangement = Arrangement.spacedBy(20.dp)) {
                     alignedParagraphs.forEach { para ->
-                        Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                        Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
                             // 中文译文（完整自然段落，行文流畅）
                             val zhPara = para.units.map { it.chinese.ifBlank { it.original } }.joinToString(" ")
                             val displayText = if (isTraditional) ChineseConverter.toTraditional(zhPara) else zhPara
@@ -247,18 +259,48 @@ fun BilingualContentView(
                             if (enPara.isNotBlank() && enPara != displayText) {
                                 Surface(
                                     color = quoteBg,
-                                    shape = RoundedCornerShape(10.dp),
+                                    shape = RoundedCornerShape(14.dp),
                                     border = BorderStroke(0.5.dp, quoteBorder),
+                                    shadowElevation = if (isEffectiveDark) 0.dp else 0.5.dp,
                                     modifier = Modifier.fillMaxWidth()
                                 ) {
-                                    Text(
-                                        text = enPara,
-                                        fontSize = 12.5.sp,
-                                        lineHeight = 18.5.sp,
-                                        color = secondaryTextColor,
-                                        fontFamily = FontFamily.SansSerif,
-                                        modifier = Modifier.padding(horizontal = 12.dp, vertical = 9.dp)
-                                    )
+                                    Row(
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .height(IntrinsicSize.Min)
+                                            .padding(horizontal = 14.dp, vertical = 11.dp),
+                                        horizontalArrangement = Arrangement.spacedBy(10.dp)
+                                    ) {
+                                        Box(
+                                            modifier = Modifier
+                                                .width(2.5.dp)
+                                                .fillMaxHeight()
+                                                .clip(RoundedCornerShape(2.dp))
+                                                .background(quoteAccentBar)
+                                        )
+                                        Column(
+                                            modifier = Modifier.weight(1f),
+                                            verticalArrangement = Arrangement.spacedBy(4.dp)
+                                        ) {
+                                            Text(
+                                                text = "ORIGINAL",
+                                                fontSize = 10.sp,
+                                                lineHeight = 12.sp,
+                                                letterSpacing = 0.9.sp,
+                                                fontWeight = FontWeight.SemiBold,
+                                                color = quoteEyebrowColor,
+                                                fontFamily = FontFamily.SansSerif
+                                            )
+                                            Text(
+                                                text = enPara,
+                                                fontSize = 13.sp,
+                                                lineHeight = 20.sp,
+                                                letterSpacing = 0.1.sp,
+                                                color = secondaryTextColor,
+                                                fontFamily = FontFamily.SansSerif
+                                            )
+                                        }
+                                    }
                                 }
                             }
                         }
@@ -292,7 +334,7 @@ fun BilingualContentView(
                         Text(
                             text = enPara,
                             fontSize = 15.sp,
-                            lineHeight = 24.sp,
+                            lineHeight = 24.5.sp,
                             letterSpacing = 0.15.sp,
                             color = primaryTextColor,
                             fontFamily = FontFamily.SansSerif
