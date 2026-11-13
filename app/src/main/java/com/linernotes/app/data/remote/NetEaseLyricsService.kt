@@ -91,8 +91,10 @@ object NetEaseLyricsService {
         val matchedTitle = s.optString("name", targetTitle)
         val matchedArtists = s.optJSONArray("ar") ?: s.optJSONArray("artists")
         val matchedArtist = matchedArtists?.optJSONObject(0)?.optString("name", targetArtist) ?: targetArtist
-        val matchedDuration = s.optLong("dt", 0L)
-        val matchedCover = s.optJSONObject("al")?.optString("picUrl")?.takeIf { it.isNotBlank() }
+        val matchedDuration = s.optLong("dt", 0L).takeIf { it > 0L } ?: s.optLong("duration", 0L)
+        val matchedCover = (s.optJSONObject("al") ?: s.optJSONObject("album"))
+            ?.optString("picUrl")
+            ?.takeIf { it.isNotBlank() }
 
         val lyricUrl = "$LYRIC_API?id=$songId&lv=1&kv=1&tv=1"
         val lyricJson = LinerNotesHttpClient.getAsync(lyricUrl, HEADERS) ?: return null
@@ -141,7 +143,7 @@ object NetEaseLyricsService {
             val candArtist = if (artists != null) {
                 (0 until artists.length()).mapNotNull { idx -> artists.optJSONObject(idx)?.optString("name") }.joinToString(", ")
             } else ""
-            val candDuration = s.optLong("dt", 0L)
+            val candDuration = s.optLong("dt", 0L).takeIf { it > 0L } ?: s.optLong("duration", 0L)
 
             val score = LyricSearchCleaner.scoreCandidateMatch(
                 candidateTitle = candTitle,

@@ -2,7 +2,9 @@ package com.linernotes.app.data.remote
 
 import kotlinx.coroutines.runBlocking
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
+import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class TranslationServiceTest {
@@ -111,5 +113,30 @@ class TranslationServiceTest {
             "Don't wanna catch a body"
         )
         assertEquals("不想背上人命重案", r5)
+    }
+
+    @Test
+    fun testIsInvalidTranslation_filtersQuotaAndLanguageErrors() {
+        val service = TranslationService()
+        assertTrue(service.isInvalidTranslation(""))
+        assertTrue(service.isInvalidTranslation("   "))
+        assertTrue(service.isInvalidTranslation("MYMEMORY WARNING: YOU USED ALL AVAILABLE FREE TRANSLATIONS"))
+        assertTrue(service.isInvalidTranslation("INVALID SOURCE LANGUAGE PAIR"))
+        assertTrue(service.isInvalidTranslation("429 Too Many Requests"))
+        assertFalse(service.isInvalidTranslation("发现一张密信，写着阅后即焚"))
+    }
+
+    @Test
+    fun testTransMartLanguageMappingAndScriptBuckets() {
+        val service = TranslationService()
+        assertEquals("zh", service.mapTargetToTransMartLang("zh-CN"))
+        assertEquals("zh-TW", service.mapTargetToTransMartLang("zh-TW"))
+        assertEquals("en", service.mapTargetToTransMartLang("en"))
+        assertEquals("ja", service.mapTargetToTransMartLang("ja"))
+
+        assertEquals("en", service.detectLineScriptBucket("Burn after reading this"))
+        assertEquals("ja", service.detectLineScriptBucket("夢ならばどれほどよかったでしょう"))
+        assertEquals("ko", service.detectLineScriptBucket("오늘 밤도 너를 생각해"))
+        assertEquals("auto", service.detectLineScriptBucket("Canción de amor"))
     }
 }

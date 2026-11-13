@@ -240,14 +240,29 @@ object UnifiedLyricsService {
                 calibrateWithSpotifyTiming(best, spotifyCalibrator)
             } else best
 
-            // 如果胜出源自身缺少封面或缺少中文双语翻译，而同行候选源（如 QQ 音乐 / 网易云）具备，则智能跨源互补
-            val resolvedCover = calibratedWinner.coverUrl ?: candidates.firstOrNull { !it.coverUrl.isNullOrBlank() }?.coverUrl
-            val resolvedTrans = calibratedWinner.translatedLyrics?.takeIf { it.isNotBlank() }
-                ?: candidates.firstOrNull { !it.translatedLyrics.isNullOrBlank() }?.translatedLyrics
-            val enrichedWinner = calibratedWinner.copy(
-                coverUrl = resolvedCover ?: calibratedWinner.coverUrl,
-                translatedLyrics = resolvedTrans ?: calibratedWinner.translatedLyrics,
-                isBilingual = !resolvedTrans.isNullOrBlank() || calibratedWinner.isBilingual
+            // 如果胜出源自身缺少封面，而同行候选源具备，则跨源补全封面；
+            // 若胜出源缺少双语翻译，仅当同源曲目演唱指纹与时长吻合的双语候选存在时，优先以胜出源时间轴整体校准切入该官方双语版本（严禁不同断句源原文与译文强行混拼）
+            val bestFp = fingerprints[best].orEmpty()
+            val bilingualDonor = if (calibratedWinner.translatedLyrics.isNullOrBlank()) {
+                candidates.firstOrNull { cand ->
+                    cand !== best &&
+                        !cand.translatedLyrics.isNullOrBlank() &&
+                        cand.originalLyrics.contains(TIMESTAMP_REGEX) &&
+                        (bestFp.isEmpty() || (fingerprints[cand].orEmpty()).any { candLine ->
+                            bestFp.any { bestLine -> bestLine.contains(candLine) || candLine.contains(bestLine) }
+                        }) &&
+                        (targetDurationMs <= 0L || cand.durationMs <= 0L || Math.abs(targetDurationMs - cand.durationMs) <= 15_000L)
+                }
+            } else null
+
+            val finalWinner = if (bilingualDonor != null) {
+                calibrateWithSpotifyTiming(bilingualDonor, calibratedWinner)
+            } else {
+                calibratedWinner
+            }
+            val resolvedCover = finalWinner.coverUrl ?: candidates.firstOrNull { !it.coverUrl.isNullOrBlank() }?.coverUrl
+            val enrichedWinner = finalWinner.copy(
+                coverUrl = resolvedCover ?: finalWinner.coverUrl
             )
 
             val reference = lrclibRes?.takeIf { it !== best && it.originalLyrics.isNotBlank() }

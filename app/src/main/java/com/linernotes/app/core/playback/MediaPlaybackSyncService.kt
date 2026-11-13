@@ -25,6 +25,7 @@ import androidx.core.app.NotificationManagerCompat
 import androidx.core.content.ContextCompat
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.launch
@@ -42,14 +43,34 @@ class MediaPlaybackSyncService : NotificationListenerService(), MediaControlActi
     private var activeCompatController: MediaControllerCompat? = null
     private val playbackStateManager by lazy { PlaybackStateManager.get(this) }
     private var ioScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
+    @Volatile
+    private var queueSyncJob: Job? = null
     private val spotifyReceiver = SpotifyBroadcastReceiver()
     private var isSpotifyReceiverRegistered = false
+
+    private fun scheduleQueueSync(
+        queue: List<MediaSessionCompat.QueueItem>?,
+        controllerSnapshot: MediaController?
+    ) {
+        queueSyncJob?.cancel()
+        if (queue.isNullOrEmpty()) {
+            if (activeController === controllerSnapshot) {
+                playbackStateManager.updateQueueItems(emptyList())
+            }
+            return
+        }
+        queueSyncJob = ioScope.launch {
+            val items = queue.map { mapQueueItem(it) }
+            if (activeController === controllerSnapshot) {
+                playbackStateManager.updateQueueItems(items)
+            }
+        }
+    }
 
     private val compatCallback = object : MediaControllerCompat.Callback() {
         override fun onShuffleModeChanged(shuffleMode: Int) {
             val isShuffle = shuffleMode != PlaybackStateCompat.SHUFFLE_MODE_NONE
-            val current = playbackStateManager.playbackState.value
-            playbackStateManager.updateState(current.copy(isShuffleActive = isShuffle))
+            playbackStateManager.updateShuffleMode(isShuffle)
         }
 
         override fun onRepeatModeChanged(repeatMode: Int) {
@@ -58,19 +79,11 @@ class MediaPlaybackSyncService : NotificationListenerService(), MediaControlActi
                 PlaybackStateCompat.REPEAT_MODE_ONE -> 2
                 else -> 0
             }
-            val current = playbackStateManager.playbackState.value
-            playbackStateManager.updateState(current.copy(repeatMode = mapped))
+            playbackStateManager.updateRepeatMode(mapped)
         }
 
         override fun onQueueChanged(queue: MutableList<MediaSessionCompat.QueueItem>?) {
-            val controllerSnapshot = activeController
-            ioScope.launch {
-                val items = queue?.map { mapQueueItem(it) } ?: emptyList()
-                if (activeController === controllerSnapshot) {
-                    val current = playbackStateManager.playbackState.value
-                    playbackStateManager.updateState(current.copy(queueItems = items))
-                }
-            }
+            scheduleQueueSync(queue, activeController)
         }
     }
 
@@ -327,23 +340,8 @@ class MediaPlaybackSyncService : NotificationListenerService(), MediaControlActi
                 }
                 val rawQueue = compat.queue
 
-                val cur = playbackStateManager.playbackState.value
-                playbackStateManager.updateState(
-                    cur.copy(
-                        isShuffleActive = initShuffle,
-                        repeatMode = initRepeat
-                    )
-                )
-
-                if (!rawQueue.isNullOrEmpty()) {
-                    ioScope.launch {
-                        val mappedQueue = rawQueue.map { mapQueueItem(it) }
-                        if (activeController === chosen) {
-                            val latest = playbackStateManager.playbackState.value
-                            playbackStateManager.updateState(latest.copy(queueItems = mappedQueue))
-                        }
-                    }
-                }
+                playbackStateManager.updatePlaybackModes(initShuffle, initRepeat)
+                scheduleQueueSync(rawQueue, chosen)
             } catch (e: Exception) {
                 e.printStackTrace()
             }

@@ -146,6 +146,47 @@ class PlaybackStateManager @Inject constructor() {
         }
     }
 
+    private inline fun updateMetadataField(transform: (TrackPlaybackState) -> TrackPlaybackState) {
+        synchronized(stateLock) {
+            val current = _playbackState.value
+            val updated = transform(current)
+            if (updated == current) return
+            _playbackState.value = updated
+            _trackMetadata.value = updated.toMetadata()
+        }
+    }
+
+    /**
+     * 原子更新播放队列，避免异步映射队列后使用过期的 State 快照覆盖当前曲目与 trackEpoch
+     */
+    fun updateQueueItems(items: List<QueueTrackItem>) {
+        updateMetadataField { current ->
+            if (current.queueItems == items) current else current.copy(queueItems = items)
+        }
+    }
+
+    fun updateShuffleMode(isShuffleActive: Boolean) {
+        updateMetadataField { current ->
+            if (current.isShuffleActive == isShuffleActive) current else current.copy(isShuffleActive = isShuffleActive)
+        }
+    }
+
+    fun updateRepeatMode(repeatMode: Int) {
+        updateMetadataField { current ->
+            if (current.repeatMode == repeatMode) current else current.copy(repeatMode = repeatMode)
+        }
+    }
+
+    fun updatePlaybackModes(isShuffleActive: Boolean, repeatMode: Int) {
+        updateMetadataField { current ->
+            if (current.isShuffleActive == isShuffleActive && current.repeatMode == repeatMode) {
+                current
+            } else {
+                current.copy(isShuffleActive = isShuffleActive, repeatMode = repeatMode)
+            }
+        }
+    }
+
     fun updatePositionOnly(positionMs: Long, isPlaying: Boolean) {
         synchronized(stateLock) {
             val current = _playbackState.value
