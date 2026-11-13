@@ -7,59 +7,92 @@ import android.hardware.display.DisplayManager
 import android.os.Build
 import android.view.Display
 import android.view.View
+import android.view.ViewTreeObserver
 import android.view.Window
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.SideEffect
-import androidx.compose.runtime.remember
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.window.DialogWindowProvider
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleEventObserver
+import androidx.lifecycle.compose.LocalLifecycleOwner
 
 /**
  * 锁定当前 Composable 所在视窗的同分辨率最高可用刷新率。
- * 每个 Window 仅应用一次，避免 Recompose 期间频繁触发 WindowManager Binder IPC；
+ * 在首次挂载、窗口获焦及宿主生命周期恢复时校对并锁定高刷模式（已锁定时零 Binder IPC）；
  * 保留 Throwable 捕获以兼容部分 OEM 非 Visual Context 限制。
  */
 @Composable
 fun LockWindowRefreshRateEffect() {
     val view = LocalView.current
-    val appliedWindowRef = remember { arrayOfNulls<Window>(1) }
-    val appliedModeId = remember { intArrayOf(-1) }
+    val lifecycleOwner = LocalLifecycleOwner.current
 
-    SideEffect {
-        try {
-            val window = findWindow(view) ?: return@SideEffect
-            if (appliedWindowRef[0] === window && appliedModeId[0] != -1) return@SideEffect
+    DisposableEffect(view, lifecycleOwner) {
+        applyMaxRefreshRate(view)
+        val postRunnable = Runnable { applyMaxRefreshRate(view) }
+        view.post(postRunnable)
 
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
-                val display = resolveDisplay(view, window) ?: return@SideEffect
-                val currentMode = display.mode
-                val supportedModes = display.supportedModes
-                val maxMode = supportedModes
-                    .filter { mode ->
-                        currentMode == null || (
-                            mode.physicalWidth == currentMode.physicalWidth &&
-                                mode.physicalHeight == currentMode.physicalHeight
-                            )
-                    }
-                    .maxByOrNull { it.refreshRate }
-                    ?: supportedModes.maxByOrNull { it.refreshRate }
-
-                if (maxMode != null) {
-                    val attrs = window.attributes
-                    if (attrs.preferredDisplayModeId != maxMode.modeId ||
-                        attrs.preferredRefreshRate != maxMode.refreshRate
-                    ) {
-                        attrs.preferredDisplayModeId = maxMode.modeId
-                        attrs.preferredRefreshRate = maxMode.refreshRate
-                        window.attributes = attrs
-                    }
-                    appliedModeId[0] = maxMode.modeId
-                }
-                appliedWindowRef[0] = window
+        val focusListener = ViewTreeObserver.OnWindowFocusChangeListener { hasFocus ->
+            if (hasFocus) {
+                applyMaxRefreshRate(view)
             }
-        } catch (_: Throwable) {
-            // 防止特定 OEM 在窗口切换过渡态抛出 Error 或 UnsupportedOperationException
         }
+        val lifecycleObserver = LifecycleEventObserver { _, event ->
+            if (event == Lifecycle.Event.ON_RESUME) {
+                applyMaxRefreshRate(view)
+            }
+        }
+
+        val vto = view.viewTreeObserver
+        if (vto.isAlive) {
+            vto.addOnWindowFocusChangeListener(focusListener)
+        }
+        lifecycleOwner.lifecycle.addObserver(lifecycleObserver)
+
+        onDispose {
+            view.removeCallbacks(postRunnable)
+            if (vto.isAlive) {
+                vto.removeOnWindowFocusChangeListener(focusListener)
+            }
+            val currentVto = view.viewTreeObserver
+            if (currentVto.isAlive && currentVto !== vto) {
+                currentVto.removeOnWindowFocusChangeListener(focusListener)
+            }
+            lifecycleOwner.lifecycle.removeObserver(lifecycleObserver)
+        }
+    }
+}
+
+private fun applyMaxRefreshRate(view: View) {
+    try {
+        val window = findWindow(view) ?: return
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+            val display = resolveDisplay(view, window) ?: return
+            val currentMode = display.mode
+            val supportedModes = display.supportedModes
+            val maxMode = supportedModes
+                .filter { mode ->
+                    currentMode == null || (
+                        mode.physicalWidth == currentMode.physicalWidth &&
+                            mode.physicalHeight == currentMode.physicalHeight
+                        )
+                }
+                .maxByOrNull { it.refreshRate }
+                ?: supportedModes.maxByOrNull { it.refreshRate }
+
+            if (maxMode != null) {
+                val attrs = window.attributes
+                if (attrs.preferredDisplayModeId != maxMode.modeId ||
+                    attrs.preferredRefreshRate != maxMode.refreshRate
+                ) {
+                    attrs.preferredDisplayModeId = maxMode.modeId
+                    attrs.preferredRefreshRate = maxMode.refreshRate
+                    window.attributes = attrs
+                }
+            }
+        }
+    } catch (_: Throwable) {
+        // 防止特定 OEM 在窗口切换过渡态抛出 Error 或 UnsupportedOperationException
     }
 }
 

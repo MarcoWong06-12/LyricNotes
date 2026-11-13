@@ -497,12 +497,13 @@ fun SleekTrackScrubber(
     var isDragging by remember { mutableStateOf(false) }
     var dragFraction by remember { mutableFloatStateOf(0f) }
 
-    // 仅在播放态且非手动拖拽时驱动 Draw 帧时钟，保证进度条丝滑前行而零 Recompose
+    // 仅在播放态且非手动拖拽时驱动 Draw 帧时钟；进度条每秒推进 < 10dp，~16Hz 刷新即可保证亚像素丝滑并大幅降低 GPU/RenderThread 无谓重绘
     val frameClock = remember { mutableLongStateOf(0L) }
     LaunchedEffect(isPlaying, hasValidDuration, isDragging) {
         if (isPlaying && hasValidDuration && !isDragging) {
             while (isActive) {
-                withFrameNanos { frameClock.longValue = it }
+                frameClock.longValue = SystemClock.elapsedRealtime()
+                delay(64L)
             }
         }
     }

@@ -30,7 +30,6 @@ import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.CompositingStrategy
 import androidx.compose.ui.graphics.drawscope.withTransform
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.layout.ContentScale
@@ -295,7 +294,7 @@ fun AmbientGlowBackground(
                 )
             }
 
-            // 2. 动态光斑流体弥散层：稳态单层直出；切歌/切主题过渡时 GPU Alpha 交叉溶解，过渡期 0 次 Shader 重建
+            // 2. 动态光斑流体弥散层：稳态单层直出；切歌/切主题过渡时在 Draw 阶段按比例透明混合，零离屏 FBO 分配与 Shader 重建
             val prev = previousSnapshot
             if (prev != null) {
                 AuroraOrbsLayer(
@@ -309,12 +308,9 @@ fun AmbientGlowBackground(
                     orb3OffsetY = orb3OffsetY,
                     orb4OffsetX = orb4OffsetX,
                     orb4OffsetY = orb4OffsetY,
-                    modifier = Modifier
-                        .fillMaxSize()
-                        .graphicsLayer {
-                            compositingStrategy = CompositingStrategy.Offscreen
-                            alpha = 1f - fadeProgress.value
-                        }
+                    layerAlphaProvider = { (1f - fadeProgress.value).coerceIn(0f, 1f) },
+                    drawOverlay = false,
+                    modifier = Modifier.fillMaxSize()
                 )
                 AuroraOrbsLayer(
                     snapshot = currentSnapshot,
@@ -327,12 +323,9 @@ fun AmbientGlowBackground(
                     orb3OffsetY = orb3OffsetY,
                     orb4OffsetX = orb4OffsetX,
                     orb4OffsetY = orb4OffsetY,
-                    modifier = Modifier
-                        .fillMaxSize()
-                        .graphicsLayer {
-                            compositingStrategy = CompositingStrategy.Offscreen
-                            alpha = fadeProgress.value
-                        }
+                    layerAlphaProvider = { fadeProgress.value.coerceIn(0f, 1f) },
+                    drawOverlay = true,
+                    modifier = Modifier.fillMaxSize()
                 )
             } else {
                 AuroraOrbsLayer(
@@ -365,6 +358,8 @@ private fun AuroraOrbsLayer(
     orb3OffsetY: State<Float>,
     orb4OffsetX: State<Float>,
     orb4OffsetY: State<Float>,
+    layerAlphaProvider: () -> Float = { 1f },
+    drawOverlay: Boolean = true,
     modifier: Modifier = Modifier
 ) {
     val effectiveDark = snapshot.effectiveDark
@@ -437,54 +432,59 @@ private fun AuroraOrbsLayer(
             val expandedSize = Size(w + bleed * 2f, h + bleed * 2f)
 
             onDrawBehind {
-                withTransform({
-                    translate(left = orb1OffsetX.value, top = orb1OffsetY.value)
-                    scale(scaleX = orb1Scale.value, scaleY = orb1Scale.value, pivot = c1)
-                }) {
-                    drawRect(
-                        brush = brush1,
-                        topLeft = expandedTopLeft,
-                        size = expandedSize,
-                        alpha = if (effectiveDark) 0.65f else 0.42f
-                    )
-                }
-
-                withTransform({
-                    translate(left = orb2OffsetX.value, top = orb2OffsetY.value)
-                }) {
-                    drawRect(
-                        brush = brush2,
-                        topLeft = expandedTopLeft,
-                        size = expandedSize,
-                        alpha = if (effectiveDark) 0.55f else 0.36f
-                    )
-                }
-
-                if (snapshot.isDynamicAurora) {
+                val layerAlpha = layerAlphaProvider().coerceIn(0f, 1f)
+                if (layerAlpha > 0.001f) {
                     withTransform({
-                        translate(left = orb3OffsetX.value, top = orb3OffsetY.value)
+                        translate(left = orb1OffsetX.value, top = orb1OffsetY.value)
+                        scale(scaleX = orb1Scale.value, scaleY = orb1Scale.value, pivot = c1)
                     }) {
                         drawRect(
-                            brush = brush3,
+                            brush = brush1,
                             topLeft = expandedTopLeft,
                             size = expandedSize,
-                            alpha = if (effectiveDark) 0.50f else 0.30f
+                            alpha = (if (effectiveDark) 0.65f else 0.42f) * layerAlpha
                         )
                     }
 
                     withTransform({
-                        translate(left = orb4OffsetX.value, top = orb4OffsetY.value)
+                        translate(left = orb2OffsetX.value, top = orb2OffsetY.value)
                     }) {
                         drawRect(
-                            brush = brush4,
+                            brush = brush2,
                             topLeft = expandedTopLeft,
                             size = expandedSize,
-                            alpha = if (effectiveDark) 0.45f else 0.25f
+                            alpha = (if (effectiveDark) 0.55f else 0.36f) * layerAlpha
                         )
+                    }
+
+                    if (snapshot.isDynamicAurora) {
+                        withTransform({
+                            translate(left = orb3OffsetX.value, top = orb3OffsetY.value)
+                        }) {
+                            drawRect(
+                                brush = brush3,
+                                topLeft = expandedTopLeft,
+                                size = expandedSize,
+                                alpha = (if (effectiveDark) 0.50f else 0.30f) * layerAlpha
+                            )
+                        }
+
+                        withTransform({
+                            translate(left = orb4OffsetX.value, top = orb4OffsetY.value)
+                        }) {
+                            drawRect(
+                                brush = brush4,
+                                topLeft = expandedTopLeft,
+                                size = expandedSize,
+                                alpha = (if (effectiveDark) 0.45f else 0.25f) * layerAlpha
+                            )
+                        }
                     }
                 }
 
-                drawRect(brush = verticalOverlayBrush)
+                if (drawOverlay) {
+                    drawRect(brush = verticalOverlayBrush)
+                }
             }
         }
     )

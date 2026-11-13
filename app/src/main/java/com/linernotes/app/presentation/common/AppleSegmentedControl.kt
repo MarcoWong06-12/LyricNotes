@@ -1,7 +1,7 @@
 package com.linernotes.app.presentation.common
 
 import androidx.compose.animation.animateColorAsState
-import androidx.compose.animation.core.animateDpAsState
+import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.spring
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -13,7 +13,6 @@ import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -25,7 +24,9 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
@@ -78,14 +79,18 @@ fun <T> AppleSegmentedControl(
             val segmentWidth = ((maxWidth - totalGap) / items.size).coerceAtLeast(0.dp)
 
             if (selectedIndex >= 0 && segmentWidth > 0.dp) {
-                val thumbOffset by animateDpAsState(
-                    targetValue = (segmentWidth + segmentGap) * selectedIndex,
+                val density = LocalDensity.current
+                val targetOffsetPx = with(density) { ((segmentWidth + segmentGap) * selectedIndex).toPx() }
+                val thumbOffsetPx by animateFloatAsState(
+                    targetValue = targetOffsetPx,
                     animationSpec = spring(dampingRatio = 0.82f, stiffness = 560f),
-                    label = "segThumbOffset"
+                    label = "segThumbOffsetPx"
                 )
                 Box(
                     modifier = Modifier
-                        .offset(x = thumbOffset)
+                        .graphicsLayer {
+                            translationX = thumbOffsetPx
+                        }
                         .width(segmentWidth)
                         .fillMaxHeight()
                         .clip(RoundedCornerShape(8.dp))

@@ -836,20 +836,24 @@ private fun NowPlayingLyricsSlot(
     onOpenManualSearch: () -> Unit
 ) {
     val currentLineIndex by currentLineIndexFlow.collectAsStateWithLifecycle()
-    val playbackClock by playbackClockFlow.collectAsStateWithLifecycle()
-    val effectiveTrackState = remember(baseTrackState, playbackClock) {
-        baseTrackState.withClock(playbackClock)
+    val playbackClockState = playbackClockFlow.collectAsStateWithLifecycle()
+    val effectiveIsPlaying by remember(playbackClockState) {
+        derivedStateOf { playbackClockState.value.isPlaying }
+    }
+    val positionProvider = remember(playbackClockState) {
+        { playbackClockState.value.getEstimatedPositionMs() }
     }
     NowPlayingLyricsContent(
         lyrics = lyrics,
         currentLineIndex = currentLineIndex,
         annotatedLines = annotatedLines,
-        isPlaying = playbackClock.isPlaying,
+        isPlaying = effectiveIsPlaying,
         isTraditional = isTraditional,
         isLoadingLyrics = isLoadingLyrics,
         isDark = isDark,
         isAmoledMode = isAmoledMode,
-        trackState = effectiveTrackState,
+        trackState = baseTrackState,
+        positionProvider = positionProvider,
         lyricOffsetMs = lyricOffsetMs,
         isWordByWordEnabled = isWordByWordEnabled,
         lyricAlignment = lyricAlignment,
