@@ -273,7 +273,8 @@ fun NowPlayingLyricsContent(
     val listState = rememberLazyListState()
     val coroutineScope = rememberCoroutineScope()
 
-    // 120Hz/90Hz/60Hz VSYNC 高精度硬件級播放進度採樣 (只在 drawWithContent 階段讀取，重組率為 0)
+    // 120Hz/90Hz/60Hz VSYNC 高精度硬件級播放進度採樣 (只在 Draw 階段讀取，重組率為 0)
+    val latestPositionProvider by rememberUpdatedState(positionProvider)
     val hasWordLevelLyrics = remember(lyrics) { lyrics.any { it.words.isNotEmpty() } }
     val currentPositionState = remember { mutableLongStateOf(0L) }
     LaunchedEffect(
@@ -291,11 +292,11 @@ fun NowPlayingLyricsContent(
         if (isPlaying) {
             while (isActive) {
                 withFrameMillis {
-                    currentPositionState.longValue = (positionProvider() + lyricOffsetMs).coerceAtLeast(0L)
+                    currentPositionState.longValue = (latestPositionProvider() + lyricOffsetMs).coerceAtLeast(0L)
                 }
             }
         } else {
-            snapshotFlow { positionProvider() }.collect { basePos ->
+            snapshotFlow { latestPositionProvider() }.collect { basePos ->
                 currentPositionState.longValue = (basePos + lyricOffsetMs).coerceAtLeast(0L)
             }
         }
@@ -1088,12 +1089,12 @@ fun AppleMusicDualLayerLyricLine(
         return
     }
 
-    val textMeasurer = rememberTextMeasurer(cacheSize = 32)
+    val textMeasurer = rememberTextMeasurer(cacheSize = 8)
     val baseLocalStyle = LocalTextStyle.current
-    val wordStyle = remember(baseLocalStyle, fontSize, lineHeight) {
+    val wordStyle = remember(baseLocalStyle, lyricColor, fontSize, lineHeight) {
         baseLocalStyle.merge(
             TextStyle(
-                color = Color.Unspecified,
+                color = lyricColor,
                 fontSize = fontSize,
                 fontWeight = FontWeight.Bold,
                 fontFamily = FontFamily.SansSerif,
@@ -1144,10 +1145,13 @@ private fun DualLayerWordBox(
     val layoutHolder = remember { WordTextLayoutHolder() }
     val measurePolicy = remember(visibleToken, wordStyle, textMeasurer, layoutHolder) {
         MeasurePolicy { _, constraints ->
+            // skipCache = true 确保每个词槽拥有独立的 TextLayoutResult / AndroidTextPaint，
+            // 防止同词重复出现（如 "I"、"probably"）互相污染 Paint.alpha 或 Shader 状态。
             val measured = textMeasurer.measure(
                 text = visibleToken,
                 style = wordStyle,
-                constraints = Constraints(maxWidth = constraints.maxWidth)
+                constraints = Constraints(maxWidth = constraints.maxWidth),
+                skipCache = true
             )
             layoutHolder.result = measured
             val width = constraints.constrainWidth(measured.size.width)
@@ -1161,7 +1165,7 @@ private fun DualLayerWordBox(
         modifier = modifier.drawBehind {
             val layoutResult = layoutHolder.result ?: return@drawBehind
             if (!isActive) {
-                drawText(textLayoutResult = layoutResult, color = lyricColor)
+                drawText(textLayoutResult = layoutResult, color = lyricColor, alpha = 1f)
                 return@drawBehind
             }
 
@@ -1171,12 +1175,13 @@ private fun DualLayerWordBox(
                     drawText(textLayoutResult = layoutResult, color = mutedColor)
                 }
                 now >= end -> {
-                    drawText(textLayoutResult = layoutResult, color = lyricColor)
+                    drawText(textLayoutResult = layoutResult, color = lyricColor, alpha = 1f)
                 }
                 else -> {
                     val progress = ((now - start).toFloat() / duration.toFloat()).coerceIn(0f, 1f)
-                    val sweepStart = progress * (size.width + fadeWidthPx) - fadeWidthPx
-                    val sweepEnd = (sweepStart + fadeWidthPx).coerceAtLeast(sweepStart + 1f)
+                    val effectiveFadePx = minOf(fadeWidthPx, size.width * 0.45f).coerceAtLeast(1f)
+                    val sweepStart = progress * (size.width + effectiveFadePx) - effectiveFadePx
+                    val sweepEnd = (sweepStart + effectiveFadePx).coerceAtLeast(sweepStart + 1f)
                     drawText(
                         textLayoutResult = layoutResult,
                         brush = Brush.horizontalGradient(
@@ -1184,7 +1189,9 @@ private fun DualLayerWordBox(
                             startX = sweepStart,
                             endX = sweepEnd,
                             tileMode = TileMode.Clamp
-                        )
+                        ),
+                        // 显式锁定 alpha = 1f：避免沿用 mutedColor 遗留在 AndroidTextPaint 上的 0.45f alpha
+                        alpha = 1f
                     )
                 }
             }
@@ -1212,7 +1219,7 @@ fun AppleMusicWordUnit(
     val end = start + duration
     val density = LocalDensity.current
     // Apple Music 官方逆向 lyrics_karaoke_gradient_feather_width: 30dp
-    val fadeWidthPx = remember(density) { with(density) { 30.dp.toPx() }.coerceAtLeast(1f) }
+    val fadeWidthPx = remember(density) { with(density) { 24.dp.toPx() }.coerceAtLeast(1f) }
     val spaceGapDp = if (trailingSpace.isEmpty()) {
         0.dp
     } else {
@@ -1225,10 +1232,10 @@ fun AppleMusicWordUnit(
         val resolvedMeasurer = textMeasurer ?: rememberTextMeasurer(cacheSize = 8)
         val resolvedStyle = wordStyle ?: run {
             val baseLocalStyle = LocalTextStyle.current
-            remember(baseLocalStyle, fontSize, lineHeight) {
+            remember(baseLocalStyle, lyricColor, fontSize, lineHeight) {
                 baseLocalStyle.merge(
                     TextStyle(
-                        color = Color.Unspecified,
+                        color = lyricColor,
                         fontSize = fontSize,
                         fontWeight = FontWeight.Bold,
                         fontFamily = FontFamily.SansSerif,
