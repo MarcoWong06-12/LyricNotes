@@ -96,10 +96,15 @@ fun BilingualContentView(
         else translatedText
     }
 
-    val hasTranslation = !effectiveTranslation.isNullOrBlank() && (
-        isAlreadyChinese ||
-            (effectiveTranslation.trim() != originalText.trim() && effectiveTranslation.any { it.isLetterOrDigit() })
-    )
+    val isTranslationAlsoChinese = remember(effectiveTranslation) {
+        !effectiveTranslation.isNullOrBlank() && AiAnnotationCurator.isAlreadyChinese(effectiveTranslation)
+    }
+
+    val isSingleLanguageChinese = isAlreadyChinese && (effectiveTranslation.isNullOrBlank() || isTranslationAlsoChinese)
+
+    val hasTranslation = !effectiveTranslation.isNullOrBlank() && !isSingleLanguageChinese &&
+        effectiveTranslation.trim() != originalText.trim() &&
+        effectiveTranslation.any { it.isLetterOrDigit() }
 
     var selectedTab by remember(originalText, hasTranslation) {
         mutableStateOf(if (hasTranslation) BilingualDisplayTab.PARALLEL else BilingualDisplayTab.ORIGINAL)
@@ -125,7 +130,7 @@ fun BilingualContentView(
         verticalArrangement = Arrangement.spacedBy(16.dp)
     ) {
         // 顶部模式切换分段控制器 (AppleSegmentedControl 共享弹簧滑块)
-        if (!isAlreadyChinese && hasTranslation) {
+        if (!isSingleLanguageChinese && hasTranslation) {
             AppleSegmentedControl(
                 items = listOf(
                     BilingualDisplayTab.PARALLEL to strings.bilingualTabParallel,
@@ -167,7 +172,7 @@ fun BilingualContentView(
         }
 
         // 若未具备中文翻译且未在翻译中，显示一键即时生成按钮
-        if (!isAlreadyChinese && !hasTranslation && !isTranslating && onRetryTranslation != null) {
+        if (!isSingleLanguageChinese && !hasTranslation && !isTranslating && onRetryTranslation != null) {
             Surface(
                 shape = RoundedCornerShape(12.dp),
                 color = if (isEffectiveDark) Color.White.copy(alpha = 0.08f) else Color(0xFFE8EBF2),
@@ -196,8 +201,8 @@ fun BilingualContentView(
             }
         }
 
-        // 原文是纯中文
-        if (isAlreadyChinese) {
+        // 原文是纯中文且无非中文译文
+        if (isSingleLanguageChinese) {
             Column(verticalArrangement = Arrangement.spacedBy(14.dp)) {
                 alignedParagraphs.forEach { p ->
                     val text = p.units.joinToString(" ") { it.original }

@@ -282,9 +282,15 @@ object LyricSanitizer {
 
         if (!hasExplicitCensor && !hasRefWithPotentialGap) return unescaped
 
-        val tsMatch = TIMESTAMP_REGEX.find(unescaped)
-        val tsPrefix = tsMatch?.value
-        var stageText = if (tsPrefix != null) unescaped.replace(TIMESTAMP_REGEX, "").trim() else unescaped
+        val leadingTsMatch = Regex("""^(?:\[\d{1,3}:\d{2}(?:[.:]\d{1,3})?\]|\[\d+,\d+\])+""").find(unescaped)
+        val tsPrefix = leadingTsMatch?.value ?: TIMESTAMP_REGEX.find(unescaped)?.value
+        var stageText = if (leadingTsMatch != null) {
+            unescaped.substring(leadingTsMatch.value.length).trim()
+        } else if (tsPrefix != null) {
+            unescaped.replaceFirst(TIMESTAMP_REGEX, "").trim()
+        } else {
+            unescaped
+        }
 
         // 阶段 0：针对无星号但被「消音留白/删词挖空」的审查行，基于参考源双向锚点补齐缺口
         if (!uncensoredRefLine.isNullOrBlank()) {

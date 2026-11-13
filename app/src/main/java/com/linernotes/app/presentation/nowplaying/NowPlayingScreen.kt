@@ -122,6 +122,7 @@ fun NowPlayingScreen(
     val swipeContentAlpha = remember { Animatable(1f) }
     val currentTrackKey = "${trackState.trackEpoch}|${trackState.title}|${trackState.artist}|${trackState.album}"
     var awaitingSkipDirection by remember { mutableIntStateOf(0) } // -1 = 下一首, 1 = 上一首, 0 = 无待切歌
+    var awaitingSkipSeq by remember { mutableIntStateOf(0) }
 
     LaunchedEffect(currentTrackKey) {
         val dir = awaitingSkipDirection
@@ -137,7 +138,7 @@ fun NowPlayingScreen(
     }
 
     // 超时兜底：若远程播放器因队尾或网络原因未切歌，750ms 后平滑回正，避免界面长期隐身
-    LaunchedEffect(awaitingSkipDirection) {
+    LaunchedEffect(awaitingSkipDirection, awaitingSkipSeq) {
         if (awaitingSkipDirection != 0) {
             delay(750L)
             if (awaitingSkipDirection != 0) {
@@ -150,6 +151,8 @@ fun NowPlayingScreen(
 
     fun triggerTrackSkip(direction: Int, releaseVelocityX: Float = 0f) {
         awaitingSkipDirection = direction
+        awaitingSkipSeq++
+        if (direction < 0) viewModel.skipToNext() else viewModel.skipToPrevious()
         coroutineScope.launch {
             val exitTarget = if (direction < 0) -screenWidthPx * 0.88f else screenWidthPx * 0.88f
             val seededVelocity = if (direction < 0) {
@@ -165,7 +168,6 @@ fun NowPlayingScreen(
                 animationSpec = spring(dampingRatio = 1.0f, stiffness = 560f),
                 initialVelocity = seededVelocity
             )
-            if (direction < 0) viewModel.skipToNext() else viewModel.skipToPrevious()
         }
     }
 
@@ -674,6 +676,7 @@ fun NowPlayingScreen(
             NowPlayingQueueSheet(
                 trackState = trackState,
                 isAmoledMode = state.isAmoledMode,
+                isTraditional = state.isTraditionalChinese,
                 sleepTimerMinutesLeft = state.sleepTimerMinutesLeft,
                 onSetSleepTimer = viewModel::setSleepTimer,
                 onCancelSleepTimer = viewModel::cancelSleepTimer,

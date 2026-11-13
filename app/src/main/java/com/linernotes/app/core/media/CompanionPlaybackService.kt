@@ -20,7 +20,8 @@ class CompanionPlaybackService : Service() {
 
     companion object {
         const val ACTION_UPDATE = "com.linernotes.app.ACTION_UPDATE_MEDIA"
-        const val ACTION_STOP = "com.linernotes.app.ACTION_STOP_MEDIA"
+        const val ACTION_STOP = MediaNotificationManager.ACTION_STOP
+        const val ACTION_STOP_LEGACY = "com.linernotes.app.ACTION_STOP_MEDIA"
         const val ACTION_PLAY_PAUSE = "com.linernotes.app.ACTION_PLAY_PAUSE"
         const val ACTION_NEXT = "com.linernotes.app.ACTION_NEXT"
         const val ACTION_PREVIOUS = "com.linernotes.app.ACTION_PREVIOUS"
@@ -79,11 +80,24 @@ class CompanionPlaybackService : Service() {
     lateinit var mediaNotificationManager: MediaNotificationManager
 
     private val serviceScope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
+    private var updateJob: kotlinx.coroutines.Job? = null
     private val notificationManager by lazy {
         getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
     }
 
     override fun onBind(intent: Intent?): IBinder? = null
+
+    private fun startForegroundCompat(notification: android.app.Notification) {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+            startForeground(
+                MediaNotificationManager.NOTIFICATION_ID,
+                notification,
+                ServiceInfo.FOREGROUND_SERVICE_TYPE_MEDIA_PLAYBACK
+            )
+        } else {
+            startForeground(MediaNotificationManager.NOTIFICATION_ID, notification)
+        }
+    }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         val action = intent?.action ?: return START_NOT_STICKY
@@ -98,7 +112,8 @@ class CompanionPlaybackService : Service() {
             ACTION_PREVIOUS -> {
                 mediaNotificationManager.dispatchPrevious()
             }
-            ACTION_STOP -> {
+            ACTION_STOP, ACTION_STOP_LEGACY -> {
+                updateJob?.cancel()
                 mediaNotificationManager.clear()
                 if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
                     stopForeground(STOP_FOREGROUND_REMOVE)
@@ -123,18 +138,16 @@ class CompanionPlaybackService : Service() {
                     hasNext = intent.getBooleanExtra(EXTRA_HAS_NEXT, false)
                 )
 
-                serviceScope.launch {
+                if (data.isPlaying) {
+                    val syncNotification = mediaNotificationManager.buildNotificationSync(data)
+                    startForegroundCompat(syncNotification)
+                }
+
+                updateJob?.cancel()
+                updateJob = serviceScope.launch {
                     val notification = mediaNotificationManager.buildNotification(data)
                     if (data.isPlaying) {
-                        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
-                            startForeground(
-                                MediaNotificationManager.NOTIFICATION_ID,
-                                notification,
-                                ServiceInfo.FOREGROUND_SERVICE_TYPE_MEDIA_PLAYBACK
-                            )
-                        } else {
-                            startForeground(MediaNotificationManager.NOTIFICATION_ID, notification)
-                        }
+                        startForegroundCompat(notification)
                     } else {
                         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
                             stopForeground(STOP_FOREGROUND_DETACH)

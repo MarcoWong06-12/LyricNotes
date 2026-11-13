@@ -183,6 +183,8 @@ class AnnotationRepository @Inject constructor(
                                         isFinished = ready >= totalCount
                                     )
                                     delay(120)
+                                } catch (e: kotlinx.coroutines.CancellationException) {
+                                    throw e
                                 } catch (e: Exception) {
                                     // 静默处理，避免干扰前台正常交互
                                 }
@@ -222,6 +224,8 @@ class AnnotationRepository @Inject constructor(
                         try {
                             prefetchTrackInternal(track, artist, forceRefresh)
                             delay(120)
+                        } catch (e: kotlinx.coroutines.CancellationException) {
+                            throw e
                         } catch (e: Exception) {
                             // ignore
                         }
@@ -370,6 +374,7 @@ class AnnotationRepository @Inject constructor(
 
                 // 2.2 获取该曲目的全部逐句歌词典故列表 (Referents)
                 val referents = GeniusService.getReferents(songId, customToken)
+                geniusRequestSucceeded = GeniusService.lastRequestConnected
                 for (ref in referents) {
                     val primaryAnnot = ref.annotations.firstOrNull() ?: continue
                     val imagesJson = if (primaryAnnot.imageUrls.isNotEmpty()) {
@@ -393,8 +398,11 @@ class AnnotationRepository @Inject constructor(
                     )
                 }
             }
+        } catch (e: kotlinx.coroutines.CancellationException) {
+            throw e
         } catch (e: Exception) {
             // 网络受限或 Genius 超时，不标记请求成功
+            geniusRequestSucceeded = false
         }
 
         // 3. 本地持久化与缓存更新：
@@ -409,12 +417,16 @@ class AnnotationRepository @Inject constructor(
                     lyricAnnotationDao.insertSongStory(storyEntity)
                 }
 
-                // 原子替换该曲目的所有注释（删除旧的并插入新的，获取赋予了真实数据库自增 PrimaryKey 的实体列表）
-                val persistedAnnotations = lyricAnnotationDao.replaceAnnotationsForTrack(trackId, annotationEntities)
-                val savedAnnotations = if (persistedAnnotations.isNotEmpty() && persistedAnnotations.all { it.id > 0L }) {
-                    persistedAnnotations
+                // 原子替换该曲目的所有注释（仅当获取到非空注释列表时替换，防止 Referents 异常清空本地已有注释）
+                val savedAnnotations = if (annotationEntities.isNotEmpty()) {
+                    val persistedAnnotations = lyricAnnotationDao.replaceAnnotationsForTrack(trackId, annotationEntities)
+                    if (persistedAnnotations.isNotEmpty() && persistedAnnotations.all { it.id > 0L }) {
+                        persistedAnnotations
+                    } else {
+                        lyricAnnotationDao.getAnnotations(trackId).ifEmpty { annotationEntities }
+                    }
                 } else {
-                    lyricAnnotationDao.getAnnotations(trackId).ifEmpty { annotationEntities }
+                    lyricAnnotationDao.getAnnotations(trackId).filter { it.source == "GENIUS" }
                 }
                 negativeCache.remove(trackId)
 
@@ -536,6 +548,8 @@ class AnnotationRepository @Inject constructor(
                             val updatedStory = storyEntity.copy(descriptionTranslation = finalStoryTrans)
                             lyricAnnotationDao.updateSongStory(updatedStory)
                         }
+                    } catch (e: kotlinx.coroutines.CancellationException) {
+                        throw e
                     } catch (e: Exception) { /* ignore */ }
                 }
 
@@ -556,6 +570,8 @@ class AnnotationRepository @Inject constructor(
                             lyricAnnotationDao.updateAnnotation(updated)
                         }
                         delay(100)
+                    } catch (e: kotlinx.coroutines.CancellationException) {
+                        throw e
                     } catch (e: Exception) { /* ignore */ }
                 }
             } finally {

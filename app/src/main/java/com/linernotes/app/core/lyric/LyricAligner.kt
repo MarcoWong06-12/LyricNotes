@@ -488,7 +488,8 @@ object LyricAligner {
     }
 
     /**
-     * 将单行包含多个时间标签的 LRC (如 [00:10.00][01:10.00] 唱词) 展开为按时间轴单调递增的独立单句
+     * 将单行开头包含多个时间标签的 LRC (如 [00:10.00][01:10.00] 唱词) 展开为按时间轴单调递增的独立单句
+     * 仅匹配行首连续时间标签，避免把行内逐字 [mm:ss.xx] 标签误拆为整行重复
      */
     fun expandMultiTimestampLines(lrc: String): String {
         val lines = lrc.lines()
@@ -500,12 +501,17 @@ object LyricAligner {
                 result.add(rawLine)
                 continue
             }
-            val matches = TIMESTAMP_PARSER_REGEX.findAll(trimmed).toList()
+            val leadingBlock = LEADING_TIMESTAMP_BLOCK_REGEX.find(trimmed)?.value.orEmpty()
+            val matches = if (leadingBlock.isNotEmpty()) {
+                TIMESTAMP_PARSER_REGEX.findAll(leadingBlock).toList()
+            } else {
+                emptyList()
+            }
             if (matches.size <= 1) {
                 result.add(rawLine)
             } else {
                 hasMulti = true
-                val cleanText = trimmed.replace(TIMESTAMP_PARSER_REGEX, "").trim()
+                val cleanText = trimmed.substring(leadingBlock.length).trim()
                 for (m in matches) {
                     result.add("${m.value} $cleanText")
                 }
@@ -552,6 +558,7 @@ object LyricAligner {
     data class TimedLyric(val ms: Long, val text: String)
 
     private val TIMESTAMP_PARSER_REGEX = Regex("""\[(\d{1,2}):(\d{2})(?:\.(\d{1,3}))?\]""")
+    private val LEADING_TIMESTAMP_BLOCK_REGEX = Regex("""^(?:\[\d{1,2}:\d{2}(?:\.\d{1,3})?\])+""")
 
     // 严格要求制作人员标签后紧跟冒号/斜杠分隔符，彻底杜绝把前 3.5 秒含 "op"/"sp"/"sample" 的英文首句歌词（如 open/stop/speak）误删！
     private val CREDIT_FILTER_REGEX = Regex(
@@ -656,7 +663,12 @@ object LyricAligner {
             if (trimmed.isBlank()) continue
             if (trimmed.matches(LRC_METADATA_REGEX)) continue
 
-            val matches = TIMESTAMP_PARSER_REGEX.findAll(trimmed).toList()
+            val leadingBlock = LEADING_TIMESTAMP_BLOCK_REGEX.find(trimmed)?.value.orEmpty()
+            val matches = if (leadingBlock.isNotEmpty()) {
+                TIMESTAMP_PARSER_REGEX.findAll(leadingBlock).toList()
+            } else {
+                TIMESTAMP_PARSER_REGEX.findAll(trimmed).take(1).toList()
+            }
             if (matches.isEmpty()) continue
 
             val cleanText = trimmed.replace(TIMESTAMP_PARSER_REGEX, "").replace(ZERO_WIDTH_REGEX, "").trim()

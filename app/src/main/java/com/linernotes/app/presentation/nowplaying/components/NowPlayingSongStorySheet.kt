@@ -119,7 +119,7 @@ fun NowPlayingSongStorySheet(
                         shape = RoundedCornerShape(6.dp)
                     ) {
                         Text(
-                            text = "BEHIND THE SONG",
+                            text = strings.songStoryTitle,
                             color = if (isDark) Color(0xFFFFCA28) else Color(0xFFD97706),
                             fontSize = 11.sp,
                             fontWeight = FontWeight.Bold,

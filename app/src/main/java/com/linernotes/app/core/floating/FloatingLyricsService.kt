@@ -88,13 +88,31 @@ class FloatingLyricsService : Service() {
 
     private val serviceScope = CoroutineScope(SupervisorJob() + Dispatchers.Main)
     private val overlayLifecycleOwner = OverlayLifecycleOwner()
+    private var isScreenInteractive: Boolean = true
+    private var isHiddenByForegroundAvoidance: Boolean = false
+
+    private fun syncOverlayVisibilityAndLifecycle() {
+        val visible = _isRunningFlow.value && isScreenInteractive && !isHiddenByForegroundAvoidance
+        _isOverlayVisibleFlow.value = visible
+        if (visible) {
+            overlayLifecycleOwner.onScreenOn()
+        } else {
+            overlayLifecycleOwner.onScreenOff()
+        }
+    }
 
     // 屏幕熄屏/亮屏广播监听：熄屏时挂起 Compose 渲染管线与 Marquee，极大降低后台音乐播放功耗
     private val screenStateReceiver = object : BroadcastReceiver() {
         override fun onReceive(context: Context?, intent: Intent?) {
             when (intent?.action) {
-                Intent.ACTION_SCREEN_OFF -> overlayLifecycleOwner.onScreenOff()
-                Intent.ACTION_SCREEN_ON -> overlayLifecycleOwner.onScreenOn()
+                Intent.ACTION_SCREEN_OFF -> {
+                    isScreenInteractive = false
+                    syncOverlayVisibilityAndLifecycle()
+                }
+                Intent.ACTION_SCREEN_ON -> {
+                    isScreenInteractive = true
+                    syncOverlayVisibilityAndLifecycle()
+                }
             }
         }
     }
@@ -108,6 +126,7 @@ class FloatingLyricsService : Service() {
 
         if (!Settings.canDrawOverlays(this)) {
             _isRunningFlow.value = false
+            _isOverlayVisibleFlow.value = false
             floatingPreferences.isEnabled = false
             FloatingLyricsTileService.requestSync(this)
             stopSelf()
@@ -115,6 +134,9 @@ class FloatingLyricsService : Service() {
         }
 
         _isRunningFlow.value = true
+        isScreenInteractive = true
+        isHiddenByForegroundAvoidance = false
+        _isOverlayVisibleFlow.value = true
         floatingPreferences.isEnabled = true
         FloatingLyricsTileService.requestSync(this)
 
@@ -159,13 +181,16 @@ class FloatingLyricsService : Service() {
             ) { inForeground, hideInForeground ->
                 inForeground && hideInForeground
             }.collect { shouldHide ->
+                isHiddenByForegroundAvoidance = shouldHide
                 composeView?.visibility = if (shouldHide) View.GONE else View.VISIBLE
+                syncOverlayVisibilityAndLifecycle()
             }
         }
 
         // 监听悬浮窗宽度动态变化：同步固定 WindowManager 窗口宽度并在安全视口范围内重新钳制
         serviceScope.launch {
             floatingPreferences.capsuleWidthDpFlow.collect { widthDp ->
+                if (!isViewAdded) return@collect
                 windowLayoutParams?.let { params ->
                     val landscape = isLandscape()
                     val density = resources.displayMetrics.density
@@ -492,6 +517,7 @@ class FloatingLyricsService : Service() {
     }
 
     private fun handleExpandChanged(isExpanded: Boolean) {
+        if (!isViewAdded) return
         windowLayoutParams?.let { params ->
             val landscape = isLandscape()
             val density = resources.displayMetrics.density
@@ -519,7 +545,7 @@ class FloatingLyricsService : Service() {
     }
 
     private fun handlePureControlsChanged(visible: Boolean) {
-        if (!visible) return
+        if (!visible || !isViewAdded) return
         windowLayoutParams?.let { params ->
             val landscape = isLandscape()
             val density = resources.displayMetrics.density
@@ -572,6 +598,7 @@ class FloatingLyricsService : Service() {
     }
 
     private fun updateLockState(locked: Boolean) {
+        if (!isViewAdded) return
         val wm = windowManager ?: return
         val cv = composeView ?: return
         val lp = windowLayoutParams ?: return
@@ -648,6 +675,7 @@ class FloatingLyricsService : Service() {
 
     override fun onConfigurationChanged(newConfig: Configuration) {
         super.onConfigurationChanged(newConfig)
+        if (!isViewAdded) return
         windowLayoutParams?.let { params ->
             val isLandscape = when (newConfig.orientation) {
                 Configuration.ORIENTATION_LANDSCAPE -> true
@@ -700,6 +728,7 @@ class FloatingLyricsService : Service() {
     override fun onDestroy() {
         super.onDestroy()
         _isRunningFlow.value = false
+        _isOverlayVisibleFlow.value = false
         floatingPreferences.isEnabled = false
         FloatingLyricsTileService.requestSync(this)
         cancelSnapAnimation()
@@ -794,6 +823,9 @@ class FloatingLyricsService : Service() {
 
         private val _isRunningFlow = MutableStateFlow(false)
         val isRunningFlow: StateFlow<Boolean> = _isRunningFlow.asStateFlow()
+
+        private val _isOverlayVisibleFlow = MutableStateFlow(false)
+        val isOverlayVisibleFlow: StateFlow<Boolean> = _isOverlayVisibleFlow.asStateFlow()
 
         val isServiceRunning: Boolean
             get() = _isRunningFlow.value

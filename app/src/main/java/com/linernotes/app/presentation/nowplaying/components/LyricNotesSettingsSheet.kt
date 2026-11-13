@@ -194,8 +194,14 @@ fun LyricNotesSettingsSheet(
                     }
 
                     Column(modifier = Modifier.weight(1f)) {
+                        val displayTrackTitle = if (trackState.hasValidTrack) {
+                            if (isTraditionalChinese) com.linernotes.app.core.util.ChineseConverter.toTraditional(trackState.title) else trackState.title
+                        } else strings.noTrackDetected
+                        val displayTrackArtist = if (trackState.hasValidTrack) {
+                            if (isTraditionalChinese) com.linernotes.app.core.util.ChineseConverter.toTraditional(trackState.artist) else trackState.artist
+                        } else strings.waitingForPlaybackTitle
                         Text(
-                            text = if (trackState.hasValidTrack) trackState.title else strings.noTrackDetected,
+                            text = displayTrackTitle,
                             color = textPrimary,
                             fontSize = 15.sp,
                             fontWeight = FontWeight.SemiBold,
@@ -205,7 +211,7 @@ fun LyricNotesSettingsSheet(
                         )
                         Spacer(modifier = Modifier.height(2.dp))
                         Text(
-                            text = if (trackState.hasValidTrack) trackState.artist else strings.waitingForPlaybackTitle,
+                            text = displayTrackArtist,
                             color = textSecondary,
                             fontSize = 12.5.sp,
                             fontFamily = FontFamily.SansSerif,
@@ -1188,7 +1194,7 @@ fun LyricNotesSettingsSheet(
                             }
                     ) {
                         Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                            Text(strings.openMusicAppBtn, fontSize = 13.5.sp, color = Color.White, fontWeight = FontWeight.Bold)
+                            Text(strings.openMusicAppBtn, fontSize = 13.5.sp, color = Color.Black, fontWeight = FontWeight.Bold)
                         }
                     }
                 }

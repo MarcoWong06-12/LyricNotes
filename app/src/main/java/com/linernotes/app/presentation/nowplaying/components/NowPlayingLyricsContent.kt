@@ -282,6 +282,8 @@ fun NowPlayingLyricsContent(
         trackState.trackEpoch,
         trackState.title,
         trackState.artist,
+        trackState.currentPositionMs,
+        trackState.lastUpdateTimeMs,
         lyricOffsetMs,
         isWordByWordEnabled,
         hasWordLevelLyrics
@@ -289,6 +291,7 @@ fun NowPlayingLyricsContent(
         if (!isWordByWordEnabled || !hasWordLevelLyrics) {
             return@LaunchedEffect
         }
+        currentPositionState.longValue = (latestPositionProvider() + lyricOffsetMs).coerceAtLeast(0L)
         if (isPlaying) {
             while (isActive) {
                 withFrameMillis {
@@ -316,9 +319,12 @@ fun NowPlayingLyricsContent(
     val bottomFocalPadding = screenHeightDp * 0.65f + (if (showPlaybackControls) 120.dp else 40.dp)
 
     val songKey = "${trackState.trackEpoch}|${trackState.title}|${trackState.artist}"
+    val lyricsStructureKey = remember(lyrics) {
+        if (lyrics.isEmpty()) 0 else (lyrics.size * 31 + (lyrics.firstOrNull()?.startTimeMs?.hashCode() ?: 0))
+    }
 
-    // Apple Music 逐行時間差多米諾波浪引擎狀態機 (按曲目歌詞數初始化，全程於 graphicsLayer 零重組讀取)
-    val waveState = remember(lyrics.size, songKey) {
+    // Apple Music 逐行時間差多米諾波浪引擎狀態機 (按曲目與歌詞結構特徵初始化，全程於 graphicsLayer 零重組讀取)
+    val waveState = remember(lyricsStructureKey, songKey) {
         AppleMusicWaveState(lyrics.size)
     }
 
@@ -397,9 +403,6 @@ fun NowPlayingLyricsContent(
 
     var lastSongKey by remember { mutableStateOf("") }
     var lastLyricsStructureKey by remember { mutableIntStateOf(0) }
-    val lyricsStructureKey = remember(lyrics) {
-        if (lyrics.isEmpty()) 0 else (lyrics.size * 31 + (lyrics.firstOrNull()?.startTimeMs?.hashCode() ?: 0))
-    }
 
     // 視口中心動態平滑追蹤 + Apple Music 零死區多米諾波浪引擎
     LaunchedEffect(currentLineIndex, userScrolledAway, lyricsStructureKey, songKey) {
@@ -756,8 +759,7 @@ fun LyricLineRow(
         }
         isVisuallyActive -> 1.0f
         else -> when (distance) {
-            0 -> 1.0f
-            1 -> if (isDark) 0.46f else 0.52f
+            0, 1 -> if (isDark) 0.46f else 0.52f
             2 -> if (isDark) 0.25f else 0.32f
             else -> if (isDark) 0.14f else 0.20f
         }
@@ -771,8 +773,7 @@ fun LyricLineRow(
             else -> 0.97f
         }
         isVisuallyActive -> 1.0f
-        distance == 0 -> 1.0f
-        distance == 1 -> 0.975f
+        distance <= 1 -> 0.975f
         else -> 0.965f
     }
 
@@ -1051,9 +1052,10 @@ fun AppleMusicDualLayerLyricLine(
         cleaned.mapIndexed { index, w ->
             val wText = w.text
             val tokenCore = wText.trim()
-            val matchIdx = if (tokenCore.isNotEmpty()) {
+            val rawMatchIdx = if (tokenCore.isNotEmpty() && refCursor < referenceLine.length) {
                 referenceLine.indexOf(tokenCore, startIndex = refCursor, ignoreCase = true)
             } else -1
+            val matchIdx = if (rawMatchIdx >= 0 && rawMatchIdx - refCursor <= 4) rawMatchIdx else -1
             val endsInSourceWithSpace = if (matchIdx >= 0) {
                 refCursor = matchIdx + tokenCore.length
                 refCursor < referenceLine.length && referenceLine[refCursor].isWhitespace()
@@ -1062,7 +1064,7 @@ fun AppleMusicDualLayerLyricLine(
                 val nextText = cleaned.getOrNull(index + 1)?.text.orEmpty()
                 val nextFirst = nextText.firstOrNull()
                 val currLast = wText.last()
-                currLast.code < 0x2E80 && !currLast.isWhitespace() &&
+                currLast.code < 0x2E80 && !currLast.isWhitespace() && currLast !in "'’\"“([-" &&
                     nextFirst != null && nextFirst.code < 0x2E80 && !nextFirst.isWhitespace() &&
                     nextFirst !in INLINE_CONTINUATION_PUNCTUATION
             }

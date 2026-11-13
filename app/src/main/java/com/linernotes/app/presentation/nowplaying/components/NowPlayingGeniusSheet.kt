@@ -257,7 +257,7 @@ fun NowPlayingGeniusSheet(
                         }
                     }
                     Text(
-                        text = annotation.authorName ?: "Genius Contributor",
+                        text = annotation.authorName ?: strings.geniusAnnotation,
                         color = if (isDark) Color.White.copy(alpha = 0.70f) else MaterialTheme.colorScheme.onSurfaceVariant,
                         fontSize = 12.sp
                     )

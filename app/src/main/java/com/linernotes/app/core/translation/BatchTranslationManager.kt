@@ -38,6 +38,8 @@ class BatchTranslationManager @Inject constructor(
 ) {
     private val managerScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     private var batchJob: Job? = null
+    @Volatile
+    private var isForegroundServiceActive: Boolean = false
 
     private val _state = MutableStateFlow(BatchTranslationState())
     val state: StateFlow<BatchTranslationState> = _state.asStateFlow()
@@ -115,6 +117,8 @@ class BatchTranslationManager @Inject constructor(
                             failedTracks.add(track)
                             Log.e("BatchTranslation", "《${track.title}》翻译结果无效或被拦截，已加入末尾补译队列")
                         }
+                    } catch (e: kotlinx.coroutines.CancellationException) {
+                        throw e
                     } catch (e: Exception) {
                         failedTracks.add(track)
                         Log.e("BatchTranslation", "《${track.title}》第一轮暂未完成: ${e.message}，已加入末尾补译队列")
@@ -139,14 +143,21 @@ class BatchTranslationManager @Inject constructor(
                                 trackTitle = failedTrack.title,
                                 originalLyrics = failedTrack.originalLyrics!!
                             )
-                            repository.updateTrackTranslation(
-                                trackId = failedTrack.id,
-                                translatedTitle = result.translatedTitle ?: failedTrack.translatedTitle,
-                                originalLyrics = failedTrack.originalLyrics,
-                                translatedLyrics = result.translatedLyrics
-                            )
-                            successfulTracks.add(failedTrack)
-                            Log.d("BatchTranslation", "《${failedTrack.title}》补偿翻译成功并已写入本地")
+                            if (result.translatedLyrics.isNotBlank() && !LyricAligner.isRefusalText(result.translatedLyrics)) {
+                                repository.updateTrackTranslation(
+                                    trackId = failedTrack.id,
+                                    translatedTitle = result.translatedTitle ?: failedTrack.translatedTitle,
+                                    originalLyrics = failedTrack.originalLyrics,
+                                    translatedLyrics = result.translatedLyrics
+                                )
+                                successfulTracks.add(failedTrack)
+                                Log.d("BatchTranslation", "《${failedTrack.title}》补偿翻译成功并已写入本地")
+                            } else {
+                                stillFailed.add(failedTrack)
+                                Log.e("BatchTranslation", "《${failedTrack.title}》二次重试结果无效或被拦截")
+                            }
+                        } catch (e: kotlinx.coroutines.CancellationException) {
+                            throw e
                         } catch (e: Exception) {
                             stillFailed.add(failedTrack)
                             Log.e("BatchTranslation", "《${failedTrack.title}》二次重试仍未成功: ${e.message}")
@@ -172,6 +183,8 @@ class BatchTranslationManager @Inject constructor(
                         userMessage = finishMsg
                     )
                 }
+            } catch (e: kotlinx.coroutines.CancellationException) {
+                throw e
             } catch (e: Exception) {
                 Log.e("BatchTranslation", "批量翻译异常: ${e.message}")
                 _state.update {
@@ -212,19 +225,25 @@ class BatchTranslationManager @Inject constructor(
                             trackTitle = track.title,
                             originalLyrics = track.originalLyrics!!
                         )
-                        repository.updateTrackTranslation(
-                            trackId = track.id,
-                            translatedTitle = result.translatedTitle ?: track.translatedTitle,
-                            originalLyrics = track.originalLyrics,
-                            translatedLyrics = result.translatedLyrics
-                        )
-                        filledCount++
-                        Log.d("BatchTranslation", "已自动补齐《${track.title}》翻译 [${index + 1}/${missingTracks.size}]")
+                        if (result.translatedLyrics.isNotBlank() && !LyricAligner.isRefusalText(result.translatedLyrics)) {
+                            repository.updateTrackTranslation(
+                                trackId = track.id,
+                                translatedTitle = result.translatedTitle ?: track.translatedTitle,
+                                originalLyrics = track.originalLyrics,
+                                translatedLyrics = result.translatedLyrics
+                            )
+                            filledCount++
+                            Log.d("BatchTranslation", "已自动补齐《${track.title}》翻译 [${index + 1}/${missingTracks.size}]")
+                        }
+                    } catch (e: kotlinx.coroutines.CancellationException) {
+                        throw e
                     } catch (e: Exception) {
                         Log.e("BatchTranslation", "自动补译《${track.title}》失败: ${e.message}")
                     }
                     delay(300)
                 }
+            } catch (e: kotlinx.coroutines.CancellationException) {
+                throw e
             } catch (e: Exception) {
                 Log.e("BatchTranslation", "autoFillMissingTranslations 异常: ${e.message}")
             }
@@ -258,17 +277,17 @@ class BatchTranslationManager @Inject constructor(
             } else {
                 context.startService(intent)
             }
+            isForegroundServiceActive = true
         } catch (e: Exception) {
             Log.e("BatchTranslation", "前台服务启动异常: ${e.message}")
         }
     }
 
     private fun stopForegroundService() {
+        if (!isForegroundServiceActive) return
+        isForegroundServiceActive = false
         try {
-            val intent = Intent(context, BatchTranslationService::class.java).apply {
-                action = BatchTranslationService.ACTION_STOP
-            }
-            context.startService(intent)
+            context.stopService(Intent(context, BatchTranslationService::class.java))
         } catch (e: Exception) {
             Log.e("BatchTranslation", "前台服务关闭异常: ${e.message}")
         }

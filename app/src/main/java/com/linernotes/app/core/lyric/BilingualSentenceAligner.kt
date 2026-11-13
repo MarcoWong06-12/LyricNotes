@@ -151,7 +151,7 @@ object BilingualSentenceAligner {
     }
 
     /**
-     * 英文句子拆分器（保护常见缩写 Dr./Mr. 以及带引号的句子）
+     * 英文句子拆分器（保护常见缩写 Dr./Mr. 以及带引号的句子，严格要求词首边界防止误伤 first./artist./albums./piano.）
      */
     fun splitEnSentences(text: String): List<String> {
         val trimmed = text.trim()
@@ -159,11 +159,13 @@ object BilingualSentenceAligner {
 
         var protectedText = trimmed
         val placeholderMap = mutableMapOf<String, String>()
-        for ((idx, abb) in ABBREVIATIONS.withIndex()) {
-            if (protectedText.contains(abb, ignoreCase = true)) {
-                val placeholder = "__ABBR_${idx}__"
-                placeholderMap[placeholder] = abb
-                protectedText = protectedText.replace(Regex(Regex.escape(abb), RegexOption.IGNORE_CASE), placeholder)
+        var tokenSeq = 0
+        for (abb in ABBREVIATIONS) {
+            val regex = Regex("""(?<=^|[\s("“‘'])${Regex.escape(abb)}""", RegexOption.IGNORE_CASE)
+            protectedText = regex.replace(protectedText) { matchResult ->
+                val placeholder = "__ABBR_${tokenSeq++}__"
+                placeholderMap[placeholder] = matchResult.value
+                placeholder
             }
         }
 

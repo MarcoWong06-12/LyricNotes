@@ -63,7 +63,7 @@ class ShanlingBluetoothManager @Inject constructor(
     private var inStream: InputStream? = null
     private var outStream: OutputStream? = null
 
-    private val scope = CoroutineScope(Dispatchers.IO + Job())
+    private val scope = CoroutineScope(Dispatchers.IO + kotlinx.coroutines.SupervisorJob())
     private var connectJob: Job? = null
     private var heartbeatJob: Job? = null
     private var trackSwitchJob: Job? = null
@@ -77,13 +77,15 @@ class ShanlingBluetoothManager @Inject constructor(
     fun getPairedShanlingDevices(): List<BluetoothDevice> {
         return try {
             bluetoothAdapter?.bondedDevices?.filter { device ->
-                val name = device.name ?: ""
+                val name = (device.name ?: "").trim()
                 name.contains("EC Mini", ignoreCase = true) ||
                         name.contains("Shanling", ignoreCase = true) ||
                         name.contains("ECMini", ignoreCase = true) ||
                         name.contains("EC3", ignoreCase = true) ||
                         name.contains("EC Smart", ignoreCase = true) ||
-                        name.contains("EC", ignoreCase = true) ||
+                        name.startsWith("EC ", ignoreCase = true) ||
+                        name.startsWith("EC-", ignoreCase = true) ||
+                        name.equals("EC", ignoreCase = true) ||
                         name.contains("山灵")
             } ?: emptyList()
         } catch (e: SecurityException) {
@@ -135,6 +137,10 @@ class ShanlingBluetoothManager @Inject constructor(
             )
 
             for (uuid in connectionUuids) {
+                if (!isActive) {
+                    try { socket?.close() } catch (_: Exception) {}
+                    return@launch
+                }
                 try {
                     Log.d(tag, "Attempting RFCOMM connection to $deviceName with UUID $uuid")
                     socket = device.createRfcommSocketToServiceRecord(uuid)
@@ -143,11 +149,19 @@ class ShanlingBluetoothManager @Inject constructor(
                         Log.i(tag, "Successfully connected to $deviceName via $uuid")
                         break
                     }
+                } catch (e: kotlinx.coroutines.CancellationException) {
+                    try { socket?.close() } catch (_: Exception) {}
+                    throw e
                 } catch (e: Exception) {
                     Log.w(tag, "Failed connecting with UUID $uuid: ${e.message}")
                     try { socket?.close() } catch (_: Exception) {}
                     socket = null
                 }
+            }
+
+            if (!isActive) {
+                try { socket?.close() } catch (_: Exception) {}
+                return@launch
             }
 
             if (socket == null || !socket.isConnected) {
@@ -210,15 +224,19 @@ class ShanlingBluetoothManager @Inject constructor(
     }
 
     private fun runReceiveLoop() {
+        val activeSocket = currentSocket ?: return
         val input = inStream ?: return
         val headerBuffer = ByteArray(ShanlingSyncLinkProtocol.HEADER_SIZE)
 
         try {
-            while (scope.isActive && currentSocket?.isConnected == true) {
+            while (scope.isActive && currentSocket === activeSocket && activeSocket.isConnected) {
                 // Read 12-byte header
                 readFully(input, headerBuffer)
 
-                val (msgId, commandId, payloadLen) = ShanlingSyncLinkProtocol.parseHeader(headerBuffer)
+                val (_, commandId, payloadLen) = ShanlingSyncLinkProtocol.parseHeader(headerBuffer)
+                if (payloadLen < 0 || payloadLen > 64 * 1024) {
+                    throw java.io.IOException("Invalid SyncLink frame payload length: $payloadLen")
+                }
 
                 val payload = if (payloadLen > 0) {
                     val p = ByteArray(payloadLen)
@@ -233,7 +251,9 @@ class ShanlingBluetoothManager @Inject constructor(
         } catch (e: Exception) {
             Log.e(tag, "Connection lost in receive loop: ${e.message}")
         } finally {
-            disconnect()
+            if (currentSocket === activeSocket) {
+                disconnect()
+            }
         }
     }
 
@@ -444,6 +464,8 @@ class ShanlingBluetoothManager @Inject constructor(
     }
 
     fun disconnect() {
+        connectJob?.cancel()
+        connectJob = null
         heartbeatJob?.cancel()
         heartbeatJob = null
         trackSwitchJob?.cancel()

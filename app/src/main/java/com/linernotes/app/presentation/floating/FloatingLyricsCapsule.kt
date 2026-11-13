@@ -730,7 +730,7 @@ fun FloatingLyricsCapsule(
                                     .heightIn(min = 52.dp, max = (110 * fontScale).dp)
                                     .then(
                                         if (!isLocked) {
-                                            Modifier.pointerInput(Unit) {
+                                            Modifier.pointerInput(onDragStart, onDrag, onDragEnd) {
                                                 detectDragGestures(
                                                     onDragStart = { onDragStart() },
                                                     onDrag = { change, dragAmount ->
@@ -1013,7 +1013,7 @@ private fun Modifier.floatingDragTapModifier(
     onDragEnd: () -> Unit
 ): Modifier {
     if (!enabled) return this
-    return this.pointerInput(Unit) {
+    return this.pointerInput(enabled, onTap, onDragStart, onDrag, onDragEnd) {
         awaitEachGesture {
             val down = awaitFirstDown(requireUnconsumed = false)
             var isDrag = false
@@ -1075,9 +1075,9 @@ private fun computeWordEndCharIndices(
         val raw = LyricWordParser.cleanInlineTimestamps(w.text)
         val converted = if (isTraditional) ChineseConverter.toTraditional(raw) else raw
         val token = converted.trim()
-        if (token.isNotEmpty()) {
+        if (token.isNotEmpty() && cursor < displayOriginal.length) {
             val matchIdx = displayOriginal.indexOf(token, startIndex = cursor, ignoreCase = true)
-            if (matchIdx >= 0) {
+            if (matchIdx >= 0 && matchIdx - cursor <= 4) {
                 cursor = matchIdx + token.length
                 while (cursor < displayOriginal.length && displayOriginal[cursor].isWhitespace()) {
                     cursor++

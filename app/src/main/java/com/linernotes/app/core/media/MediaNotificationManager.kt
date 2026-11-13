@@ -119,10 +119,26 @@ class MediaNotificationManager @Inject constructor(
         commandHandler?.onPrevious()
     }
 
+    fun buildNotificationSync(data: MediaPlaybackNotificationData): Notification {
+        val cachedBmp = if (!data.coverUrl.isNullOrBlank() &&
+            data.coverUrl == cachedCoverUrl &&
+            cachedCoverBitmap != null &&
+            !cachedCoverBitmap!!.isRecycled
+        ) {
+            cachedCoverBitmap
+        } else {
+            null
+        }
+        return buildNotificationInternal(data, cachedBmp)
+    }
+
     suspend fun buildNotification(data: MediaPlaybackNotificationData): Notification {
         // 1. 异步获取软件级 Bitmap 封面（allowHardware=false 防跨进程 IPC 崩溃）
         val coverBitmap = loadCoverBitmap(data.coverUrl)
+        return buildNotificationInternal(data, coverBitmap)
+    }
 
+    private fun buildNotificationInternal(data: MediaPlaybackNotificationData, coverBitmap: Bitmap?): Notification {
         // 2. 更新 MediaSession 状态与元数据（使 Android 11+ 原生波形进度条与画板就绪）
         val playbackStateBuilder = PlaybackStateCompat.Builder()
             .setActions(
@@ -281,6 +297,8 @@ class MediaNotificationManager @Inject constructor(
                     return@withContext bitmap
                 }
             }
+        } catch (e: kotlinx.coroutines.CancellationException) {
+            throw e
         } catch (e: Exception) {
             // ignore
         }

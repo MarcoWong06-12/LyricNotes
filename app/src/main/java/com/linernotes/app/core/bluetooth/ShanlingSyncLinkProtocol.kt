@@ -178,12 +178,20 @@ object ShanlingSyncLinkProtocol {
                     if (fieldNumber == 1) playtime = value.toInt()
                     if (fieldNumber == 2) duration = value.toInt()
                 }
-                1 -> i += 8 // 64-bit
+                1 -> {
+                    if (i + 8 > bytes.size) break
+                    i += 8 // 64-bit
+                }
                 2 -> { // Length-delimited
                     val (len, afterLen) = readVarint(bytes, i)
-                    i = afterLen + len.toInt()
+                    val lenInt = len.toInt()
+                    if (lenInt < 0 || afterLen + lenInt > bytes.size) break
+                    i = afterLen + lenInt
                 }
-                5 -> i += 4 // 32-bit
+                5 -> {
+                    if (i + 4 > bytes.size) break
+                    i += 4 // 32-bit
+                }
                 else -> break
             }
         }
@@ -217,12 +225,20 @@ object ShanlingSyncLinkProtocol {
                     if (fieldNumber == 2) currentPosition = value.toInt()
                     if (fieldNumber == 3) totalSongs = value.toInt()
                 }
-                1 -> i += 8
+                1 -> {
+                    if (i + 8 > bytes.size) break
+                    i += 8
+                }
                 2 -> {
                     val (len, afterLen) = readVarint(bytes, i)
-                    i = afterLen + len.toInt()
+                    val lenInt = len.toInt()
+                    if (lenInt < 0 || afterLen + lenInt > bytes.size) break
+                    i = afterLen + lenInt
                 }
-                5 -> i += 4
+                5 -> {
+                    if (i + 4 > bytes.size) break
+                    i += 4
+                }
                 else -> break
             }
         }

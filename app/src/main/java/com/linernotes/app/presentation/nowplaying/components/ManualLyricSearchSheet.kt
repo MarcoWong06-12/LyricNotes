@@ -130,7 +130,7 @@ fun ManualLyricSearchSheet(
                         fontFamily = FontFamily.SansSerif
                     )
                     Text(
-                        text = "${strings.nowPlayingPrefix}: $trackTitle - $artistName",
+                        text = "${strings.nowPlayingPrefix}: ${tr(trackTitle)} - ${tr(artistName)}",
                         fontSize = 12.5.sp,
                         color = textSecondary,
                         maxLines = 1,
@@ -478,8 +478,9 @@ private fun CandidateItemCard(
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.spacedBy(6.dp)
                 ) {
+                    val displayCandidateTitle = if (isTraditional) ChineseConverter.toTraditional(item.title) else item.title
                     Text(
-                        text = item.title,
+                        text = displayCandidateTitle,
                         fontSize = 14.5.sp,
                         fontWeight = FontWeight.Bold,
                         color = textPrimary,
@@ -513,10 +514,10 @@ private fun CandidateItemCard(
 
                 // 歌手与专辑
                 val subInfo = buildString {
-                    append(item.artist)
+                    append(if (isTraditional) ChineseConverter.toTraditional(item.artist) else item.artist)
                     if (item.album.isNotBlank()) {
                         append(" · ")
-                        append(item.album)
+                        append(if (isTraditional) ChineseConverter.toTraditional(item.album) else item.album)
                     }
                 }
                 Text(

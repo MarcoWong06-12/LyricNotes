@@ -11,8 +11,8 @@ import com.linernotes.app.domain.model.LyricWord
  */
 object LyricWordParser {
 
-    private val INLINE_PAREN_REGEX = Regex("""\((\d+),(\d+)(?:,\d+)?\)([^(\n\r]+)""")
-    private val INLINE_ANGLED_REGEX = Regex("""<(\d{1,2}):(\d{2})(?:\.(\d{1,3}))?>([^<\n\r]+)""")
+    private val INLINE_PAREN_REGEX = Regex("""\((\d+),(\d+)(?:,\d+)?\)((?:(?!\(\d+,\d+)[^\n\r])+)""")
+    private val INLINE_ANGLED_REGEX = Regex("""<(\d{1,2}):(\d{2})(?:\.(\d{1,3}))?>([^<\n\r]*)""")
     private val CLEAN_BRACKET_TS_REGEX = Regex("""\[\d{1,2}:\d{2}(?:\.\d{1,3})?\]""")
     private val CLEAN_PAREN_TS_REGEX = Regex("""\(\d+,\d+(?:,\d+)?\)""")
     private val CLEAN_ANGLED_TS_REGEX = Regex("""<\d{1,2}:\d{2}(?:\.\d{1,3})?>""")
@@ -62,8 +62,11 @@ object LyricWordParser {
         val angledMatches = INLINE_ANGLED_REGEX.findAll(rawLine).toList()
         if (angledMatches.isNotEmpty()) {
             val words = mutableListOf<LyricWord>()
-            for (i in angledMatches.indices) {
-                val match = angledMatches[i]
+            val firstMatch = angledMatches.first()
+            val prefixRaw = rawLine.substring(0, firstMatch.range.first)
+            val prefixClean = cleanInlineTimestamps(prefixRaw)
+
+            fun parseAngledMs(match: MatchResult): Long {
                 val min = match.groupValues[1].toLongOrNull() ?: 0L
                 val sec = match.groupValues[2].toLongOrNull() ?: 0L
                 val msStr = match.groupValues[3]
@@ -73,21 +76,22 @@ object LyricWordParser {
                     3 -> msStr.toLongOrNull() ?: 0L
                     else -> 0L
                 }
-                val wordStart = min * 60_000L + sec * 1000L + ms
+                return min * 60_000L + sec * 1000L + ms
+            }
+
+            if (prefixClean.isNotBlank()) {
+                val firstTagMs = parseAngledMs(firstMatch)
+                val prefixDur = (firstTagMs - startTimeMs).coerceIn(80L, 4000L)
+                words.add(LyricWord(text = prefixClean, startTimeMs = startTimeMs, durationMs = prefixDur))
+            }
+
+            for (i in angledMatches.indices) {
+                val match = angledMatches[i]
+                val wordStart = parseAngledMs(match)
                 val text = match.groupValues[4]
 
                 val nextStart = if (i + 1 < angledMatches.size) {
-                    val nextMatch = angledMatches[i + 1]
-                    val nMin = nextMatch.groupValues[1].toLongOrNull() ?: 0L
-                    val nSec = nextMatch.groupValues[2].toLongOrNull() ?: 0L
-                    val nMsStr = nextMatch.groupValues[3]
-                    val nMs = when (nMsStr.length) {
-                        1 -> (nMsStr.toLongOrNull() ?: 0L) * 100
-                        2 -> (nMsStr.toLongOrNull() ?: 0L) * 10
-                        3 -> nMsStr.toLongOrNull() ?: 0L
-                        else -> 0L
-                    }
-                    nMin * 60_000L + nSec * 1000L + nMs
+                    parseAngledMs(angledMatches[i + 1])
                 } else {
                     endTimeMs ?: (wordStart + 400L)
                 }
@@ -123,8 +127,13 @@ object LyricWordParser {
                 else -> 200L
             }
             val estimatedVocal = (tokens.size * 340L).coerceIn(600L, 7500L)
-            val maxPhrasing = (rawGap * coverageRatio).toLong().coerceAtLeast(550L)
-            minOf(estimatedVocal, maxPhrasing).coerceAtMost(maxOf(450L, rawGap - tailReserveMs))
+            val maxPhrasing = (rawGap * coverageRatio).toLong().coerceAtLeast(minOf(550L, rawGap))
+            val upperBound = if (rawGap > tailReserveMs + 80L) {
+                maxOf(minOf(450L, rawGap), rawGap - tailReserveMs)
+            } else {
+                rawGap.coerceAtLeast(80L)
+            }
+            minOf(estimatedVocal, maxPhrasing).coerceAtMost(upperBound)
         } else {
             // 若为最后一句或下一句未定，按语元总数给一个自然的持续时长 (每字/词约 300ms)
             (tokens.size * 300L).coerceIn(1000L, 4500L)

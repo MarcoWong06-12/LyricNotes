@@ -218,7 +218,11 @@ object MusixmatchLyricsService {
                 }
             }
 
-            val alignedPair = LyricAligner.alignLrcTimestamps(originalLyrics, translatedLyrics)
+            val alignedPair = if (originalLyrics.contains(TIMESTAMP_LINE_REGEX)) {
+                LyricAligner.alignLrcTimestamps(originalLyrics, translatedLyrics)
+            } else {
+                Pair(originalLyrics.trim(), translatedLyrics?.trim().orEmpty())
+            }
 
             OnlineLyricsResult(
                 songId = trackId,

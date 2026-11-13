@@ -4,6 +4,7 @@ import android.app.Notification
 import android.content.ComponentName
 import android.content.Context
 import android.content.Intent
+import android.content.IntentFilter
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
 import android.media.MediaMetadata
@@ -21,6 +22,7 @@ import android.support.v4.media.session.MediaControllerCompat
 import android.support.v4.media.session.MediaSessionCompat
 import android.support.v4.media.session.PlaybackStateCompat
 import androidx.core.app.NotificationManagerCompat
+import androidx.core.content.ContextCompat
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -40,6 +42,8 @@ class MediaPlaybackSyncService : NotificationListenerService(), MediaControlActi
     private var activeCompatController: MediaControllerCompat? = null
     private val playbackStateManager by lazy { PlaybackStateManager.get(this) }
     private var ioScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
+    private val spotifyReceiver = SpotifyBroadcastReceiver()
+    private var isSpotifyReceiverRegistered = false
 
     private val compatCallback = object : MediaControllerCompat.Callback() {
         override fun onShuffleModeChanged(shuffleMode: Int) {
@@ -98,6 +102,22 @@ class MediaPlaybackSyncService : NotificationListenerService(), MediaControlActi
         ioScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
         playbackStateManager.setNotificationAccessGranted(true)
         playbackStateManager.registerControlHandler(this)
+        if (!isSpotifyReceiverRegistered) {
+            try {
+                val filter = IntentFilter().apply {
+                    addAction(SpotifyBroadcastReceiver.ACTION_METADATA_CHANGED)
+                    addAction(SpotifyBroadcastReceiver.ACTION_PLAYBACK_STATE_CHANGED)
+                }
+                ContextCompat.registerReceiver(
+                    this,
+                    spotifyReceiver,
+                    filter,
+                    ContextCompat.RECEIVER_EXPORTED
+                )
+                isSpotifyReceiverRegistered = true
+            } catch (_: Exception) {
+            }
+        }
         try {
             mediaSessionManager = getSystemService(Context.MEDIA_SESSION_SERVICE) as? MediaSessionManager
             val componentName = ComponentName(this, MediaPlaybackSyncService::class.java)
@@ -114,6 +134,13 @@ class MediaPlaybackSyncService : NotificationListenerService(), MediaControlActi
         playbackStateManager.unregisterControlHandler(this)
         playbackStateManager.refreshNotificationAccess(this)
         ioScope.cancel()
+        if (isSpotifyReceiverRegistered) {
+            try {
+                unregisterReceiver(spotifyReceiver)
+            } catch (_: Exception) {
+            }
+            isSpotifyReceiverRegistered = false
+        }
         try {
             mediaSessionManager?.removeOnActiveSessionsChangedListener(sessionsChangedListener)
             activeController?.unregisterCallback(controllerCallback)
@@ -138,7 +165,8 @@ class MediaPlaybackSyncService : NotificationListenerService(), MediaControlActi
             findAndAttachActiveController()
         }
 
-        if (isMusicApp && current.hasValidTrack) {
+        val matchesActivePackage = pkg == current.packageName || pkg == activeController?.packageName
+        if (isMusicApp && current.hasValidTrack && matchesActivePackage) {
             val expectedTitle = current.title
             val expectedArtist = current.artist
             val expectedEpoch = current.trackEpoch
@@ -175,7 +203,7 @@ class MediaPlaybackSyncService : NotificationListenerService(), MediaControlActi
                         val trackKey = "${expectedArtist}_${expectedTitle}"
                         val localCoverPath = saveBitmapToLocalFile(
                             bitmap = notifBitmap,
-                            prefix = MEDIA_ART_PREFIX,
+                            prefix = MEDIA_ART_NOTIF_PREFIX,
                             maxRetained = 4,
                             trackKey = trackKey
                         )
@@ -211,8 +239,13 @@ class MediaPlaybackSyncService : NotificationListenerService(), MediaControlActi
             }
             val artFile = File(cacheDir, "${prefix}${keyHash}.png")
             if (!artFile.exists() || artFile.length() == 0L) {
-                FileOutputStream(artFile).use { out ->
+                val tempFile = File(cacheDir, "${prefix}${keyHash}_${coverSequence.incrementAndGet()}.tmp")
+                FileOutputStream(tempFile).use { out ->
                     bitmap.compress(Bitmap.CompressFormat.PNG, 95, out)
+                }
+                if (!tempFile.renameTo(artFile)) {
+                    tempFile.copyTo(artFile, overwrite = true)
+                    tempFile.delete()
                 }
             }
             cleanupOldArtFiles(prefix, artFile.name, maxRetained)
@@ -225,7 +258,7 @@ class MediaPlaybackSyncService : NotificationListenerService(), MediaControlActi
 
     private fun cleanupOldArtFiles(prefix: String, currentFileName: String, maxRetained: Int) {
         try {
-            val files = cacheDir.listFiles { _, name -> name.startsWith(prefix) } ?: return
+            val files = cacheDir.listFiles { _, name -> name.startsWith(prefix) && name.endsWith(".png") } ?: return
             if (files.size > maxRetained) {
                 files.filter { it.name != currentFileName }
                     .sortedByDescending { it.lastModified() }
@@ -247,7 +280,25 @@ class MediaPlaybackSyncService : NotificationListenerService(), MediaControlActi
     }
 
     private fun inspectAndAttachController(controllers: List<MediaController>?) {
-        if (controllers.isNullOrEmpty()) return
+        if (controllers.isNullOrEmpty()) {
+            try {
+                activeController?.unregisterCallback(controllerCallback)
+                activeCompatController?.unregisterCallback(compatCallback)
+            } catch (_: Exception) {
+            }
+            activeController = null
+            activeCompatController = null
+            val current = playbackStateManager.playbackState.value
+            if (current.isPlaying) {
+                playbackStateManager.updateState(
+                    current.copy(
+                        isPlaying = false,
+                        lastUpdateTimeMs = SystemClock.elapsedRealtime()
+                    )
+                )
+            }
+            return
+        }
 
         val chosen = controllers.firstOrNull {
             it.packageName == "com.spotify.music" && it.playbackState?.state == PlaybackState.STATE_PLAYING
@@ -256,7 +307,7 @@ class MediaPlaybackSyncService : NotificationListenerService(), MediaControlActi
             ?: controllers.firstOrNull { it.packageName == "com.spotify.music" }
             ?: controllers.firstOrNull()
 
-        if (chosen != null && chosen != activeController) {
+        if (chosen != null && chosen.sessionToken != activeController?.sessionToken) {
             activeController?.unregisterCallback(controllerCallback)
             activeCompatController?.unregisterCallback(compatCallback)
             activeController = chosen
@@ -586,7 +637,8 @@ class MediaPlaybackSyncService : NotificationListenerService(), MediaControlActi
     }
 
     companion object {
-        private const val MEDIA_ART_PREFIX = "media_art_"
+        private const val MEDIA_ART_PREFIX = "media_art_meta_"
+        private const val MEDIA_ART_NOTIF_PREFIX = "media_art_notif_"
         private const val QUEUE_ART_PREFIX = "queue_art_"
 
         fun isNotificationAccessGranted(context: Context): Boolean {

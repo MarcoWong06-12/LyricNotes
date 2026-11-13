@@ -74,7 +74,16 @@ fun LinerNotesTheme(
     val view = LocalView.current
     if (!view.isInEditMode) {
         SideEffect {
-            val window = (view.context as? Activity)?.window
+            var ctx = view.context
+            var activity: Activity? = null
+            while (ctx != null) {
+                if (ctx is Activity) {
+                    activity = ctx
+                    break
+                }
+                ctx = (ctx as? android.content.ContextWrapper)?.baseContext
+            }
+            val window = activity?.window
             if (window != null) {
                 val insetsController = WindowCompat.getInsetsController(window, view)
                 val expectLight = !darkTheme

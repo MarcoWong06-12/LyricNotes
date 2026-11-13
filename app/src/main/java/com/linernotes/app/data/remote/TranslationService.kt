@@ -286,6 +286,8 @@ class TranslationService(
             }
 
             translatedParagraphs.joinToString("\n\n")
+        } catch (e: kotlinx.coroutines.CancellationException) {
+            throw e
         } catch (e: Exception) {
             translateSingleParagraphRobust(cleaned, targetIso)
         }

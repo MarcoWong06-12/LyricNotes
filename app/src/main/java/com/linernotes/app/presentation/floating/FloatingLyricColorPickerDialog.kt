@@ -71,9 +71,9 @@ fun FloatingLyricColorPickerDialog(
         array
     }
 
-    var hue by remember { mutableFloatStateOf(initialHsv[0]) } // 0..360
-    var saturation by remember { mutableFloatStateOf(initialHsv[1]) } // 0..1
-    var value by remember { mutableFloatStateOf(initialHsv[2]) } // 0..1 保留真实明度以免覆盖手输深色 Hex
+    var hue by remember(initialColorInt) { mutableFloatStateOf(initialHsv[0]) } // 0..360
+    var saturation by remember(initialColorInt) { mutableFloatStateOf(initialHsv[1]) } // 0..1
+    var value by remember(initialColorInt) { mutableFloatStateOf(initialHsv[2]) } // 0..1 保留真实明度以免覆盖手输深色 Hex
 
     // 当前计算得到的 Color Int 与 Compose Color
     val calculatedColorInt = remember(hue, saturation, value) {
@@ -87,7 +87,7 @@ fun FloatingLyricColorPickerDialog(
     val initialHex = remember(initialColorInt) {
         String.format("%06X", 0xFFFFFF and initialColorInt)
     }
-    var hexDraft by remember {
+    var hexDraft by remember(initialColorInt) {
         mutableStateOf(TextFieldValue(text = initialHex, selection = TextRange(initialHex.length)))
     }
     val isHexIncomplete = hexDraft.text.length in 1..5
@@ -314,12 +314,13 @@ fun FloatingLyricColorPickerDialog(
                         horizontalArrangement = Arrangement.spacedBy(12.dp)
                     ) {
                         // 颜色色块展示
+                        val swatchBorderColor = if (isDark) Color.White.copy(alpha = 0.25f) else Color.Black.copy(alpha = 0.18f)
                         Box(
                             modifier = Modifier
                                 .size(34.dp)
                                 .clip(RoundedCornerShape(8.dp))
                                 .background(currentComposeColor)
-                                .border(1.dp, Color.White.copy(alpha = 0.25f), RoundedCornerShape(8.dp))
+                                .border(1.dp, swatchBorderColor, RoundedCornerShape(8.dp))
                         )
 
                         Column(modifier = Modifier.weight(1f)) {
@@ -655,12 +656,13 @@ private fun ColorSliderRow(
             )
 
             // Compose 原生无卡顿滑块，轨道设为透明，Thumb 浮在色条之上
+            val isDark = MaterialTheme.colorScheme.surface.luminance() < 0.5f
             Slider(
                 value = sliderValue,
                 onValueChange = onValueChange,
                 valueRange = valueRange,
                 colors = SliderDefaults.colors(
-                    thumbColor = Color.White,
+                    thumbColor = if (isDark) Color.White else Color(0xFF1C1C1E),
                     activeTrackColor = Color.Transparent,
                     inactiveTrackColor = Color.Transparent
                 ),

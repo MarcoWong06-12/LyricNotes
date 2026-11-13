@@ -54,6 +54,7 @@ import kotlinx.coroutines.launch
 fun NowPlayingQueueSheet(
     trackState: TrackPlaybackState,
     isAmoledMode: Boolean = false,
+    isTraditional: Boolean = false,
     sleepTimerMinutesLeft: Int = 0,
     onSetSleepTimer: (Int) -> Unit = {},
     onCancelSleepTimer: () -> Unit = {},
@@ -67,6 +68,7 @@ fun NowPlayingQueueSheet(
     val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
     val coroutineScope = rememberCoroutineScope()
     val strings = LocalStrings.current
+    fun tr(str: String): String = if (isTraditional) com.linernotes.app.core.util.ChineseConverter.toTraditional(str) else str
     val dismissWithAnimation: () -> Unit = {
         coroutineScope.launch { sheetState.hide() }.invokeOnCompletion {
             if (!sheetState.isVisible) onDismiss()
@@ -148,7 +150,7 @@ fun NowPlayingQueueSheet(
                     Spacer(modifier = Modifier.height(1.dp))
                     Text(
                         text = if (trackState.artist.isNotBlank()) {
-                            String.format(strings.queuePlayingArtist, trackState.artist)
+                            String.format(strings.queuePlayingArtist, tr(trackState.artist))
                         } else {
                             strings.queueTitle
                         },
@@ -196,6 +198,7 @@ fun NowPlayingQueueSheet(
             NowPlayingTrackRow(
                 trackState = trackState,
                 isDark = isDark,
+                isTraditional = isTraditional,
                 spotifyGreen = spotifyGreen,
                 textPrimary = textPrimary,
                 textSecondary = textSecondary,
@@ -233,6 +236,7 @@ fun NowPlayingQueueSheet(
                             SpotifyQueueItemRow(
                                 item = item,
                                 isDark = isDark,
+                                isTraditional = isTraditional,
                                 textPrimary = textPrimary,
                                 textSecondary = textSecondary,
                                 onClick = { onSkipToQueueItem(item) }
@@ -311,7 +315,7 @@ fun NowPlayingQueueSheet(
 
             Spacer(modifier = Modifier.height(10.dp))
 
-            // 5. 底部 4 键播控坞
+            // 5. 底部 3 键播控坞
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
@@ -321,19 +325,8 @@ fun NowPlayingQueueSheet(
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 SpotifyDockButton(
-                    icon = Icons.Default.Tune,
-                    label = "Mix",
-                    isActive = false,
-                    isDark = isDark,
-                    spotifyGreen = spotifyGreen,
-                    buttonBg = buttonBg,
-                    modifier = Modifier.weight(1f),
-                    onClick = { /* 扩展调音台 */ }
-                )
-
-                SpotifyDockButton(
                     icon = Icons.Default.Shuffle,
-                    label = "Shuffle",
+                    label = strings.shuffleOnDesc,
                     isActive = trackState.isShuffleActive,
                     isDark = isDark,
                     spotifyGreen = spotifyGreen,
@@ -344,9 +337,9 @@ fun NowPlayingQueueSheet(
 
                 val repeatIcon = if (trackState.repeatMode == 2) Icons.Default.RepeatOne else Icons.Default.Repeat
                 val repeatLabel = when (trackState.repeatMode) {
-                    1 -> "Repeat All"
-                    2 -> "Repeat One"
-                    else -> "Repeat"
+                    1 -> strings.repeatAllDesc
+                    2 -> strings.repeatOneDesc
+                    else -> strings.repeatOffDesc
                 }
                 SpotifyDockButton(
                     icon = repeatIcon,
@@ -359,7 +352,7 @@ fun NowPlayingQueueSheet(
                     onClick = onCycleRepeat
                 )
 
-                val timerLabel = if (isTimerActive) "${sleepTimerMinutesLeft}m" else "Timer"
+                val timerLabel = if (isTimerActive) "${sleepTimerMinutesLeft}m" else strings.sleepTimerTitle
                 SpotifyDockButton(
                     icon = Icons.Default.Timer,
                     label = timerLabel,
@@ -460,12 +453,14 @@ fun NowPlayingQueueSheet(
 private fun NowPlayingTrackRow(
     trackState: TrackPlaybackState,
     isDark: Boolean,
+    isTraditional: Boolean = false,
     spotifyGreen: Color,
     textPrimary: Color,
     textSecondary: Color,
     onPlayPause: () -> Unit
 ) {
     val strings = LocalStrings.current
+    fun tr(str: String): String = if (isTraditional) com.linernotes.app.core.util.ChineseConverter.toTraditional(str) else str
     val borderTint = if (isDark) Color.White.copy(alpha = 0.15f) else Color.Black.copy(alpha = 0.10f)
     Row(
         modifier = Modifier
@@ -514,7 +509,7 @@ private fun NowPlayingTrackRow(
                     PlayingEqualizerWave(color = spotifyGreen)
                 }
                 Text(
-                    text = if (trackState.hasValidTrack) trackState.title else strings.appName,
+                    text = if (trackState.hasValidTrack) tr(trackState.title) else strings.appName,
                     color = spotifyGreen,
                     fontSize = 14.5.sp,
                     fontWeight = FontWeight.Bold,
@@ -528,9 +523,8 @@ private fun NowPlayingTrackRow(
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.spacedBy(5.dp)
             ) {
-                ExplicitBadge(isDark = isDark)
                 Text(
-                    text = if (trackState.hasValidTrack) trackState.artist else strings.waitingForPlaybackShort,
+                    text = if (trackState.hasValidTrack) tr(trackState.artist) else strings.waitingForPlaybackShort,
                     color = textSecondary,
                     fontSize = 12.sp,
                     fontFamily = FontFamily.SansSerif,
@@ -569,20 +563,22 @@ private fun NowPlayingTrackRow(
 private fun SpotifyQueueItemRow(
     item: QueueTrackItem,
     isDark: Boolean,
+    isTraditional: Boolean = false,
     textPrimary: Color,
     textSecondary: Color,
     onClick: () -> Unit
 ) {
     val strings = LocalStrings.current
+    fun tr(str: String): String = if (isTraditional) com.linernotes.app.core.util.ChineseConverter.toTraditional(str) else str
     val borderTint = if (isDark) Color.White.copy(alpha = 0.14f) else Color.Black.copy(alpha = 0.10f)
     val displayTitle = if (item.title.isNotBlank()) {
-        item.title
+        tr(item.title)
     } else if (item.album.isNotBlank() && item.album != item.artist) {
-        item.album
+        tr(item.album)
     } else {
         strings.unknownTrack
     }
-    val displayArtist = if (item.artist.isNotBlank()) item.artist else item.album.ifBlank { strings.unknownArtist }
+    val displayArtist = if (item.artist.isNotBlank()) tr(item.artist) else tr(item.album).ifBlank { strings.unknownArtist }
 
     Row(
         modifier = Modifier
@@ -642,7 +638,6 @@ private fun SpotifyQueueItemRow(
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.spacedBy(5.dp)
             ) {
-                ExplicitBadge(isDark = isDark)
                 Text(
                     text = displayArtist,
                     color = textSecondary,
