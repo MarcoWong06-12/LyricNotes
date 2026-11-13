@@ -1266,7 +1266,7 @@ fun AppleMusicWordUnit(
 }
 
 /**
- * 珠寶級香檳金磨砂微膠囊典故徽標
+ * 珠寶級香檳金磨砂微圓章典故徽標（純圖示呈現）
  */
 @Composable
 fun LyricAnnotationBadge(
@@ -1286,44 +1286,33 @@ fun LyricAnnotationBadge(
     } else {
         if (isDark) Color.White.copy(alpha = 0.12f) else MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.40f)
     }
+    val iconTint = if (isActive) {
+        if (isDark) Color(0xFFFFD54F) else Color(0xFFE65100)
+    } else {
+        if (isDark) Color.White.copy(alpha = 0.70f) else MaterialTheme.colorScheme.onSurfaceVariant
+    }
 
     Surface(
         color = badgeBg,
-        shape = RoundedCornerShape(12.dp),
+        shape = RoundedCornerShape(50),
         border = BorderStroke(1.dp, badgeBorder),
         modifier = if (isActive) {
-            Modifier.bouncyClickable(pressedScale = 0.95f) { onClick() }
+            Modifier.bouncyClickable(pressedScale = 0.92f) { onClick() }
         } else {
             Modifier
-                .clip(RoundedCornerShape(12.dp))
+                .clip(RoundedCornerShape(50))
                 .clickable(onClick = onClick)
         }
     ) {
-        Row(
-            modifier = Modifier.padding(horizontal = 9.dp, vertical = 4.dp),
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(4.5.dp)
+        Box(
+            modifier = Modifier.size(26.dp),
+            contentAlignment = Alignment.Center
         ) {
             Icon(
                 imageVector = Icons.Default.AutoAwesome,
                 contentDescription = strings.triviaBadge,
-                tint = if (isActive) {
-                    if (isDark) Color(0xFFFFD54F) else Color(0xFFE65100)
-                } else {
-                    if (isDark) Color.White.copy(alpha = 0.70f) else MaterialTheme.colorScheme.onSurfaceVariant
-                },
-                modifier = Modifier.size(12.dp)
-            )
-            Text(
-                text = strings.triviaBadge,
-                color = if (isActive) {
-                    if (isDark) Color(0xFFFFD54F) else Color(0xFFE65100)
-                } else {
-                    if (isDark) Color.White.copy(alpha = 0.70f) else MaterialTheme.colorScheme.onSurfaceVariant
-                },
-                fontSize = 11.5.sp,
-                fontWeight = FontWeight.SemiBold,
-                fontFamily = FontFamily.SansSerif
+                tint = iconTint,
+                modifier = Modifier.size(13.5.dp)
             )
         }
     }
