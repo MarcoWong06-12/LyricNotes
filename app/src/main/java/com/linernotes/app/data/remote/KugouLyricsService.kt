@@ -130,7 +130,7 @@ object KugouLyricsService {
         }
     }
 
-    private fun fetchKrcOrLrcContent(id: String, accesskey: String): String? {
+    private suspend fun fetchKrcOrLrcContent(id: String, accesskey: String): String? {
         // 优先尝试 KRC 逐字歌词并严格解码校验，失败则安全回退到标准 LRC
         val krcUrl = "$DOWNLOAD_API?ver=1&client=mobi&id=$id&accesskey=$accesskey&fmt=krc&charset=utf8"
         val krcJson = LinerNotesHttpClient.getAsync(krcUrl, HEADERS)
