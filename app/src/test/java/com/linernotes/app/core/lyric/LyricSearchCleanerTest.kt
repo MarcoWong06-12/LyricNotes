@@ -90,13 +90,14 @@ class LyricSearchCleanerTest {
             LyricSearchCleaner.normalizeForMatching("\u1107\u1161\u11B7\u1111\u1167\u11AB\u110C\u1175")
         )
 
-        // 俄语 Cyrillic 保留（包括 й 与 ё）
-        assertEquals("группакрови", LyricSearchCleaner.normalizeForMatching("Группа крови"))
+        // 俄语 Cyrillic 保留（包括 й 与 ё，保留空格便于逐词评分）
+        assertEquals("группа крови", LyricSearchCleaner.normalizeForMatching("Группа крови"))
         assertEquals("кино", LyricSearchCleaner.normalizeForMatching("Кино"))
+        assertEquals("ёлка", LyricSearchCleaner.normalizeForMatching("Ёлка"))
 
-        // 拉丁音调符号剥离但保留基础字母，同时不破坏韩日文字母本身
+        // 拉丁音调符号剥离但保留基础字母与词间空格，同时不破坏韩日文字母本身
         assertEquals("beyonce", LyricSearchCleaner.normalizeForMatching("Beyoncé"))
-        assertEquals("canciondeamor", LyricSearchCleaner.normalizeForMatching("Canción de amor"))
+        assertEquals("cancion de amor", LyricSearchCleaner.normalizeForMatching("Canción de amor"))
         assertEquals("rosalia", LyricSearchCleaner.normalizeForMatching("ROSALÍA"))
     }
 
@@ -110,13 +111,14 @@ class LyricSearchCleanerTest {
         )
         assertTrue("Expected high positive score for Hangul match, got $hangulExact", hangulExact >= 80)
 
+        // 修复后 "좋은 날" 与 "밤편지" 不再归一化为空串而误返回 -100，而是进入标题零重合拦截返回 -500
         val hangulMismatch = LyricSearchCleaner.scoreCandidateMatch(
             candidateTitle = "좋은 날",
             candidateArtist = "아이유",
             targetTitle = "밤편지",
             targetArtist = "아이유"
         )
-        assertEquals(-100, hangulMismatch)
+        assertEquals(-500, hangulMismatch)
 
         val cyrillicExact = LyricSearchCleaner.scoreCandidateMatch(
             candidateTitle = "Группа крови",
@@ -147,6 +149,6 @@ class LyricSearchCleanerTest {
         assertEquals(3, fp.size)
         assertTrue(fp[0].contains("이밤그날의반딧불을"))
         assertTrue(fp[1].contains("группакровинарукаве"))
-        assertEquals("cancion para beyonce", fp[2])
+        assertEquals("cancionparabeyonce", fp[2])
     }
 }
