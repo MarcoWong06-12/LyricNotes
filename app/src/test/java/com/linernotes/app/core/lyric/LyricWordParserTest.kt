@@ -109,4 +109,67 @@ class LyricWordParserTest {
             assertTrue(word.durationMs >= 60L)
         }
     }
+
+    @Test
+    fun testCleanInlineTimestamps_stripsKrcAndHeaderTags() {
+        val krc = "[10000,2000]<0,400,0>Hello <400,600,0>World"
+        assertEquals("Hello World", LyricWordParser.cleanInlineTimestamps(krc))
+
+        val qrc = "Hel(10000,500)lo(10500,500)"
+        assertEquals("Hello", LyricWordParser.cleanInlineTimestamps(qrc))
+    }
+
+    @Test
+    fun testQrcTagAfterWordParsingAndClamping() {
+        val qrcLine = "Hel(10000,500)lo (10500,500)World(11000,1500)"
+        val words = LyricWordParser.parseLineWords(qrcLine, 10000L, 12000L)
+
+        assertEquals(3, words.size)
+        assertEquals("Hel", words[0].text)
+        assertEquals(10000L, words[0].startTimeMs)
+        assertEquals(500L, words[0].durationMs)
+
+        assertEquals("lo ", words[1].text)
+        assertEquals(10500L, words[1].startTimeMs)
+        assertEquals(500L, words[1].durationMs)
+
+        // 第三个词原本写到 11000+1500=12500，必须被严格钳制在行尾 12000 内
+        assertEquals("World", words[2].text)
+        assertEquals(11000L, words[2].startTimeMs)
+        assertEquals(1000L, words[2].durationMs)
+        assertTrue(words.all { it.startTimeMs >= 10000L && it.startTimeMs + it.durationMs <= 12000L })
+    }
+
+    @Test
+    fun testKrcRelativeAndAbsoluteAngleTags() {
+        val krcRelative = "<0,400,0>故<400,600,0>事<1000,1500,0>结尾"
+        val words = LyricWordParser.parseLineWords(krcRelative, 10000L, 12000L)
+
+        assertEquals(3, words.size)
+        assertEquals("故", words[0].text)
+        assertEquals(10000L, words[0].startTimeMs)
+        assertEquals(400L, words[0].durationMs)
+
+        assertEquals("事", words[1].text)
+        assertEquals(10400L, words[1].startTimeMs)
+        assertEquals(600L, words[1].durationMs)
+
+        // 相对偏移 1000+10000=11000，原始持续 1500 超出行尾 12000，须被钳制为 1000ms
+        assertEquals("结尾", words[2].text)
+        assertEquals(11000L, words[2].startTimeMs)
+        assertEquals(1000L, words[2].durationMs)
+    }
+
+    @Test
+    fun testStandardLrcInterpolationStrictlyClampedWithinShortGap() {
+        // 行跨度仅 120ms，但有 6 个词，每个词插值绝对不得溢出 [1000L, 1120L]
+        val words = LyricWordParser.parseLineWords("一二三四五六", 1000L, 1120L)
+        assertEquals(6, words.size)
+        assertEquals(1000L, words.first().startTimeMs)
+        for (word in words) {
+            assertTrue(word.startTimeMs >= 1000L)
+            assertTrue(word.startTimeMs + word.durationMs <= 1120L)
+            assertTrue(word.durationMs > 0L)
+        }
+    }
 }

@@ -1,5 +1,6 @@
 package com.linernotes.app.data.remote
 
+import com.linernotes.app.core.lyric.LyricSearchCleaner
 import com.linernotes.app.core.network.LinerNotesHttpClient
 import com.linernotes.app.core.util.ChineseConverter
 import com.linernotes.app.core.util.HtmlUtils
@@ -17,6 +18,11 @@ data class GeniusSongSearchResult(
     val thumbUrl: String?,
     val coverUrl: String?,
     val url: String?
+)
+
+data class GeniusSearchOutcome(
+    val result: GeniusSongSearchResult? = null,
+    val connected: Boolean = false
 )
 
 data class GeniusSongDetail(
@@ -71,27 +77,38 @@ object GeniusService {
         return headers
     }
 
+    private const val MIN_GENIUS_MATCH_SCORE = 50
+
     @Volatile
     var lastRequestConnected: Boolean = false
         private set
+
+    internal data class GeniusHitCandidate(
+        val song: GeniusSongSearchResult,
+        val artistNames: String = song.artist,
+        val isTopHit: Boolean = false
+    )
+
+    private fun fetchJsonWithStatus(url: String, customToken: String?): Pair<String?, Boolean> {
+        return try {
+            val response = LinerNotesHttpClient.get(url, buildHeaders(customToken))
+            if (!response.isNullOrBlank()) {
+                response to true
+            } else {
+                null to false
+            }
+        } catch (e: Exception) {
+            null to false
+        }
+    }
 
     /**
      * 网络请求包装，精准记录连通性状态以支持 UI 区分“网络连接受阻”与“真无考据”
      */
     private fun fetchJson(url: String, customToken: String?): String? {
-        return try {
-            val response = LinerNotesHttpClient.get(url, buildHeaders(customToken))
-            if (!response.isNullOrBlank()) {
-                lastRequestConnected = true
-                response
-            } else {
-                lastRequestConnected = false
-                null
-            }
-        } catch (e: Exception) {
-            lastRequestConnected = false
-            null
-        }
+        val (response, connected) = fetchJsonWithStatus(url, customToken)
+        lastRequestConnected = connected
+        return response
     }
 
     /**
@@ -162,18 +179,17 @@ object GeniusService {
     }
 
     /**
-     * 检索 Genius 歌曲条目获取 song_id（支持多重候选回退检索）
+     * 检索 Genius 歌曲条目获取 song_id（支持多重候选回退检索，并附带无竞态的逐次调用连通性状态）
      */
-    suspend fun searchSong(
+    suspend fun searchSongWithOutcome(
         title: String,
         artist: String,
         customToken: String? = null
-    ): GeniusSongSearchResult? = withContext(Dispatchers.IO) {
+    ): GeniusSearchOutcome = withContext(Dispatchers.IO) {
         val cleanTitle = sanitizeTitle(title)
         val artistCandidates = extractArtistCandidates(artist)
 
         val candidates = mutableListOf<String>()
-        val punctFreeTitle = cleanTitle.replace(Regex("""[.,/#!$%\^&\*;:{}=\-_`~()?]"""), " ").trim().replace(Regex("""\s+"""), " ")
 
         // 1. 优先主组合：清理后歌名 + 主艺人候选
         val primaryArtist = artistCandidates.firstOrNull() ?: sanitizeArtist(artist)
@@ -204,15 +220,94 @@ object GeniusService {
             candidates.add(cleanTitle)
         }
 
+        var anyConnected = false
         // 严格控制在最多 3 个精准候选，避免多次连续超时等待
         for (query in candidates.take(3)) {
-            val result = executeSearch(query, customToken)
-            if (result != null) return@withContext result
+            val outcome = executeSearch(query, customToken, title, artist)
+            if (outcome.connected) anyConnected = true
+            if (outcome.result != null) {
+                return@withContext GeniusSearchOutcome(outcome.result, connected = true)
+            }
         }
-        null
+        GeniusSearchOutcome(null, connected = anyConnected)
     }
 
-    private fun executeSearch(query: String, customToken: String?): GeniusSongSearchResult? {
+    /**
+     * 检索 Genius 歌曲条目获取 song_id（支持多重候选回退检索）
+     */
+    suspend fun searchSong(
+        title: String,
+        artist: String,
+        customToken: String? = null
+    ): GeniusSongSearchResult? {
+        val outcome = searchSongWithOutcome(title, artist, customToken)
+        lastRequestConnected = outcome.connected
+        return outcome.result
+    }
+
+    internal fun selectBestGeniusCandidate(
+        candidates: List<GeniusHitCandidate>,
+        targetTitle: String,
+        targetArtist: String,
+        minScore: Int = MIN_GENIUS_MATCH_SCORE
+    ): GeniusSongSearchResult? {
+        if (candidates.isEmpty()) return null
+        val targetTitleVariants = listOf(
+            LyricSearchCleaner.cleanTrackTitle(targetTitle),
+            sanitizeTitle(targetTitle),
+            targetTitle
+        ).map { it.trim() }.filter { it.isNotBlank() }.distinct()
+        if (targetTitleVariants.isEmpty()) return null
+
+        val artistTargets = extractArtistCandidates(targetArtist)
+            .ifEmpty { listOf(LyricSearchCleaner.cleanArtist(targetArtist)).filter { it.isNotBlank() } }
+            .ifEmpty { listOf("") }
+
+        var bestSong: GeniusSongSearchResult? = null
+        var bestTotalScore = Int.MIN_VALUE
+
+        for (cand in candidates) {
+            if (isTranslationSpam(cand.song.title, cand.song.fullTitle, cand.artistNames)) continue
+            val candArtists = listOf(cand.song.artist, cand.artistNames)
+                .map { it.trim() }
+                .filter { it.isNotBlank() }
+                .distinct()
+                .ifEmpty { listOf("") }
+
+            var bestPairScore = Int.MIN_VALUE
+            for (tTitle in targetTitleVariants) {
+                for (tArtist in artistTargets) {
+                    for (cArtist in candArtists) {
+                        val score = LyricSearchCleaner.scoreCandidateMatch(
+                            candidateTitle = cand.song.title,
+                            candidateArtist = cArtist,
+                            targetTitle = tTitle,
+                            targetArtist = tArtist
+                        )
+                        if (score > bestPairScore) {
+                            bestPairScore = score
+                        }
+                    }
+                }
+            }
+
+            if (bestPairScore >= minScore) {
+                val totalScore = bestPairScore + if (cand.isTopHit) 5 else 0
+                if (totalScore > bestTotalScore) {
+                    bestTotalScore = totalScore
+                    bestSong = cand.song
+                }
+            }
+        }
+        return bestSong
+    }
+
+    private fun executeSearch(
+        query: String,
+        customToken: String?,
+        targetTitle: String,
+        targetArtist: String
+    ): GeniusSearchOutcome {
         val hasCustomToken = !customToken.isNullOrBlank()
         val encodedQuery = URLEncoder.encode(query, "UTF-8")
 
@@ -225,24 +320,30 @@ object GeniusService {
             )
         }
 
+        var anyConnected = false
         for (url in urls) {
             try {
-                val jsonStr = fetchJson(url, customToken) ?: continue
+                val (jsonStr, connected) = fetchJsonWithStatus(url, customToken)
+                if (connected) anyConnected = true
+                if (jsonStr == null) continue
+
                 val root = JSONObject(jsonStr)
                 val responseObj = root.optJSONObject("response") ?: continue
+                val collected = mutableListOf<GeniusHitCandidate>()
 
                 if (hasCustomToken) {
                     val hits = responseObj.optJSONArray("hits") ?: continue
                     for (i in 0 until hits.length()) {
                         val hit = hits.optJSONObject(i) ?: continue
                         val result = hit.optJSONObject("result") ?: continue
-                        val song = parseSongResult(result)
-                        if (song != null) return song
+                        val song = parseSongResult(result) ?: continue
+                        val artistNames = result.optString("artist_names").ifBlank { song.artist }
+                        collected.add(GeniusHitCandidate(song = song, artistNames = artistNames))
                     }
                 } else {
                     val sections = responseObj.optJSONArray("sections") ?: continue
 
-                    // 1. 优先从 top_hit 段中查找精准曲目 (Genius 官方推荐度最高的最优条目)
+                    // 1. 收集 top_hit 段中的曲目候选
                     for (i in 0 until sections.length()) {
                         val sec = sections.optJSONObject(i) ?: continue
                         if (sec.optString("type").equals("top_hit", ignoreCase = true)) {
@@ -252,13 +353,14 @@ object GeniusService {
                                 val hitType = hit.optString("type")
                                 if (hitType.isNotBlank() && !hitType.equals("song", ignoreCase = true)) continue
                                 val result = hit.optJSONObject("result") ?: continue
-                                val song = parseSongResult(result)
-                                if (song != null) return song
+                                val song = parseSongResult(result) ?: continue
+                                val artistNames = result.optString("artist_names").ifBlank { song.artist }
+                                collected.add(GeniusHitCandidate(song = song, artistNames = artistNames, isTopHit = true))
                             }
                         }
                     }
 
-                    // 2. 其次从 type == "song" 专用段中查找
+                    // 2. 收集 type == "song" 专用段中的曲目候选
                     for (i in 0 until sections.length()) {
                         val sec = sections.optJSONObject(i) ?: continue
                         if (sec.optString("type").equals("song", ignoreCase = true)) {
@@ -266,17 +368,23 @@ object GeniusService {
                             for (j in 0 until hits.length()) {
                                 val hit = hits.optJSONObject(j) ?: continue
                                 val result = hit.optJSONObject("result") ?: continue
-                                val song = parseSongResult(result)
-                                if (song != null) return song
+                                val song = parseSongResult(result) ?: continue
+                                val artistNames = result.optString("artist_names").ifBlank { song.artist }
+                                collected.add(GeniusHitCandidate(song = song, artistNames = artistNames))
                             }
                         }
                     }
+                }
+
+                val bestMatch = selectBestGeniusCandidate(collected, targetTitle, targetArtist)
+                if (bestMatch != null) {
+                    return GeniusSearchOutcome(bestMatch, connected = true)
                 }
             } catch (e: Exception) {
                 // 尝试下一个候选 URL
             }
         }
-        return null
+        return GeniusSearchOutcome(null, connected = anyConnected)
     }
 
     internal fun isTranslationSpam(title: String, fullTitle: String, artist: String): Boolean {

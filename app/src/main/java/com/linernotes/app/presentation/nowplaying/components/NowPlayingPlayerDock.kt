@@ -55,17 +55,13 @@ import kotlinx.coroutines.launch
 fun NowPlayingFloatingGlassPlayer(
     trackState: TrackPlaybackState,
     playbackClockFlow: StateFlow<PlaybackClockState>,
-    isTraditional: Boolean,
     isDark: Boolean,
-    isAmoledMode: Boolean = false,
     onPlayPause: () -> Unit,
     onNext: () -> Unit,
     onPrevious: () -> Unit,
     onToggleShuffle: () -> Unit,
     onCycleRepeat: () -> Unit,
     onSeekTo: (Long) -> Unit,
-    onOpenQueue: () -> Unit = {},
-    onOpenSettings: () -> Unit = {},
     modifier: Modifier = Modifier
 ) {
     val onPlayerTextSec = if (isDark) Color.White.copy(alpha = 0.65f) else Color.Black.copy(alpha = 0.60f)

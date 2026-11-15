@@ -314,9 +314,10 @@ fun NowPlayingLyricsContent(
     // 注意：LazyColumn 已設置 contentPadding(top = topFocalPadding)，因此 visibleItem.offset == 0 的座標原點
     // 本身就位於距離頂部 topFocalPadding (視口高度約 21%~22%) 的黃金焦點線上！
     // 切勿在 scrollDelta 中二次減去 focalTargetPx，否則會造成雙倍向下偏移 (21% + 32% = 53% 偏下)。
-    val focalTargetDp = (screenHeightDp * 0.21f).coerceIn(150.dp, 200.dp)
+    val minFocalDp = (screenHeightDp * 0.12f).coerceAtLeast(48.dp)
+    val focalTargetDp = (screenHeightDp * 0.21f).coerceIn(minFocalDp, 200.dp)
     val topFocalPadding = focalTargetDp
-    val bottomFocalPadding = screenHeightDp * 0.65f + (if (showPlaybackControls) 120.dp else 40.dp)
+    val bottomFocalPadding = (screenHeightDp * 0.58f).coerceAtLeast(160.dp) + (if (showPlaybackControls) 120.dp else 40.dp)
 
     val songKey = "${trackState.trackEpoch}|${trackState.title}|${trackState.artist}"
     val lyricsStructureKey = remember(lyrics) {
@@ -825,30 +826,30 @@ fun LyricLineRow(
     val interactionSource = remember { MutableInteractionSource() }
 
     val configuration = LocalConfiguration.current
-    val isTablet = configuration.screenWidthDp >= 600
+    val isTablet = configuration.smallestScreenWidthDp >= 600
     val mainTextSize: TextUnit = when (lyricTextSize) {
-        AiPreferences.LYRIC_TEXT_SIZE_COMPACT -> if (isTablet) 20.sp else 26.sp
-        AiPreferences.LYRIC_TEXT_SIZE_LARGE -> if (isTablet) 28.sp else 38.sp
-        AiPreferences.LYRIC_TEXT_SIZE_EXTRA_LARGE -> if (isTablet) 32.sp else 44.sp
-        else -> if (isTablet) 24.sp else 34.sp
+        AiPreferences.LYRIC_TEXT_SIZE_COMPACT -> if (isTablet) 28.sp else 26.sp
+        AiPreferences.LYRIC_TEXT_SIZE_LARGE -> if (isTablet) 42.sp else 38.sp
+        AiPreferences.LYRIC_TEXT_SIZE_EXTRA_LARGE -> if (isTablet) 48.sp else 44.sp
+        else -> if (isTablet) 38.sp else 34.sp
     }
     val mainLineHeight: TextUnit = when (lyricTextSize) {
-        AiPreferences.LYRIC_TEXT_SIZE_COMPACT -> if (isTablet) 28.sp else 36.sp
-        AiPreferences.LYRIC_TEXT_SIZE_LARGE -> if (isTablet) 38.sp else 48.sp
-        AiPreferences.LYRIC_TEXT_SIZE_EXTRA_LARGE -> if (isTablet) 44.sp else 56.sp
-        else -> if (isTablet) 32.sp else 44.sp
+        AiPreferences.LYRIC_TEXT_SIZE_COMPACT -> if (isTablet) 38.sp else 36.sp
+        AiPreferences.LYRIC_TEXT_SIZE_LARGE -> if (isTablet) 52.sp else 48.sp
+        AiPreferences.LYRIC_TEXT_SIZE_EXTRA_LARGE -> if (isTablet) 60.sp else 56.sp
+        else -> if (isTablet) 48.sp else 44.sp
     }
     val subTextSize: TextUnit = when (lyricTextSize) {
-        AiPreferences.LYRIC_TEXT_SIZE_COMPACT -> if (isTablet) 14.sp else 18.sp
-        AiPreferences.LYRIC_TEXT_SIZE_LARGE -> if (isTablet) 19.sp else 24.sp
-        AiPreferences.LYRIC_TEXT_SIZE_EXTRA_LARGE -> if (isTablet) 22.sp else 26.sp
-        else -> if (isTablet) 17.sp else 22.sp
+        AiPreferences.LYRIC_TEXT_SIZE_COMPACT -> if (isTablet) 19.sp else 18.sp
+        AiPreferences.LYRIC_TEXT_SIZE_LARGE -> if (isTablet) 26.sp else 24.sp
+        AiPreferences.LYRIC_TEXT_SIZE_EXTRA_LARGE -> if (isTablet) 28.sp else 26.sp
+        else -> if (isTablet) 24.sp else 22.sp
     }
     val subLineHeight: TextUnit = when (lyricTextSize) {
-        AiPreferences.LYRIC_TEXT_SIZE_COMPACT -> if (isTablet) 20.sp else 24.sp
-        AiPreferences.LYRIC_TEXT_SIZE_LARGE -> if (isTablet) 26.sp else 30.sp
-        AiPreferences.LYRIC_TEXT_SIZE_EXTRA_LARGE -> if (isTablet) 30.sp else 34.sp
-        else -> if (isTablet) 22.sp else 28.sp
+        AiPreferences.LYRIC_TEXT_SIZE_COMPACT -> if (isTablet) 26.sp else 24.sp
+        AiPreferences.LYRIC_TEXT_SIZE_LARGE -> if (isTablet) 34.sp else 30.sp
+        AiPreferences.LYRIC_TEXT_SIZE_EXTRA_LARGE -> if (isTablet) 38.sp else 34.sp
+        else -> if (isTablet) 31.sp else 28.sp
     }
 
     val rippleColor = if (isDark) {
@@ -949,7 +950,7 @@ fun LyricLineRow(
                 textAlign = if (isAlignLeft) TextAlign.Start else TextAlign.Center
             )
             val rubyStyle = TextStyle(
-                fontSize = if (isTablet) 11.sp else 14.sp,
+                fontSize = if (isTablet) 16.sp else 14.sp,
                 fontWeight = FontWeight.Normal,
                 fontFamily = FontFamily.SansSerif
             )
@@ -964,7 +965,7 @@ fun LyricLineRow(
                 rubyTextStyle = rubyStyle,
                 isActive = isVisuallyActive,
                 activeColor = lyricColor,
-                inactiveColor = lyricColor,
+                inactiveColor = lyricColor.copy(alpha = 0.72f),
                 horizontalArrangement = if (isAlignLeft) Arrangement.Start else Arrangement.Center,
                 modifier = Modifier.fillMaxWidth()
             )
@@ -1091,7 +1092,7 @@ fun AppleMusicDualLayerLyricLine(
         return
     }
 
-    val textMeasurer = rememberTextMeasurer(cacheSize = 8)
+    val textMeasurer = rememberTextMeasurer(cacheSize = 64)
     val baseLocalStyle = LocalTextStyle.current
     val wordStyle = remember(baseLocalStyle, lyricColor, fontSize, lineHeight) {
         baseLocalStyle.merge(
@@ -1147,13 +1148,10 @@ private fun DualLayerWordBox(
     val layoutHolder = remember { WordTextLayoutHolder() }
     val measurePolicy = remember(visibleToken, wordStyle, textMeasurer, layoutHolder) {
         MeasurePolicy { _, constraints ->
-            // skipCache = true 确保每个词槽拥有独立的 TextLayoutResult / AndroidTextPaint，
-            // 防止同词重复出现（如 "I"、"probably"）互相污染 Paint.alpha 或 Shader 状态。
             val measured = textMeasurer.measure(
                 text = visibleToken,
                 style = wordStyle,
-                constraints = Constraints(maxWidth = constraints.maxWidth),
-                skipCache = true
+                constraints = Constraints(maxWidth = constraints.maxWidth)
             )
             layoutHolder.result = measured
             val width = constraints.constrainWidth(measured.size.width)
@@ -1174,7 +1172,7 @@ private fun DualLayerWordBox(
             val now = currentPositionMsProvider()
             when {
                 now < start -> {
-                    drawText(textLayoutResult = layoutResult, color = mutedColor)
+                    drawText(textLayoutResult = layoutResult, color = mutedColor, alpha = 1f)
                 }
                 now >= end -> {
                     drawText(textLayoutResult = layoutResult, color = lyricColor, alpha = 1f)
@@ -1231,7 +1229,7 @@ fun AppleMusicWordUnit(
     }
 
     if (trimmedWord.isNotEmpty()) {
-        val resolvedMeasurer = textMeasurer ?: rememberTextMeasurer(cacheSize = 8)
+        val resolvedMeasurer = textMeasurer ?: rememberTextMeasurer(cacheSize = 64)
         val resolvedStyle = wordStyle ?: run {
             val baseLocalStyle = LocalTextStyle.current
             remember(baseLocalStyle, lyricColor, fontSize, lineHeight) {

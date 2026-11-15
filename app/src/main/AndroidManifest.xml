@@ -58,16 +58,6 @@
         </activity>
 
         <service
-            android:name="com.linernotes.app.core.translation.BatchTranslationService"
-            android:foregroundServiceType="dataSync"
-            android:exported="false" />
-
-        <service
-            android:name="com.linernotes.app.core.media.CompanionPlaybackService"
-            android:foregroundServiceType="mediaPlayback"
-            android:exported="false" />
-
-        <service
             android:name="com.linernotes.app.core.floating.FloatingLyricsService"
             android:foregroundServiceType="mediaPlayback"
             android:exported="false" />

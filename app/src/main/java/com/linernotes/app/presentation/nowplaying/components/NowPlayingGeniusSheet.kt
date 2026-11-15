@@ -20,6 +20,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.luminance
+import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
@@ -94,12 +95,15 @@ fun NowPlayingGeniusSheet(
     ) {
         LockWindowRefreshRateEffect()
 
+        val maxSheetHeight = (LocalConfiguration.current.screenHeightDp * 0.88f).dp.coerceAtLeast(240.dp)
+
         Column(
             modifier = Modifier
                 .fillMaxWidth()
-                .fillMaxHeight(0.88f)
+                .heightIn(min = 240.dp, max = maxSheetHeight)
                 .padding(horizontal = 20.dp)
-                .padding(bottom = 28.dp)
+                .navigationBarsPadding()
+                .padding(bottom = 24.dp)
                 .verticalScroll(rememberScrollState())
         ) {
             // 顶部认证条与关闭按钮

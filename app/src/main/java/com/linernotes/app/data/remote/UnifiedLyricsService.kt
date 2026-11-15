@@ -3,6 +3,7 @@ package com.linernotes.app.data.remote
 import com.linernotes.app.core.lyric.LyricAligner
 import com.linernotes.app.core.lyric.LyricSanitizer
 import com.linernotes.app.core.lyric.LyricSearchCleaner
+import com.linernotes.app.core.lyric.LyricWordParser
 import com.linernotes.app.core.preference.AiPreferences
 import kotlinx.coroutines.async
 import kotlinx.coroutines.delay
@@ -12,7 +13,7 @@ import kotlinx.coroutines.withTimeoutOrNull
 
 object UnifiedLyricsService {
 
-    private val TIMESTAMP_REGEX = Regex("""\[\d{1,2}:\d{2}(?:\.\d{1,3})?\]""")
+    private val TIMESTAMP_REGEX = Regex("""\[(?:\d{1,3}:\d{2}(?:\.\d{1,3})?|\d+,\d+)\]""")
 
     suspend fun fetchLyrics(
         trackTitle: String,
@@ -300,8 +301,8 @@ object UnifiedLyricsService {
         val cLines = calibrator.originalLyrics.lines().map { LyricAligner.cleanLine(it) }.filter { it.isNotBlank() }
         if (pLines.isEmpty() || cLines.isEmpty()) return primary
 
-        val pNorm = pLines.map { it.lowercase().replace(Regex("[^a-zA-Z0-9\u4e00-\u9fa5]"), "") }.filter { it.isNotBlank() }
-        val cNorm = cLines.map { it.lowercase().replace(Regex("[^a-zA-Z0-9\u4e00-\u9fa5]"), "") }.filter { it.isNotBlank() }
+        val pNorm = pLines.map { normalizeCalibrationLine(it) }.filter { it.isNotBlank() }
+        val cNorm = cLines.map { normalizeCalibrationLine(it) }.filter { it.isNotBlank() }
         val commonCount = pNorm.count { p -> cNorm.contains(p) }
         val similarity = commonCount.toFloat() / pNorm.size.coerceAtLeast(1)
         if (similarity < 0.4f) return primary
@@ -317,13 +318,13 @@ object UnifiedLyricsService {
         // 提取带时间戳的歌词行（保留同名重复句的所有时间点列表，杜绝副歌被末次时间覆盖）
         val pWithTime = primary.originalLyrics.lines().mapNotNull { line ->
             val t = LyricAligner.extractTimestampMs(line) ?: return@mapNotNull null
-            val norm = LyricAligner.cleanLine(line).lowercase().replace(Regex("[^a-zA-Z0-9\u4e00-\u9fa5]"), "")
+            val norm = normalizeCalibrationLine(LyricAligner.cleanLine(line))
             if (norm.length >= 4) norm to t else null
         }
         val cTimeBuckets = mutableMapOf<String, MutableList<Long>>()
         for (line in calibrator.originalLyrics.lines()) {
             val t = LyricAligner.extractTimestampMs(line) ?: continue
-            val norm = LyricAligner.cleanLine(line).lowercase().replace(Regex("[^a-zA-Z0-9\u4e00-\u9fa5]"), "")
+            val norm = normalizeCalibrationLine(LyricAligner.cleanLine(line))
             if (norm.length >= 4) {
                 cTimeBuckets.getOrPut(norm) { mutableListOf() }.add(t)
             }
@@ -473,5 +474,10 @@ object UnifiedLyricsService {
             }
         }
         return result?.let { sanitizeResult(it, null) }
+    }
+
+    private fun normalizeCalibrationLine(cleanedLine: String): String {
+        val withoutInlineTags = LyricWordParser.cleanInlineTimestamps(cleanedLine)
+        return LyricSearchCleaner.normalizeForMatching(withoutInlineTags)
     }
 }

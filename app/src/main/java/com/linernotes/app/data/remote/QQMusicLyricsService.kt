@@ -1,6 +1,5 @@
 package com.linernotes.app.data.remote
 
-import android.util.Base64
 import com.linernotes.app.core.lyric.LyricAligner
 import com.linernotes.app.core.lyric.LyricSearchCleaner
 import com.linernotes.app.core.network.LinerNotesHttpClient
@@ -11,6 +10,7 @@ import kotlinx.coroutines.supervisorScope
 import kotlinx.coroutines.withContext
 import org.json.JSONObject
 import java.net.URLEncoder
+import java.util.Base64
 
 object QQMusicLyricsService {
 
@@ -63,7 +63,8 @@ object QQMusicLyricsService {
             var rawTrans = lyricRoot.optString("trans", "")
             if (isBase64(rawLrc)) rawLrc = decodeBase64(rawLrc)
             if (isBase64(rawTrans)) rawTrans = decodeBase64(rawTrans)
-            if (rawLrc.isBlank()) return@withContext null
+            if (!isSafePlainLyrics(rawLrc)) return@withContext null
+            if (!isSafePlainLyrics(rawTrans)) rawTrans = ""
             val alignedPair = LyricAligner.alignLrcTimestamps(rawLrc, rawTrans)
             OnlineLyricsResult(
                 songId = 0L,
@@ -172,7 +173,8 @@ object QQMusicLyricsService {
                 rawTrans = decodeBase64(rawTrans)
             }
 
-            if (rawLrc.isBlank()) return null
+            if (!isSafePlainLyrics(rawLrc)) return null
+            if (!isSafePlainLyrics(rawTrans)) rawTrans = ""
 
             val alignedPair = LyricAligner.alignLrcTimestamps(rawLrc, rawTrans)
 
@@ -299,6 +301,8 @@ object QQMusicLyricsService {
         }
     }
 
+    private val LRC_OR_QRC_TIME_REGEX = Regex("""\[(?:\d{1,3}:\d{2}(?:\.\d{1,3})?|\d+,\d+)\]""")
+
     private fun isBase64(str: String): Boolean {
         if (str.length < 20) return false
         return !str.contains("[") && !str.contains("]") && (str.endsWith("=") || str.matches(Regex("""^[A-Za-z0-9+/=\r\n]+$""")))
@@ -306,9 +310,30 @@ object QQMusicLyricsService {
 
     private fun decodeBase64(str: String): String {
         return try {
-            String(Base64.decode(str, Base64.DEFAULT), Charsets.UTF_8)
+            String(Base64.getMimeDecoder().decode(str.trim()), Charsets.UTF_8)
+                .removePrefix("\uFEFF")
         } catch (e: Exception) {
-            str
+            ""
         }
+    }
+
+    /**
+     * 防止加密 QRC（如 hex/DES 密文）或二进制乱码直接灌入 LRC 解析器
+     */
+    internal fun isSafePlainLyrics(text: String?): Boolean {
+        if (text.isNullOrBlank()) return false
+        for (ch in text) {
+            if (ch == '\u0000' || ch == '\uFFFD') return false
+            if (ch < ' ' && ch != '\n' && ch != '\r' && ch != '\t') return false
+            if (ch in '\u007F'..'\u009F') return false
+        }
+        val trimmed = text.trim()
+        if (!trimmed.contains('\n') && !trimmed.contains(' ') && trimmed.length >= 64) {
+            return false
+        }
+        if (trimmed.length >= 32 && trimmed.all { it in '0'..'9' || it in 'a'..'f' || it in 'A'..'F' || it.isWhitespace() }) {
+            return false
+        }
+        return LRC_OR_QRC_TIME_REGEX.containsMatchIn(trimmed) || trimmed.any { it.isLetter() }
     }
 }

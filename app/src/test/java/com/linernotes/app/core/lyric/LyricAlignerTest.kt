@@ -1,6 +1,7 @@
 package com.linernotes.app.core.lyric
 
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -102,5 +103,47 @@ class LyricAlignerTest {
         assertEquals("", aligned[0].translation)
         assertEquals("雨だろうが運命だろうが", aligned[1].original)
         assertEquals("", aligned[1].translation)
+    }
+
+    @Test
+    fun testParseTimedLines_andAlign_supportsYrcKrcQrcMsHeadersAndClampsWords() {
+        val yrc = """
+            {"t":0,"c":[{"tx":"作词: 某人"}]}
+            [1000,1500](1000,500,0)作词: 某人
+            [10000,2000](10000,600,0)夜(10600,800,0)空(11400,900,0)下
+            [12500,2000]<0,500,0>星<500,700,0>光
+        """.trimIndent()
+        val trans = """
+            [00:10.00] 夜空之下
+            [00:12.50] 星光闪烁
+        """.trimIndent()
+
+        val parsed = LyricAligner.parseTimedLines(yrc)
+        assertEquals(3, parsed.size)
+        assertEquals(1000L, parsed[0].ms)
+        assertEquals(1500L, parsed[0].durationMs)
+        assertEquals(10000L, parsed[1].ms)
+        assertEquals(2000L, parsed[1].durationMs)
+
+        val (alignedOrig, alignedTrans) = LyricAligner.alignLrcTimestamps(yrc, trans)
+        assertFalse(alignedOrig.contains("作词"))
+        assertTrue(alignedOrig.contains("[00:10.00]"))
+        assertTrue(alignedTrans.contains("夜空之下"))
+
+        val bilingual = LyricAligner.align(alignedOrig, alignedTrans)
+        assertEquals(2, bilingual.size)
+        assertEquals("夜空下", bilingual[0].original)
+        assertEquals("夜空之下", bilingual[0].translation)
+        assertEquals(3, bilingual[0].words.size)
+        assertTrue(bilingual[0].words.all {
+            it.startTimeMs >= bilingual[0].startTimeMs!! &&
+                it.startTimeMs + it.durationMs <= bilingual[0].endTimeMs!!
+        })
+        assertFalse(bilingual[0].original.contains("(10000"))
+
+        assertEquals("星光", bilingual[1].original)
+        assertEquals(2, bilingual[1].words.size)
+        assertEquals(12500L, bilingual[1].words[0].startTimeMs)
+        assertEquals(13000L, bilingual[1].words[1].startTimeMs)
     }
 }

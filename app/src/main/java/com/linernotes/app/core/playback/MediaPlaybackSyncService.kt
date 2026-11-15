@@ -9,10 +9,13 @@ import android.graphics.Bitmap
 import android.graphics.BitmapFactory
 import android.media.MediaMetadata
 import android.media.session.MediaController
+import android.media.session.MediaSession
 import android.media.session.MediaSessionManager
 import android.media.session.PlaybackState
 import android.net.Uri
 import android.os.Build
+import android.os.Handler
+import android.os.Looper
 import android.os.SystemClock
 import android.provider.Settings
 import android.service.notification.NotificationListenerService
@@ -31,6 +34,7 @@ import kotlinx.coroutines.cancel
 import kotlinx.coroutines.launch
 import java.io.File
 import java.io.FileOutputStream
+import java.util.Locale
 
 /**
  * 基于 Android NotificationListenerService 与 MediaSessionManager 的核心媒体同步服务
@@ -38,9 +42,19 @@ import java.io.FileOutputStream
  */
 class MediaPlaybackSyncService : NotificationListenerService(), MediaControlActionHandler {
 
+    private data class MonitoredSession(
+        val controller: MediaController,
+        val callback: MediaController.Callback,
+        var lastState: Int
+    )
+
     private var mediaSessionManager: MediaSessionManager? = null
+    @Volatile
     private var activeController: MediaController? = null
+    @Volatile
     private var activeCompatController: MediaControllerCompat? = null
+    private val monitoredSessions = LinkedHashMap<MediaSession.Token, MonitoredSession>()
+    private val mainHandler by lazy { Handler(Looper.getMainLooper()) }
     private val playbackStateManager by lazy { PlaybackStateManager.get(this) }
     private var ioScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     @Volatile
@@ -53,15 +67,17 @@ class MediaPlaybackSyncService : NotificationListenerService(), MediaControlActi
         controllerSnapshot: MediaController?
     ) {
         queueSyncJob?.cancel()
+        val targetToken = controllerSnapshot?.sessionToken ?: return
         if (queue.isNullOrEmpty()) {
-            if (activeController === controllerSnapshot) {
+            if (activeController?.sessionToken == targetToken) {
                 playbackStateManager.updateQueueItems(emptyList())
             }
             return
         }
+        val maxQueueArtRetained = computeQueueCoverRetention(queue.size)
         queueSyncJob = ioScope.launch {
-            val items = queue.map { mapQueueItem(it) }
-            if (activeController === controllerSnapshot) {
+            val items = queue.map { mapQueueItem(it, maxQueueArtRetained) }
+            if (activeController?.sessionToken == targetToken) {
                 playbackStateManager.updateQueueItems(items)
             }
         }
@@ -87,20 +103,64 @@ class MediaPlaybackSyncService : NotificationListenerService(), MediaControlActi
         }
     }
 
-    private val controllerCallback = object : MediaController.Callback() {
-        override fun onPlaybackStateChanged(state: PlaybackState?) {
-            state ?: return
-            handlePlaybackStateUpdate(state)
-        }
+    private fun createControllerCallback(controller: MediaController): MediaController.Callback {
+        return object : MediaController.Callback() {
+            override fun onPlaybackStateChanged(state: PlaybackState?) {
+                state ?: return
+                val session = monitoredSessions[controller.sessionToken]
+                val prevState = session?.lastState ?: PlaybackState.STATE_NONE
+                session?.lastState = state.state
 
-        override fun onMetadataChanged(metadata: MediaMetadata?) {
-            metadata ?: return
-            handleMetadataUpdate(metadata)
-        }
+                val active = activeController
+                if (controller.sessionToken == active?.sessionToken) {
+                    if (state.state != PlaybackState.STATE_PLAYING) {
+                        val playingAlternative = monitoredSessions.values
+                            .firstOrNull {
+                                it.controller.sessionToken != controller.sessionToken &&
+                                    it.controller.playbackState?.state == PlaybackState.STATE_PLAYING
+                            }
+                            ?.controller
+                        if (playingAlternative != null) {
+                            attachToController(playingAlternative)
+                            return
+                        }
+                    }
+                    handlePlaybackStateUpdate(state)
+                } else if (state.state == PlaybackState.STATE_PLAYING) {
+                    val activeIsPlaying = active?.playbackState?.state == PlaybackState.STATE_PLAYING
+                    if (!activeIsPlaying || prevState != PlaybackState.STATE_PLAYING) {
+                        attachToController(controller, initialPlaybackState = state)
+                    }
+                }
+            }
 
-        override fun onSessionDestroyed() {
-            super.onSessionDestroyed()
-            findAndAttachActiveController()
+            override fun onMetadataChanged(metadata: MediaMetadata?) {
+                metadata ?: return
+                val active = activeController
+                if (controller.sessionToken == active?.sessionToken) {
+                    handleMetadataUpdate(metadata, controller)
+                } else if (active == null ||
+                    (active.playbackState?.state != PlaybackState.STATE_PLAYING &&
+                        controller.playbackState?.state == PlaybackState.STATE_PLAYING)
+                ) {
+                    attachToController(controller, initialMetadata = metadata)
+                }
+            }
+
+            override fun onSessionDestroyed() {
+                super.onSessionDestroyed()
+                monitoredSessions.remove(controller.sessionToken)?.let { removed ->
+                    try {
+                        removed.controller.unregisterCallback(removed.callback)
+                    } catch (_: Exception) {
+                    }
+                }
+                if (controller.sessionToken == activeController?.sessionToken) {
+                    detachActiveCompatController()
+                    activeController = null
+                    findAndAttachActiveController()
+                }
+            }
         }
     }
 
@@ -134,7 +194,11 @@ class MediaPlaybackSyncService : NotificationListenerService(), MediaControlActi
         try {
             mediaSessionManager = getSystemService(Context.MEDIA_SESSION_SERVICE) as? MediaSessionManager
             val componentName = ComponentName(this, MediaPlaybackSyncService::class.java)
-            mediaSessionManager?.addOnActiveSessionsChangedListener(sessionsChangedListener, componentName)
+            mediaSessionManager?.addOnActiveSessionsChangedListener(
+                sessionsChangedListener,
+                componentName,
+                mainHandler
+            )
             val controllers = mediaSessionManager?.getActiveSessions(componentName)
             inspectAndAttachController(controllers)
         } catch (e: Exception) {
@@ -144,9 +208,21 @@ class MediaPlaybackSyncService : NotificationListenerService(), MediaControlActi
 
     override fun onListenerDisconnected() {
         super.onListenerDisconnected()
+        cleanupSessionListenersAndJobs()
+    }
+
+    override fun onDestroy() {
+        cleanupSessionListenersAndJobs()
+        super.onDestroy()
+    }
+
+    private fun cleanupSessionListenersAndJobs() {
         playbackStateManager.unregisterControlHandler(this)
         playbackStateManager.refreshNotificationAccess(this)
+        queueSyncJob?.cancel()
+        queueSyncJob = null
         ioScope.cancel()
+        mainHandler.removeCallbacksAndMessages(null)
         if (isSpotifyReceiverRegistered) {
             try {
                 unregisterReceiver(spotifyReceiver)
@@ -156,13 +232,26 @@ class MediaPlaybackSyncService : NotificationListenerService(), MediaControlActi
         }
         try {
             mediaSessionManager?.removeOnActiveSessionsChangedListener(sessionsChangedListener)
-            activeController?.unregisterCallback(controllerCallback)
-            activeCompatController?.unregisterCallback(compatCallback)
-            activeController = null
-            activeCompatController = null
         } catch (e: Exception) {
             e.printStackTrace()
         }
+        detachActiveCompatController()
+        monitoredSessions.values.forEach { session ->
+            try {
+                session.controller.unregisterCallback(session.callback)
+            } catch (_: Exception) {
+            }
+        }
+        monitoredSessions.clear()
+        activeController = null
+    }
+
+    private fun detachActiveCompatController() {
+        try {
+            activeCompatController?.unregisterCallback(compatCallback)
+        } catch (_: Exception) {
+        }
+        activeCompatController = null
     }
 
     override fun onNotificationPosted(sbn: StatusBarNotification?) {
@@ -170,22 +259,18 @@ class MediaPlaybackSyncService : NotificationListenerService(), MediaControlActi
         val pkg = sbn?.packageName ?: return
         val current = playbackStateManager.playbackState.value
 
-        val isMusicApp = pkg == "com.spotify.music" || pkg == "com.apple.android.music" ||
-            pkg == "com.netease.cloudmusic" || pkg == "com.tencent.qqmusic" ||
-            pkg == current.packageName || pkg.contains("music") || pkg.contains("audio") || pkg.contains("player")
+        val isMusic = isMusicApp(pkg, current.packageName)
 
-        if (isMusicApp && (activeController == null || activeController?.packageName != pkg)) {
+        if (isMusic && (activeController == null || activeController?.packageName != pkg)) {
             findAndAttachActiveController()
         }
 
         val matchesActivePackage = pkg == current.packageName || pkg == activeController?.packageName
-        if (isMusicApp && current.hasValidTrack && matchesActivePackage) {
+        if (isMusic && current.hasValidTrack && matchesActivePackage) {
             val expectedTitle = current.title
             val expectedArtist = current.artist
             val expectedEpoch = current.trackEpoch
-            val hasValidCover = !current.coverUrl.isNullOrBlank() &&
-                (!current.coverUrl.startsWith("/") || File(current.coverUrl).exists())
-            if (hasValidCover) return
+            if (isCoverUrlValid(current.coverUrl)) return
 
             ioScope.launch {
                 try {
@@ -260,6 +345,8 @@ class MediaPlaybackSyncService : NotificationListenerService(), MediaControlActi
                     tempFile.copyTo(artFile, overwrite = true)
                     tempFile.delete()
                 }
+            } else {
+                artFile.setLastModified(System.currentTimeMillis())
             }
             cleanupOldArtFiles(prefix, artFile.name, maxRetained)
             artFile.absolutePath
@@ -293,65 +380,114 @@ class MediaPlaybackSyncService : NotificationListenerService(), MediaControlActi
     }
 
     private fun inspectAndAttachController(controllers: List<MediaController>?) {
-        if (controllers.isNullOrEmpty()) {
-            try {
-                activeController?.unregisterCallback(controllerCallback)
-                activeCompatController?.unregisterCallback(compatCallback)
-            } catch (_: Exception) {
+        val musicControllers = controllers.orEmpty().filter { isMusicApp(it.packageName) }
+        val activeTokens = musicControllers.mapTo(HashSet()) { it.sessionToken }
+
+        val removedTokens = monitoredSessions.keys.filter { it !in activeTokens }
+        removedTokens.forEach { token ->
+            monitoredSessions.remove(token)?.let { removed ->
+                try {
+                    removed.controller.unregisterCallback(removed.callback)
+                } catch (_: Exception) {
+                }
             }
+        }
+
+        musicControllers.forEach { controller ->
+            if (!monitoredSessions.containsKey(controller.sessionToken)) {
+                val cb = createControllerCallback(controller)
+                try {
+                    controller.registerCallback(cb, mainHandler)
+                    monitoredSessions[controller.sessionToken] = MonitoredSession(
+                        controller = controller,
+                        callback = cb,
+                        lastState = controller.playbackState?.state ?: PlaybackState.STATE_NONE
+                    )
+                } catch (_: Exception) {
+                }
+            }
+        }
+
+        if (musicControllers.isEmpty()) {
+            detachActiveCompatController()
             activeController = null
-            activeCompatController = null
-            val current = playbackStateManager.playbackState.value
-            if (current.isPlaying) {
-                playbackStateManager.updateState(
+            queueSyncJob?.cancel()
+            queueSyncJob = null
+            playbackStateManager.updatePlaybackStateAtomically { current ->
+                if (!current.isPlaying) {
+                    current
+                } else {
+                    val now = SystemClock.elapsedRealtime()
                     current.copy(
                         isPlaying = false,
-                        lastUpdateTimeMs = SystemClock.elapsedRealtime()
+                        currentPositionMs = current.getEstimatedPositionMs(now),
+                        lastUpdateTimeMs = now
                     )
-                )
+                }
             }
             return
         }
 
-        val chosen = controllers.firstOrNull {
-            it.packageName == "com.spotify.music" && it.playbackState?.state == PlaybackState.STATE_PLAYING
+        val currentActiveToken = activeController?.sessionToken
+        val currentActiveInList = musicControllers.firstOrNull { it.sessionToken == currentActiveToken }
+        val playingControllers = musicControllers.filter {
+            it.playbackState?.state == PlaybackState.STATE_PLAYING
         }
-            ?: controllers.firstOrNull { it.playbackState?.state == PlaybackState.STATE_PLAYING }
-            ?: controllers.firstOrNull { it.packageName == "com.spotify.music" }
-            ?: controllers.firstOrNull()
 
-        if (chosen != null && chosen.sessionToken != activeController?.sessionToken) {
-            activeController?.unregisterCallback(controllerCallback)
-            activeCompatController?.unregisterCallback(compatCallback)
-            activeController = chosen
-            chosen.registerCallback(controllerCallback)
-
-            try {
-                val tokenCompat = MediaSessionCompat.Token.fromToken(chosen.sessionToken)
-                val compat = MediaControllerCompat(this, tokenCompat)
-                activeCompatController = compat
-                compat.registerCallback(compatCallback)
-
-                val initShuffle = compat.shuffleMode != PlaybackStateCompat.SHUFFLE_MODE_NONE
-                val initRepeat = when (compat.repeatMode) {
-                    PlaybackStateCompat.REPEAT_MODE_ALL, PlaybackStateCompat.REPEAT_MODE_GROUP -> 1
-                    PlaybackStateCompat.REPEAT_MODE_ONE -> 2
-                    else -> 0
-                }
-                val rawQueue = compat.queue
-
-                playbackStateManager.updatePlaybackModes(initShuffle, initRepeat)
-                scheduleQueueSync(rawQueue, chosen)
-            } catch (e: Exception) {
-                e.printStackTrace()
+        val chosen = when {
+            playingControllers.isNotEmpty() -> {
+                playingControllers.firstOrNull { it.sessionToken == currentActiveToken }
+                    ?: playingControllers.firstOrNull { it.packageName == SpotifyBroadcastReceiver.SPOTIFY_PACKAGE }
+                    ?: playingControllers.first()
             }
+            currentActiveInList != null -> currentActiveInList
+            else -> {
+                musicControllers.firstOrNull { it.packageName == SpotifyBroadcastReceiver.SPOTIFY_PACKAGE }
+                    ?: musicControllers.first()
+            }
+        }
 
-            chosen.metadata?.let { handleMetadataUpdate(it) }
-            chosen.playbackState?.let { handlePlaybackStateUpdate(it) }
+        if (chosen.sessionToken != currentActiveToken) {
+            attachToController(chosen)
         }
     }
 
-    private fun handleMetadataUpdate(metadata: MediaMetadata) {
+    private fun attachToController(
+        chosen: MediaController,
+        initialMetadata: MediaMetadata? = chosen.metadata,
+        initialPlaybackState: PlaybackState? = chosen.playbackState
+    ) {
+        detachActiveCompatController()
+        activeController = chosen
+
+        try {
+            val tokenCompat = MediaSessionCompat.Token.fromToken(chosen.sessionToken)
+            val compat = MediaControllerCompat(this, tokenCompat)
+            activeCompatController = compat
+            compat.registerCallback(compatCallback, mainHandler)
+
+            val initShuffle = compat.shuffleMode != PlaybackStateCompat.SHUFFLE_MODE_NONE
+            val initRepeat = when (compat.repeatMode) {
+                PlaybackStateCompat.REPEAT_MODE_ALL, PlaybackStateCompat.REPEAT_MODE_GROUP -> 1
+                PlaybackStateCompat.REPEAT_MODE_ONE -> 2
+                else -> 0
+            }
+            val rawQueue = compat.queue
+
+            playbackStateManager.updatePlaybackModes(initShuffle, initRepeat)
+            scheduleQueueSync(rawQueue, chosen)
+        } catch (e: Exception) {
+            e.printStackTrace()
+        }
+
+        initialMetadata?.let { handleMetadataUpdate(it, chosen) }
+        initialPlaybackState?.let { handlePlaybackStateUpdate(it) }
+    }
+
+    private fun handleMetadataUpdate(
+        metadata: MediaMetadata,
+        sourceController: MediaController? = activeController
+    ) {
         val title = metadata.getString(MediaMetadata.METADATA_KEY_TITLE)
             ?: metadata.getString(MediaMetadata.METADATA_KEY_DISPLAY_TITLE)
             ?: ""
@@ -362,20 +498,14 @@ class MediaPlaybackSyncService : NotificationListenerService(), MediaControlActi
         val album = metadata.getString(MediaMetadata.METADATA_KEY_ALBUM) ?: ""
         val duration = metadata.getLong(MediaMetadata.METADATA_KEY_DURATION)
 
-        val current = playbackStateManager.playbackState.value
-        val isSameTrack = (title == current.title && artist == current.artist)
-        val hasExistingValidCover = isSameTrack && !current.coverUrl.isNullOrBlank() &&
-            (!current.coverUrl.startsWith("/") || File(current.coverUrl).exists())
+        if (title.isBlank()) return
 
-        val candidateUri = if (hasExistingValidCover) null else {
-            metadata.getString(MediaMetadata.METADATA_KEY_ALBUM_ART_URI)
-                ?: metadata.getString(MediaMetadata.METADATA_KEY_ART_URI)
-                ?: metadata.getString(MediaMetadata.METADATA_KEY_DISPLAY_ICON_URI)
-                ?: metadata.description?.iconUri?.toString()
-        }
+        val candidateUri = metadata.getString(MediaMetadata.METADATA_KEY_ALBUM_ART_URI)
+            ?: metadata.getString(MediaMetadata.METADATA_KEY_ART_URI)
+            ?: metadata.getString(MediaMetadata.METADATA_KEY_DISPLAY_ICON_URI)
+            ?: metadata.description?.iconUri?.toString()
 
         val immediateUri = when {
-            hasExistingValidCover -> current.coverUrl
             !candidateUri.isNullOrBlank() && (
                 candidateUri.startsWith("http://") ||
                     candidateUri.startsWith("https://") ||
@@ -384,68 +514,74 @@ class MediaPlaybackSyncService : NotificationListenerService(), MediaControlActi
             else -> null
         }
 
-        val pkg = activeController?.packageName ?: ""
+        val pkg = sourceController?.packageName ?: ""
         val sourceApp = MediaSourceApp.fromPackageName(pkg)
 
-        if (title.isNotBlank()) {
-            val resolvedCover = if (!immediateUri.isNullOrBlank()) immediateUri else if (isSameTrack) current.coverUrl else null
-            val resolvedPosition = if (isSameTrack) current.currentPositionMs else 0L
-            val resolvedDuration = if (duration > 0) duration else if (isSameTrack) current.durationMs else 0L
+        val updated = playbackStateManager.updateMetadataAndCover(
+            title = title,
+            artist = artist,
+            album = album,
+            durationMs = duration,
+            coverUrl = immediateUri,
+            coverQuality = CoverQuality.NATIVE_METADATA,
+            packageName = pkg,
+            sourceApp = sourceApp,
+            existingCoverValidator = ::isCoverUrlValid
+        )
 
-            playbackStateManager.updateState(
-                current.copy(
-                    title = title,
-                    artist = artist,
-                    album = album,
-                    durationMs = resolvedDuration,
-                    currentPositionMs = resolvedPosition,
-                    coverUrl = resolvedCover,
-                    packageName = pkg,
-                    sourceApp = sourceApp,
-                    lastUpdateTimeMs = if (isSameTrack) current.lastUpdateTimeMs else SystemClock.elapsedRealtime()
-                )
+        val needsAsyncBitmapCover = immediateUri.isNullOrBlank() &&
+            playbackStateManager.canAcceptCover(
+                expectedTitle = title,
+                expectedArtist = artist,
+                quality = CoverQuality.NATIVE_METADATA,
+                expectedEpoch = updated.trackEpoch,
+                existingCoverValidator = ::isCoverUrlValid
             )
 
-            if (!hasExistingValidCover) {
-                val trackKey = "${artist}_${title}"
-                val rawBitmap = metadata.getBitmap(MediaMetadata.METADATA_KEY_ALBUM_ART)
-                    ?: metadata.getBitmap(MediaMetadata.METADATA_KEY_ART)
-                    ?: metadata.description?.iconBitmap
-                    ?: activeCompatController?.metadata?.getBitmap(MediaMetadataCompat.METADATA_KEY_ALBUM_ART)
-                    ?: activeCompatController?.metadata?.getBitmap(MediaMetadataCompat.METADATA_KEY_ART)
-                    ?: activeCompatController?.metadata?.description?.iconBitmap
-                val bitmapCopy = rawBitmap?.takeIf { !it.isRecycled }?.let { bmp ->
-                    try { bmp.copy(bmp.config ?: Bitmap.Config.ARGB_8888, false) } catch (_: Exception) { bmp }
-                }
+        if (needsAsyncBitmapCover) {
+            val trackKey = "${artist}_${title}"
+            val compatMeta = if (sourceController?.sessionToken == activeController?.sessionToken) {
+                activeCompatController?.metadata
+            } else {
+                null
+            }
+            val rawBitmap = metadata.getBitmap(MediaMetadata.METADATA_KEY_ALBUM_ART)
+                ?: metadata.getBitmap(MediaMetadata.METADATA_KEY_ART)
+                ?: metadata.description?.iconBitmap
+                ?: compatMeta?.getBitmap(MediaMetadataCompat.METADATA_KEY_ALBUM_ART)
+                ?: compatMeta?.getBitmap(MediaMetadataCompat.METADATA_KEY_ART)
+                ?: compatMeta?.description?.iconBitmap
+            val bitmapCopy = rawBitmap?.takeIf { !it.isRecycled }?.let { bmp ->
+                try { bmp.copy(bmp.config ?: Bitmap.Config.ARGB_8888, false) } catch (_: Exception) { bmp }
+            }
 
-                if (bitmapCopy != null || (!candidateUri.isNullOrBlank() && candidateUri.startsWith("content://"))) {
-                    val expectedEpoch = playbackStateManager.playbackState.value.trackEpoch
-                    ioScope.launch {
-                        var savedPath: String? = bitmapCopy?.let {
-                            saveBitmapToLocalFile(it, MEDIA_ART_PREFIX, maxRetained = 4, trackKey = trackKey)
-                        }
-                        if (savedPath == null && !candidateUri.isNullOrBlank() && candidateUri.startsWith("content://")) {
-                            savedPath = try {
-                                val stream = contentResolver.openInputStream(Uri.parse(candidateUri))
-                                val contentBitmap = stream?.use { BitmapFactory.decodeStream(it) }
-                                if (contentBitmap != null) {
-                                    saveBitmapToLocalFile(contentBitmap, MEDIA_ART_PREFIX, maxRetained = 4, trackKey = trackKey)
-                                } else {
-                                    candidateUri
-                                }
-                            } catch (_: Exception) {
+            if (bitmapCopy != null || (!candidateUri.isNullOrBlank() && candidateUri.startsWith("content://"))) {
+                val expectedEpoch = updated.trackEpoch
+                ioScope.launch {
+                    var savedPath: String? = bitmapCopy?.let {
+                        saveBitmapToLocalFile(it, MEDIA_ART_PREFIX, maxRetained = 4, trackKey = trackKey)
+                    }
+                    if (savedPath == null && !candidateUri.isNullOrBlank() && candidateUri.startsWith("content://")) {
+                        savedPath = try {
+                            val stream = contentResolver.openInputStream(Uri.parse(candidateUri))
+                            val contentBitmap = stream?.use { BitmapFactory.decodeStream(it) }
+                            if (contentBitmap != null) {
+                                saveBitmapToLocalFile(contentBitmap, MEDIA_ART_PREFIX, maxRetained = 4, trackKey = trackKey)
+                            } else {
                                 candidateUri
                             }
+                        } catch (_: Exception) {
+                            candidateUri
                         }
-                        if (!savedPath.isNullOrBlank()) {
-                            playbackStateManager.updateCoverIfBetter(
-                                expectedTitle = title,
-                                expectedArtist = artist,
-                                coverUrl = savedPath,
-                                quality = CoverQuality.NATIVE_METADATA,
-                                expectedEpoch = expectedEpoch
-                            )
-                        }
+                    }
+                    if (!savedPath.isNullOrBlank()) {
+                        playbackStateManager.updateCoverIfBetter(
+                            expectedTitle = title,
+                            expectedArtist = artist,
+                            coverUrl = savedPath,
+                            quality = CoverQuality.NATIVE_METADATA,
+                            expectedEpoch = expectedEpoch
+                        )
                     }
                 }
             }
@@ -454,17 +590,18 @@ class MediaPlaybackSyncService : NotificationListenerService(), MediaControlActi
 
     private fun handlePlaybackStateUpdate(state: PlaybackState) {
         val isPlaying = state.state == PlaybackState.STATE_PLAYING
-        val position = state.position
-        val speed = if (state.playbackSpeed > 0) state.playbackSpeed else 1.0f
+        val position = state.position.takeIf { it >= 0L }
+        val speed = if (state.playbackSpeed > 0f) state.playbackSpeed else 1.0f
+        val now = SystemClock.elapsedRealtime()
+        val anchorTimeMs = state.lastPositionUpdateTime
+            .takeIf { it > 0L && it <= now + 1_000L }
+            ?: now
 
-        val current = playbackStateManager.playbackState.value
-        playbackStateManager.updateState(
-            current.copy(
-                isPlaying = isPlaying,
-                currentPositionMs = position,
-                playbackSpeed = speed,
-                lastUpdateTimeMs = SystemClock.elapsedRealtime()
-            )
+        playbackStateManager.updatePlaybackClock(
+            positionMs = position,
+            isPlaying = isPlaying,
+            playbackSpeed = speed,
+            lastUpdateTimeMs = anchorTimeMs
         )
     }
 
@@ -502,8 +639,7 @@ class MediaPlaybackSyncService : NotificationListenerService(), MediaControlActi
             PlaybackStateCompat.SHUFFLE_MODE_ALL
         }
         compat.transportControls.setShuffleMode(targetMode)
-        val cur = playbackStateManager.playbackState.value
-        playbackStateManager.updateState(cur.copy(isShuffleActive = targetMode != PlaybackStateCompat.SHUFFLE_MODE_NONE))
+        playbackStateManager.updateShuffleMode(targetMode != PlaybackStateCompat.SHUFFLE_MODE_NONE)
     }
 
     override fun cycleRepeatMode() {
@@ -516,8 +652,7 @@ class MediaPlaybackSyncService : NotificationListenerService(), MediaControlActi
             else -> Pair(PlaybackStateCompat.REPEAT_MODE_ALL, 1)
         }
         compat.transportControls.setRepeatMode(targetMode)
-        val cur = playbackStateManager.playbackState.value
-        playbackStateManager.updateState(cur.copy(repeatMode = mappedMode))
+        playbackStateManager.updateRepeatMode(mappedMode)
     }
 
     override fun skipToQueueItem(item: QueueTrackItem) {
@@ -597,7 +732,10 @@ class MediaPlaybackSyncService : NotificationListenerService(), MediaControlActi
         }
     }
 
-    private fun mapQueueItem(item: MediaSessionCompat.QueueItem): QueueTrackItem {
+    private fun mapQueueItem(
+        item: MediaSessionCompat.QueueItem,
+        maxRetained: Int = MIN_QUEUE_ART_RETAINED
+    ): QueueTrackItem {
         val desc = item.description
         val rawTitle = desc.title?.toString()?.trim().orEmpty()
         val rawSubtitle = desc.subtitle?.toString()?.trim().orEmpty()
@@ -618,7 +756,7 @@ class MediaPlaybackSyncService : NotificationListenerService(), MediaControlActi
                 saveBitmapToLocalFile(
                     bitmap = it,
                     prefix = QUEUE_ART_PREFIX,
-                    maxRetained = 24,
+                    maxRetained = maxRetained,
                     trackKey = "${item.queueId}_${rawTitle}"
                 )
             }
@@ -634,10 +772,153 @@ class MediaPlaybackSyncService : NotificationListenerService(), MediaControlActi
         )
     }
 
+    private fun isCoverUrlValid(coverUrl: String?): Boolean {
+        if (coverUrl.isNullOrBlank()) return false
+        return !coverUrl.startsWith("/") || File(coverUrl).exists()
+    }
+
     companion object {
         private const val MEDIA_ART_PREFIX = "media_art_meta_"
         private const val MEDIA_ART_NOTIF_PREFIX = "media_art_notif_"
         private const val QUEUE_ART_PREFIX = "queue_art_"
+        private const val MIN_QUEUE_ART_RETAINED = 24
+
+        private val KNOWN_MUSIC_PACKAGES = setOf(
+            "com.spotify.music",
+            "com.spotify.lite",
+            "com.apple.android.music",
+            "com.apple.android.music.classical",
+            "com.netease.cloudmusic",
+            "com.netease.cloudmusic.lite",
+            "com.tencent.qqmusic",
+            "com.tencent.qqmusicpad",
+            "com.tencent.qqmusic.lite",
+            "com.kugou.android",
+            "com.kugou.android.lite",
+            "com.kugou.android.elder",
+            "cn.kuwo.player",
+            "cn.kuwo.kwmusiccar",
+            "com.google.android.apps.youtube.music",
+            "com.aspiro.tidal",
+            "deezer.android.app",
+            "com.soundcloud.android",
+            "tv.danmaku.bili",
+            "com.bilibili.app.in",
+            "com.bilibili.app.blue",
+            "tv.danmaku.bilibilihd",
+            "com.maxmpz.audioplayer",
+            "tv.plex.labs.plexamp",
+            "com.neutroncode.mp",
+            "com.luna.music",
+            "cmccwm.mobilemusic",
+            "com.amazon.mp3",
+            "com.qobuz.music",
+            "com.bandcamp.android",
+            "com.pandora.android",
+            "com.foobar2000.foobar2000",
+            "com.aimp.player",
+            "in.krosbits.musicolet",
+            "com.salt.music",
+            "com.hiby.music",
+            "com.fiio.music",
+            "com.shanling.eddictplayer",
+            "com.piyush.music",
+            "org.akanework.gramophone",
+            "org.oxycblt.auxio",
+            "code.name.monkey.retromusic",
+            "com.dd3boh.outertune",
+            "com.zionhuang.music",
+            "com.miui.player",
+            "com.samsung.android.app.music",
+            "com.sec.android.app.music",
+            "com.heytap.music",
+            "com.oppo.music",
+            "com.vivo.music",
+            "com.android.mediacenter",
+            "com.meizu.media.music",
+            "com.sonyericsson.music",
+            "com.tencent.ibg.joox",
+            "com.skysoft.kkbox.android",
+            "com.iloen.melon",
+            "com.neowiz.android.bugs",
+            "com.ktmusic.geniemusic",
+            "skplanet.musicmate",
+            "jp.linecorp.linemusic.android",
+            "jp.awa.android",
+            "ru.yandex.music",
+            "com.audiomack"
+        )
+
+        private val EXCLUDED_PACKAGE_TOKENS = listOf(
+            "browser",
+            "chrome",
+            "firefox",
+            "webview",
+            "opera",
+            "sbrowser",
+            "emmx",
+            "ucmobile",
+            "quark",
+            "brave",
+            "vivaldi",
+            "duckduckgo",
+            "alarm",
+            "clock",
+            "timer",
+            "ringtone",
+            "telecom",
+            "dialer",
+            "incall",
+            "calling",
+            "voip",
+            "whatsapp",
+            "telegram",
+            "discord",
+            "zoom",
+            "teams",
+            "skype",
+            "tencent.mm",
+            "systemui",
+            "tts",
+            "recorder",
+            "screencast",
+            "video",
+            "kmplayer",
+            "mxtech",
+            "netflix",
+            "disney",
+            "tiktok",
+            "camera",
+            "gallery"
+        )
+
+        private val MUSIC_KEYWORD_TOKENS = listOf(
+            "music",
+            "audio",
+            "player",
+            "mp3",
+            "flac",
+            "hifi"
+        )
+
+        internal fun computeQueueCoverRetention(queueSize: Int): Int =
+            maxOf(MIN_QUEUE_ART_RETAINED, queueSize + 4)
+
+        internal fun isMusicApp(
+            packageName: String?,
+            currentPackageName: String? = null
+        ): Boolean {
+            if (packageName.isNullOrBlank()) return false
+            val normalized = packageName.lowercase(Locale.ROOT)
+            if (normalized in KNOWN_MUSIC_PACKAGES) return true
+            if (EXCLUDED_PACKAGE_TOKENS.any { normalized.contains(it) }) return false
+            if (!currentPackageName.isNullOrBlank() &&
+                normalized == currentPackageName.lowercase(Locale.ROOT)
+            ) {
+                return true
+            }
+            return MUSIC_KEYWORD_TOKENS.any { normalized.contains(it) }
+        }
 
         fun isNotificationAccessGranted(context: Context): Boolean {
             val enabledListeners = NotificationManagerCompat.getEnabledListenerPackages(context)

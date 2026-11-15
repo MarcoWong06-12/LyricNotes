@@ -6,7 +6,14 @@ import com.linernotes.app.domain.model.BilingualLyricLine
 object LyricAligner {
 
     val LRC_TIMESTAMP_REGEX = Regex("""\[\d{1,2}:\d{2}(?:\.\d{1,3})?]""")
-    val LRC_METADATA_REGEX = Regex("""^\[(ti|ar|al|by|offset|length|re|ve|encoding):.*?]""", RegexOption.IGNORE_CASE)
+    val LRC_METADATA_REGEX = Regex(
+        """^\[(ti|ar|al|by|offset|length|re|ve|encoding|id|hash|total|sign|qq|language):.*?]""",
+        RegexOption.IGNORE_CASE
+    )
+    private val MS_PAIR_HEADER_REGEX = Regex("""^\[(\d+),(\d+)\]""")
+    private val YRC_JSON_LINE_REGEX = Regex("""^\s*\{.*"t"\s*:\s*\d+.*"c"\s*:\s*\[.*\}\s*$""")
+    private val INLINE_PAREN_SHIFT_REGEX = Regex("""\((\d+),(\d+(?:,\d+)?)\)""")
+    private val ANGLED_LRC_SHIFT_REGEX = Regex("""<(\d{1,2}):(\d{2})(?:\.(\d{1,3}))?>""")
     private val ZERO_WIDTH_REGEX = Regex("""[\u200B-\u200D\uFEFF]""")
     private val SECTION_HEADER_REGEX = Regex(
         """^\[?\s*(?:intro|verse(?:\s*\d+)?|chorus|pre-?chorus|post-?chorus|hook|bridge|outro|interlude|instrumental|solo|break|refrain|guitar\s*solo|主歌|副歌|前奏|间奏|尾奏|桥段)\s*(?:[:\-].*?)?\]?$""",
@@ -14,11 +21,20 @@ object LyricAligner {
     )
 
     fun cleanLine(line: String): String {
-        val withoutTime = line.replace(LRC_TIMESTAMP_REGEX, "").replace(ZERO_WIDTH_REGEX, "").trim()
-        if (withoutTime.isEmpty() || withoutTime.matches(LRC_METADATA_REGEX) || withoutTime.matches(SECTION_HEADER_REGEX)) {
+        val trimmed = line.trim()
+        if (trimmed.isEmpty() || trimmed.matches(YRC_JSON_LINE_REGEX)) {
             return ""
         }
-        if (isInvalidTranslationLine(withoutTime)) {
+        val withoutTime = trimmed
+            .replace(LRC_TIMESTAMP_REGEX, "")
+            .replace(MS_PAIR_HEADER_REGEX, "")
+            .replace(ZERO_WIDTH_REGEX, "")
+            .trim()
+        if (withoutTime.isEmpty() || withoutTime.matches(LRC_METADATA_REGEX)) {
+            return ""
+        }
+        val plainForFilter = LyricWordParser.cleanInlineTimestamps(withoutTime).trim()
+        if (plainForFilter.isEmpty() || plainForFilter.matches(SECTION_HEADER_REGEX) || isInvalidTranslationLine(plainForFilter)) {
             return ""
         }
         return HtmlUtils.unescapeHtml(withoutTime)
@@ -30,10 +46,12 @@ object LyricAligner {
     fun shiftLrcTimestamps(lrc: String, offsetMs: Long): String {
         if (lrc.isBlank() || offsetMs == 0L) return lrc
         return lrc.lines().joinToString("\n") { rawLine ->
-            if (!TIMESTAMP_PARSER_REGEX.containsMatchIn(rawLine)) {
+            val hasStandardTs = TIMESTAMP_PARSER_REGEX.containsMatchIn(rawLine)
+            val hasMsPair = MS_PAIR_HEADER_REGEX.containsMatchIn(rawLine.trimStart())
+            if (!hasStandardTs && !hasMsPair) {
                 rawLine
             } else {
-                TIMESTAMP_PARSER_REGEX.replace(rawLine) { match ->
+                var shifted = TIMESTAMP_PARSER_REGEX.replace(rawLine) { match ->
                     val min = match.groupValues[1].toLongOrNull() ?: 0L
                     val sec = match.groupValues[2].toLongOrNull() ?: 0L
                     val msStr = match.groupValues.getOrNull(3) ?: ""
@@ -46,22 +64,67 @@ object LyricAligner {
                     val totalMs = (min * 60_000L + sec * 1000L + ms + offsetMs).coerceAtLeast(0L)
                     formatTimestamp(totalMs)
                 }
+                if (hasMsPair) {
+                    shifted = MS_PAIR_HEADER_REGEX.replace(shifted.trimStart()) { match ->
+                        val start = match.groupValues[1].toLongOrNull() ?: 0L
+                        val dur = match.groupValues[2]
+                        val nextStart = (start + offsetMs).coerceAtLeast(0L)
+                        "[$nextStart,$dur]"
+                    }
+                }
+                if (INLINE_PAREN_SHIFT_REGEX.containsMatchIn(shifted)) {
+                    shifted = INLINE_PAREN_SHIFT_REGEX.replace(shifted) { match ->
+                        val start = match.groupValues[1].toLongOrNull() ?: 0L
+                        val rest = match.groupValues[2]
+                        val nextStart = (start + offsetMs).coerceAtLeast(0L)
+                        "($nextStart,$rest)"
+                    }
+                }
+                if (ANGLED_LRC_SHIFT_REGEX.containsMatchIn(shifted)) {
+                    shifted = ANGLED_LRC_SHIFT_REGEX.replace(shifted) { match ->
+                        val min = match.groupValues[1].toLongOrNull() ?: 0L
+                        val sec = match.groupValues[2].toLongOrNull() ?: 0L
+                        val msStr = match.groupValues.getOrNull(3) ?: ""
+                        val ms = when (msStr.length) {
+                            1 -> (msStr.toLongOrNull() ?: 0L) * 100
+                            2 -> (msStr.toLongOrNull() ?: 0L) * 10
+                            3 -> msStr.toLongOrNull() ?: 0L
+                            else -> 0L
+                        }
+                        val totalMs = (min * 60_000L + sec * 1000L + ms + offsetMs).coerceAtLeast(0L)
+                        val totalSec = totalMs / 1000
+                        val outMin = totalSec / 60
+                        val outSec = totalSec % 60
+                        val outFrac = (totalMs % 1000) / 10
+                        String.format(java.util.Locale.US, "<%02d:%02d.%02d>", outMin, outSec, outFrac)
+                    }
+                }
+                shifted
             }
         }
     }
 
     fun extractTimestampMs(line: String): Long? {
-        val match = TIMESTAMP_PARSER_REGEX.find(line) ?: return null
-        val min = match.groupValues[1].toLongOrNull() ?: 0L
-        val sec = match.groupValues[2].toLongOrNull() ?: 0L
-        val msStr = match.groupValues.getOrNull(3) ?: ""
-        val ms = when (msStr.length) {
-            1 -> (msStr.toLongOrNull() ?: 0L) * 100
-            2 -> (msStr.toLongOrNull() ?: 0L) * 10
-            3 -> msStr.toLongOrNull() ?: 0L
-            else -> 0L
+        val match = TIMESTAMP_PARSER_REGEX.find(line)
+        if (match != null) {
+            val min = match.groupValues[1].toLongOrNull() ?: 0L
+            val sec = match.groupValues[2].toLongOrNull() ?: 0L
+            val msStr = match.groupValues.getOrNull(3) ?: ""
+            val ms = when (msStr.length) {
+                1 -> (msStr.toLongOrNull() ?: 0L) * 100
+                2 -> (msStr.toLongOrNull() ?: 0L) * 10
+                3 -> msStr.toLongOrNull() ?: 0L
+                else -> 0L
+            }
+            return min * 60_000L + sec * 1000L + ms
         }
-        return min * 60_000L + sec * 1000L + ms
+        val pairMatch = MS_PAIR_HEADER_REGEX.find(line.trimStart()) ?: return null
+        return pairMatch.groupValues[1].toLongOrNull()
+    }
+
+    private fun extractLineDurationMs(line: String): Long? {
+        val pairMatch = MS_PAIR_HEADER_REGEX.find(line.trimStart()) ?: return null
+        return pairMatch.groupValues[2].toLongOrNull()?.takeIf { it > 0L }
     }
 
     fun formatTimestamp(ms: Long): String {
@@ -154,6 +217,7 @@ object LyricAligner {
         val origLines = rawOrigLines.map { cleanLine(it) }
         val transLines = rawTransLines.map { cleanLine(it) }
         val origTimes = rawOrigLines.map { extractTimestampMs(it) }
+        val origDurations = rawOrigLines.map { extractLineDurationMs(it) }
         val transTimes = rawTransLines.map { extractTimestampMs(it) }
 
         if (transLines.isEmpty() || transLines.all { it.isBlank() }) {
@@ -167,7 +231,7 @@ object LyricAligner {
                     startTimeMs = origTimes.getOrNull(index)
                 )
             }
-            return enrichWithWordTimestamps(rawLines)
+            return enrichWithWordTimestamps(rawLines, origDurations)
         }
 
         // 1. 优先检查译文中是否含有行号标记（如 "1. "、"[#1] " 等），实现确定性绝对锚定
@@ -216,7 +280,7 @@ object LyricAligner {
                     )
                 }
             }
-            return enrichWithWordTimestamps(result)
+            return enrichWithWordTimestamps(result, origDurations)
         }
 
         // 2. 提取原歌词与译文的全部非空演唱正文行
@@ -296,13 +360,16 @@ object LyricAligner {
                 )
             )
         }
-        return enrichWithWordTimestamps(result)
+        return enrichWithWordTimestamps(result, origDurations)
     }
 
     /**
-     * 为每行歌词注入逐字/逐音节时间戳模型，支持 YRC/QRC/Enhanced LRC 及标准 LRC 物理加权插值
+     * 为每行歌词注入逐字/逐音节时间戳模型，支持 YRC/QRC/KRC/Enhanced LRC 及标准 LRC 物理加权插值
      */
-    private fun enrichWithWordTimestamps(lines: List<BilingualLyricLine>): List<BilingualLyricLine> {
+    private fun enrichWithWordTimestamps(
+        lines: List<BilingualLyricLine>,
+        lineDurations: List<Long?> = emptyList()
+    ): List<BilingualLyricLine> {
         return lines.mapIndexed { index, line ->
             if (line.startTimeMs == null || line.isStanzaBreak || line.original.isBlank()) {
                 line
@@ -310,11 +377,19 @@ object LyricAligner {
                 val nextTime = lines.subList(index + 1, lines.size)
                     .firstOrNull { it.startTimeMs != null && !it.isStanzaBreak && it.original.isNotBlank() }
                     ?.startTimeMs
+                val explicitEnd = lineDurations.getOrNull(index)?.let { dur ->
+                    line.startTimeMs + dur
+                }
+                val resolvedEndTime = when {
+                    nextTime != null && explicitEnd != null -> minOf(nextTime, explicitEnd)
+                    nextTime != null -> nextTime
+                    else -> explicitEnd
+                }
                 val cleanOrig = LyricWordParser.cleanInlineTimestamps(line.original)
-                val words = LyricWordParser.parseLineWords(line.original, line.startTimeMs, nextTime)
+                val words = LyricWordParser.parseLineWords(line.original, line.startTimeMs, resolvedEndTime)
                 line.copy(
                     original = cleanOrig,
-                    endTimeMs = nextTime,
+                    endTimeMs = resolvedEndTime,
                     words = words
                 )
             }
@@ -555,7 +630,7 @@ object LyricAligner {
         return if (result.isEmpty()) listOf(emptyList()) else result
     }
 
-    data class TimedLyric(val ms: Long, val text: String)
+    data class TimedLyric(val ms: Long, val text: String, val durationMs: Long? = null)
 
     private val TIMESTAMP_PARSER_REGEX = Regex("""\[(\d{1,2}):(\d{2})(?:\.(\d{1,3}))?\]""")
     private val LEADING_TIMESTAMP_BLOCK_REGEX = Regex("""^(?:\[\d{1,2}:\d{2}(?:\.\d{1,3})?\])+""")
@@ -567,7 +642,7 @@ object LyricAligner {
     )
 
     /**
-     * 将网易云等平台返回的包含 [mm:ss.xx] 时间戳的原版歌词与翻译歌词，
+     * 将网易云等平台返回的包含 [mm:ss.xx] 或 [startMs,durMs] 时间戳的原版歌词与翻译歌词，
      * 通过毫秒级时间戳精准匹配并消除制作人名单，输出 1:1 行对齐且保留时间标签的歌词文本。
      */
     fun alignLrcTimestamps(origLrc: String, transLrc: String?): Pair<String, String> {
@@ -576,10 +651,10 @@ object LyricAligner {
 
         // 过滤开头的制作信息行与翻译者信息（前 3.5 秒内包含制作人、作词作曲等纯制作信息）
         val filteredOrig = origTimed.filterNot { item ->
-            item.ms < 3500 && item.text.contains(CREDIT_FILTER_REGEX)
+            item.ms < 3500 && LyricWordParser.cleanInlineTimestamps(item.text).contains(CREDIT_FILTER_REGEX)
         }
         val filteredTrans = transTimed.filterNot { item ->
-            item.ms < 3500 && item.text.contains(CREDIT_FILTER_REGEX)
+            item.ms < 3500 && LyricWordParser.cleanInlineTimestamps(item.text).contains(CREDIT_FILTER_REGEX)
         }
 
         if (filteredOrig.isEmpty()) {
@@ -656,12 +731,12 @@ object LyricAligner {
         return Pair(origResult.toString().trimEnd(), transResult.toString().trimEnd())
     }
 
-    private fun parseTimedLines(lrc: String): List<TimedLyric> {
+    internal fun parseTimedLines(lrc: String): List<TimedLyric> {
         val result = mutableListOf<TimedLyric>()
         for (rawLine in lrc.lines()) {
             val trimmed = rawLine.trim()
             if (trimmed.isBlank()) continue
-            if (trimmed.matches(LRC_METADATA_REGEX)) continue
+            if (trimmed.matches(LRC_METADATA_REGEX) || trimmed.matches(YRC_JSON_LINE_REGEX)) continue
 
             val leadingBlock = LEADING_TIMESTAMP_BLOCK_REGEX.find(trimmed)?.value.orEmpty()
             val matches = if (leadingBlock.isNotEmpty()) {
@@ -669,23 +744,33 @@ object LyricAligner {
             } else {
                 TIMESTAMP_PARSER_REGEX.findAll(trimmed).take(1).toList()
             }
-            if (matches.isEmpty()) continue
 
-            val cleanText = trimmed.replace(TIMESTAMP_PARSER_REGEX, "").replace(ZERO_WIDTH_REGEX, "").trim()
-            if (cleanText.isEmpty() || cleanText.matches(SECTION_HEADER_REGEX)) continue
+            if (matches.isNotEmpty()) {
+                val rawBody = trimmed.replace(TIMESTAMP_PARSER_REGEX, "").replace(ZERO_WIDTH_REGEX, "").trim()
+                val plainText = LyricWordParser.cleanInlineTimestamps(rawBody).trim()
+                if (plainText.isEmpty() || plainText.matches(SECTION_HEADER_REGEX)) continue
 
-            for (m in matches) {
-                val min = m.groupValues[1].toLongOrNull() ?: 0L
-                val sec = m.groupValues[2].toLongOrNull() ?: 0L
-                val msStr = m.groupValues.getOrNull(3) ?: ""
-                val ms = when (msStr.length) {
-                    1 -> (msStr.toLongOrNull() ?: 0L) * 100
-                    2 -> (msStr.toLongOrNull() ?: 0L) * 10
-                    3 -> msStr.toLongOrNull() ?: 0L
-                    else -> 0L
+                for (m in matches) {
+                    val min = m.groupValues[1].toLongOrNull() ?: 0L
+                    val sec = m.groupValues[2].toLongOrNull() ?: 0L
+                    val msStr = m.groupValues.getOrNull(3) ?: ""
+                    val ms = when (msStr.length) {
+                        1 -> (msStr.toLongOrNull() ?: 0L) * 100
+                        2 -> (msStr.toLongOrNull() ?: 0L) * 10
+                        3 -> msStr.toLongOrNull() ?: 0L
+                        else -> 0L
+                    }
+                    val totalMs = min * 60_000L + sec * 1000L + ms
+                    result.add(TimedLyric(totalMs, rawBody))
                 }
-                val totalMs = min * 60_000L + sec * 1000L + ms
-                result.add(TimedLyric(totalMs, cleanText))
+            } else {
+                val msHeader = MS_PAIR_HEADER_REGEX.find(trimmed) ?: continue
+                val startMs = msHeader.groupValues[1].toLongOrNull() ?: continue
+                val durMs = msHeader.groupValues[2].toLongOrNull()?.takeIf { it > 0L }
+                val rawBody = trimmed.substring(msHeader.range.last + 1).replace(ZERO_WIDTH_REGEX, "").trim()
+                val plainText = LyricWordParser.cleanInlineTimestamps(rawBody).trim()
+                if (plainText.isEmpty() || plainText.matches(SECTION_HEADER_REGEX)) continue
+                result.add(TimedLyric(ms = startMs, text = rawBody, durationMs = durMs))
             }
         }
         result.sortBy { it.ms }

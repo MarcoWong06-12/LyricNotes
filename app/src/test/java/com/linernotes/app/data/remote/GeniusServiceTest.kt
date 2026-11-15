@@ -1,7 +1,10 @@
 package com.linernotes.app.data.remote
 
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotNull
+import org.junit.Assert.assertNull
+import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class GeniusServiceTest {
@@ -87,5 +90,50 @@ class GeniusServiceTest {
         assertEquals(false, GeniusService.isTranslationSpam("Manchild", "Manchild by Sabrina Carpenter", "Sabrina Carpenter"))
         assertEquals(false, GeniusService.isTranslationSpam("Ms. Jackson", "Ms. Jackson by OutKast", "OutKast"))
         assertEquals(false, GeniusService.isTranslationSpam("505", "505 by Arctic Monkeys", "Arctic Monkeys"))
+    }
+
+    @Test
+    fun testSelectBestGeniusCandidate_scoresMatchesAndRejectsWrongArtists() {
+        val wrongArtistTopHit = GeniusService.GeniusHitCandidate(
+            song = GeniusSongSearchResult(1L, "Stay", "Stay by Rihanna", "Rihanna", null, null, null),
+            artistNames = "Rihanna & Mikky Ekko",
+            isTopHit = true
+        )
+        val rightCandidate = GeniusService.GeniusHitCandidate(
+            song = GeniusSongSearchResult(2L, "STAY", "STAY by The Kid LAROI & Justin Bieber", "The Kid LAROI", null, null, null),
+            artistNames = "The Kid LAROI & Justin Bieber",
+            isTopHit = false
+        )
+
+        val picked = GeniusService.selectBestGeniusCandidate(
+            candidates = listOf(wrongArtistTopHit, rightCandidate),
+            targetTitle = "STAY",
+            targetArtist = "Justin Bieber"
+        )
+        assertNotNull(picked)
+        assertEquals(2L, picked?.id)
+
+        val clearMismatch = GeniusService.selectBestGeniusCandidate(
+            candidates = listOf(wrongArtistTopHit),
+            targetTitle = "STAY",
+            targetArtist = "Justin Bieber"
+        )
+        assertNull(clearMismatch)
+
+        val koreanCandidate = GeniusService.GeniusHitCandidate(
+            song = GeniusSongSearchResult(3L, "밤편지 (Through the Night)", "밤편지 by IU", "아이유 (IU)", null, null, null),
+            artistNames = "아이유 (IU)",
+            isTopHit = false
+        )
+        val pickedKorean = GeniusService.selectBestGeniusCandidate(
+            candidates = listOf(koreanCandidate),
+            targetTitle = "밤편지",
+            targetArtist = "아이유"
+        )
+        assertEquals(3L, pickedKorean?.id)
+
+        val defaultOutcome = GeniusSearchOutcome()
+        assertNull(defaultOutcome.result)
+        assertFalse(defaultOutcome.connected)
     }
 }

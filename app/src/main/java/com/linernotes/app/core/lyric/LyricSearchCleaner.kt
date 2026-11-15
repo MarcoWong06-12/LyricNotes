@@ -1,6 +1,19 @@
 package com.linernotes.app.core.lyric
 
+import com.linernotes.app.core.util.ChineseConverter
+import java.text.Normalizer
+
 object LyricSearchCleaner {
+
+    private val COMBINING_DIACRITICAL_REGEX = Regex("""\p{InCombiningDiacriticalMarks}+""")
+    private val PAREN_CONTENT_REGEX = Regex("""[\(\[\{（【［].*?[\)\]\}）】］]""")
+    private val INLINE_WORD_TAG_REGEX = Regex("""\(\d+,\d+(?:,\d+)?\)|<\d{1,2}:\d{2}(?:\.\d{1,3})?>|<\d+,\d+(?:,\d+)?>|\[\d+,\d+\]""")
+    private val NON_MATCHABLE_WITH_SPACE_REGEX = Regex(
+        """[^a-z0-9\u4e00-\u9fa5\u3040-\u309f\u30a0-\u30ff\uac00-\ud7af\u1100-\u11ff\u3130-\u318f\u0400-\u04ff\s]"""
+    )
+    private val NON_MATCHABLE_COMPACT_REGEX = Regex(
+        """[^a-z0-9\u4e00-\u9fa5\u3040-\u309f\u30a0-\u30ff\uac00-\ud7af\u1100-\u11ff\u3130-\u318f\u0400-\u04ff]"""
+    )
 
     private val TRACK_NUMBER_PREFIX_REGEX = Regex(
         """^\s*(?:track\s*\d{1,3}[\.\-_\s]*|\d{1,3}[\.\-_\s]+|[a-zA-Z]\d{1,2}[\.\-_\s]+)""",
@@ -226,13 +239,28 @@ object LyricSearchCleaner {
         return score
     }
 
+    private fun normalizeLatinDiacritics(input: String): String {
+        val nfc = Normalizer.normalize(input, Normalizer.Form.NFC)
+        val sb = StringBuilder(nfc.length)
+        for (ch in nfc) {
+            if (ch in '\u00C0'..'\u024F' || ch in '\u1E00'..'\u1EFF') {
+                val nfd = Normalizer.normalize(ch.toString(), Normalizer.Form.NFD)
+                sb.append(COMBINING_DIACRITICAL_REGEX.replace(nfd, ""))
+            } else {
+                sb.append(ch)
+            }
+        }
+        return COMBINING_DIACRITICAL_REGEX.replace(sb.toString(), "")
+    }
+
     fun normalizeForMatching(text: String): String {
         // 先统一将繁体转为简体，打通繁简通用匹配 (如 "幸福論" 与 "幸福论")
-        val simplified = com.linernotes.app.core.util.ChineseConverter.toSimplified(text)
-        var s = simplified.lowercase()
-        s = s.replace(Regex("""[\(\[\{（【［].*?[\)\]\}）】］]"""), " ")
-        // 允许拉丁字符、数字、中文字符(\u4e00-\u9fa5)、日文平假名(\u3040-\u309f)与片假名(\u30a0-\u30ff)
-        s = s.replace(Regex("""[^a-z0-9\u4e00-\u9fa5\u3040-\u309f\u30a0-\u30ff\s]"""), " ")
+        val cleanedTags = text.replace(INLINE_WORD_TAG_REGEX, "")
+        val simplified = ChineseConverter.toSimplified(cleanedTags)
+        var s = normalizeLatinDiacritics(simplified).lowercase()
+        s = s.replace(PAREN_CONTENT_REGEX, " ")
+        // 保留拉丁字符、数字、中文、日文假名、韩文谚文(\uac00-\ud7af, \u1100-\u11ff, \u3130-\u318f)与西里尔字母(\u0400-\u04ff)
+        s = s.replace(NON_MATCHABLE_WITH_SPACE_REGEX, " ")
         return s.replace(Regex("""\s+"""), " ").trim()
     }
 
@@ -293,12 +321,12 @@ object LyricSearchCleaner {
         val results = mutableListOf<String>()
         val lines = lyric.lines()
         for (line in lines) {
-            val textOnly = line.replace(TIMESTAMP_PARSER_REGEX, "").trim()
+            val textOnly = line.replace(TIMESTAMP_PARSER_REGEX, "").replace(INLINE_WORD_TAG_REGEX, "").trim()
             if (textOnly.length < 3) continue
             val lower = textOnly.lowercase()
             if (META_LINE_TAGS.any { lower.contains(it) }) continue
-            val simplified = com.linernotes.app.core.util.ChineseConverter.toSimplified(lower)
-            val cleanNorm = simplified.replace(Regex("""[^a-z0-9\u4e00-\u9fa5\u3040-\u309f\u30a0-\u30ff]"""), "")
+            val simplified = ChineseConverter.toSimplified(lower)
+            val cleanNorm = normalizeLatinDiacritics(simplified).replace(NON_MATCHABLE_COMPACT_REGEX, "")
             if (cleanNorm.length >= 3) {
                 results.add(cleanNorm)
                 if (results.size >= 5) break

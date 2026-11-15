@@ -4,6 +4,8 @@ import android.content.Context
 import androidx.room.Room
 import com.linernotes.app.data.local.LinerNotesDatabase
 import com.linernotes.app.data.local.dao.AlbumDao
+import com.linernotes.app.data.local.dao.CachedSongDao
+import com.linernotes.app.data.local.dao.LyricAnnotationDao
 import dagger.Module
 import dagger.Provides
 import dagger.hilt.InstallIn
@@ -33,19 +35,13 @@ object DatabaseModule {
 
     @Provides
     @Singleton
-    fun provideBookletDao(database: LinerNotesDatabase): com.linernotes.app.data.local.dao.BookletDao {
-        return database.bookletDao()
-    }
-
-    @Provides
-    @Singleton
-    fun provideLyricOffsetDao(database: LinerNotesDatabase): com.linernotes.app.data.local.dao.LyricOffsetDao {
-        return database.lyricOffsetDao()
-    }
-
-    @Provides
-    @Singleton
-    fun provideLyricAnnotationDao(database: LinerNotesDatabase): com.linernotes.app.data.local.dao.LyricAnnotationDao {
+    fun provideLyricAnnotationDao(database: LinerNotesDatabase): LyricAnnotationDao {
         return database.lyricAnnotationDao()
+    }
+
+    @Provides
+    @Singleton
+    fun provideCachedSongDao(database: LinerNotesDatabase): CachedSongDao {
+        return database.cachedSongDao()
     }
 }

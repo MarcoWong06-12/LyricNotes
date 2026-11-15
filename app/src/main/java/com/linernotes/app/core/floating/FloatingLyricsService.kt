@@ -1,6 +1,5 @@
 package com.linernotes.app.core.floating
 
-import android.animation.ValueAnimator
 import android.app.Notification
 import android.app.NotificationChannel
 import android.app.NotificationManager
@@ -21,7 +20,6 @@ import android.view.Gravity
 import android.view.View
 import android.view.WindowInsets
 import android.view.WindowManager
-import android.view.animation.DecelerateInterpolator
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
@@ -81,7 +79,6 @@ class FloatingLyricsService : Service() {
     private var windowManager: WindowManager? = null
     private var composeView: ComposeView? = null
     private var windowLayoutParams: WindowManager.LayoutParams? = null
-    private var snapAnimator: ValueAnimator? = null
     private var dragCurrentX: Float = 0f
     private var dragCurrentY: Float = 0f
     private var isViewAdded: Boolean = false
@@ -406,7 +403,6 @@ class FloatingLyricsService : Service() {
 
                 CompositionLocalProvider(LocalStrings provides strings) {
                     val trackMetadata by nowPlayingRepository.trackMetadataFlow.collectAsState()
-                    val playbackClock by nowPlayingRepository.playbackClockFlow.collectAsState()
                     val lyricsContent by nowPlayingRepository.lyricsContentFlow.collectAsState()
                     val activeIndex by nowPlayingRepository.currentLineIndexFlow.collectAsState()
                     val lyricOffsetMs by nowPlayingRepository.lyricOffsetMsFlow.collectAsState()
@@ -424,7 +420,7 @@ class FloatingLyricsService : Service() {
 
                     FloatingLyricsCapsule(
                         trackMetadata = trackMetadata,
-                        playbackClock = playbackClock,
+                        playbackClockFlow = nowPlayingRepository.playbackClockFlow,
                         lyricsContent = lyricsContent,
                         activeIndex = activeIndex,
                         lyricOffsetMs = lyricOffsetMs,
@@ -440,14 +436,12 @@ class FloatingLyricsService : Service() {
                         isTraditional = isTraditional,
                         textAlignment = textAlignment,
                         onDragStart = {
-                            cancelSnapAnimation()
                             windowLayoutParams?.let { params ->
                                 dragCurrentX = params.x.toFloat()
                                 dragCurrentY = params.y.toFloat()
                             }
                         },
                         onDrag = { dx, dy ->
-                            cancelSnapAnimation()
                             windowLayoutParams?.let { params ->
                                 val densityVal = resources.displayMetrics.density
                                 val viewHeight = composeView?.height?.takeIf { it > 0 } ?: (52 * densityVal).toInt()
@@ -470,7 +464,6 @@ class FloatingLyricsService : Service() {
                         },
                         onDragEnd = { _ ->
                             windowLayoutParams?.let { params ->
-                                cancelSnapAnimation()
                                 floatingPreferences.setLastPosition(params.x, params.y, isLandscape())
                             }
                         },
@@ -511,11 +504,6 @@ class FloatingLyricsService : Service() {
         }
     }
 
-    private fun cancelSnapAnimation() {
-        snapAnimator?.cancel()
-        snapAnimator = null
-    }
-
     private fun handleExpandChanged(isExpanded: Boolean) {
         if (!isViewAdded) return
         windowLayoutParams?.let { params ->
@@ -525,7 +513,6 @@ class FloatingLyricsService : Service() {
             val expandedHeightPx = (270 * density).toInt()
             val bounds = getSafeDragBounds(currentWidthPx, expandedHeightPx, landscape)
 
-            cancelSnapAnimation()
             if (isExpanded) {
                 val targetX = params.x.coerceIn(bounds.left, bounds.right)
                 val targetY = params.y.coerceIn(bounds.top, bounds.bottom)
@@ -565,36 +552,6 @@ class FloatingLyricsService : Service() {
                 } catch (e: Exception) {}
             }
         }
-    }
-
-    private fun snapToNearestEdge(params: WindowManager.LayoutParams) {
-        cancelSnapAnimation()
-        val landscape = isLandscape()
-        val screenBounds = getScreenBounds(landscape)
-        val density = resources.displayMetrics.density
-        val viewWidth = params.width.takeIf { it > 0 } ?: getSafeOverlayWidthPx(isLandscape = landscape)
-        val viewHeight = composeView?.height?.takeIf { it > 0 } ?: (48 * density).toInt()
-        val bounds = getSafeDragBounds(viewWidth, viewHeight, landscape)
-        val currentX = params.x
-        val targetX = if (currentX + (viewWidth / 2) < screenBounds.width() / 2) {
-            bounds.left
-        } else {
-            bounds.right
-        }
-
-        snapAnimator = ValueAnimator.ofInt(currentX, targetX).apply {
-            duration = 260L
-            interpolator = DecelerateInterpolator()
-            addUpdateListener { va ->
-                params.x = va.animatedValue as Int
-                try {
-                    windowManager?.updateViewLayout(composeView, params)
-                } catch (e: Exception) {}
-            }
-            start()
-        }
-
-        floatingPreferences.setLastPosition(targetX, params.y, landscape)
     }
 
     private fun updateLockState(locked: Boolean) {
@@ -711,6 +668,7 @@ class FloatingLyricsService : Service() {
             params.y = targetY
             dragCurrentX = targetX.toFloat()
             dragCurrentY = targetY.toFloat()
+            applyMaxRefreshRateToLayoutParams(this, params, composeView?.display)
 
             try {
                 windowManager?.updateViewLayout(composeView, params)
@@ -731,7 +689,6 @@ class FloatingLyricsService : Service() {
         _isOverlayVisibleFlow.value = false
         floatingPreferences.isEnabled = false
         FloatingLyricsTileService.requestSync(this)
-        cancelSnapAnimation()
         try {
             unregisterReceiver(screenStateReceiver)
         } catch (e: Exception) {}

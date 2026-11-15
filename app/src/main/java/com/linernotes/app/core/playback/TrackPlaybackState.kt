@@ -9,7 +9,16 @@ enum class MediaSourceApp(val displayName: String, val packageName: String) {
     APPLE_MUSIC("Apple Music", "com.apple.android.music"),
     NETEASE("网易云音乐", "com.netease.cloudmusic"),
     QQ_MUSIC("QQ音乐", "com.tencent.qqmusic"),
+    KUGOU("酷狗音乐", "com.kugou.android"),
+    KUWO("酷我音乐", "cn.kuwo.player"),
     YOUTUBE_MUSIC("YouTube Music", "com.google.android.apps.youtube.music"),
+    TIDAL("TIDAL", "com.aspiro.tidal"),
+    DEEZER("Deezer", "deezer.android.app"),
+    SOUNDCLOUD("SoundCloud", "com.soundcloud.android"),
+    BILIBILI("Bilibili", "tv.danmaku.bili"),
+    POWERAMP("Poweramp", "com.maxmpz.audioplayer"),
+    PLEXAMP("Plexamp", "tv.plex.labs.plexamp"),
+    NEUTRON("Neutron", "com.neutroncode.mp"),
     UNKNOWN("流媒体播放器", "");
 
     fun localizedName(strings: AppStrings): String = when (this) {
@@ -21,8 +30,17 @@ enum class MediaSourceApp(val displayName: String, val packageName: String) {
 
     companion object {
         fun fromPackageName(pkg: String?): MediaSourceApp {
-            if (pkg == null) return UNKNOWN
-            return entries.find { it.packageName == pkg } ?: UNKNOWN
+            if (pkg.isNullOrBlank()) return UNKNOWN
+            return entries.find { it.packageName == pkg } ?: when (pkg) {
+                "com.spotify.lite" -> SPOTIFY
+                "com.apple.android.music.classical" -> APPLE_MUSIC
+                "com.netease.cloudmusic.lite" -> NETEASE
+                "com.tencent.qqmusicpad", "com.tencent.qqmusic.lite" -> QQ_MUSIC
+                "com.kugou.android.lite", "com.kugou.android.elder" -> KUGOU
+                "cn.kuwo.kwmusiccar" -> KUWO
+                "com.bilibili.app.in", "com.bilibili.app.blue", "tv.danmaku.bilibilihd" -> BILIBILI
+                else -> UNKNOWN
+            }
         }
     }
 }
@@ -104,11 +122,12 @@ data class PlaybackClockState(
     val lastUpdateTimeMs: Long = 0L,
     val durationMs: Long = 0L
 ) {
-    fun getEstimatedPositionMs(): Long {
+    @JvmOverloads
+    fun getEstimatedPositionMs(nowMs: Long = SystemClock.elapsedRealtime()): Long {
         if (!isPlaying || lastUpdateTimeMs <= 0L) {
             return currentPositionMs.coerceIn(0L, if (durationMs > 0) durationMs else Long.MAX_VALUE)
         }
-        val elapsed = SystemClock.elapsedRealtime() - lastUpdateTimeMs
+        val elapsed = (nowMs - lastUpdateTimeMs).coerceAtLeast(0L)
         val estimated = currentPositionMs + (elapsed * playbackSpeed).toLong()
         return if (durationMs > 0) {
             estimated.coerceIn(0L, durationMs)
@@ -186,11 +205,12 @@ data class TrackPlaybackState(
     /**
      * 根据系统高精度时钟插值推算当前播放毫秒位置 (防跳帧与时间漂移)
      */
-    fun getEstimatedPositionMs(): Long {
+    @JvmOverloads
+    fun getEstimatedPositionMs(nowMs: Long = SystemClock.elapsedRealtime()): Long {
         if (!isPlaying || lastUpdateTimeMs <= 0L) {
             return currentPositionMs.coerceIn(0L, if (durationMs > 0) durationMs else Long.MAX_VALUE)
         }
-        val elapsed = SystemClock.elapsedRealtime() - lastUpdateTimeMs
+        val elapsed = (nowMs - lastUpdateTimeMs).coerceAtLeast(0L)
         val estimated = currentPositionMs + (elapsed * playbackSpeed).toLong()
         return if (durationMs > 0) {
             estimated.coerceIn(0L, durationMs)

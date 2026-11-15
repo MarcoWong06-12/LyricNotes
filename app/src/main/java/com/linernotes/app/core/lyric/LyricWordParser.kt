@@ -11,11 +11,13 @@ import com.linernotes.app.domain.model.LyricWord
  */
 object LyricWordParser {
 
-    private val INLINE_PAREN_REGEX = Regex("""\((\d+),(\d+)(?:,\d+)?\)((?:(?!\(\d+,\d+)[^\n\r])+)""")
+    private val LEADING_LINE_HEADER_REGEX = Regex("""^(?:\[\d{1,2}:\d{2}(?:\.\d{1,3})?\]|\[\d+,\d+\])+""")
+    private val PAREN_TAG_REGEX = Regex("""\((\d+),(\d+)(?:,\d+)?\)""")
+    private val ANGLED_MS_TAG_REGEX = Regex("""<(\d+),(\d+)(?:,\d+)?>""")
     private val INLINE_ANGLED_REGEX = Regex("""<(\d{1,2}):(\d{2})(?:\.(\d{1,3}))?>([^<\n\r]*)""")
-    private val CLEAN_BRACKET_TS_REGEX = Regex("""\[\d{1,2}:\d{2}(?:\.\d{1,3})?\]""")
+    private val CLEAN_BRACKET_TS_REGEX = Regex("""\[\d{1,2}:\d{2}(?:\.\d{1,3})?\]|\[\d+,\d+\]""")
     private val CLEAN_PAREN_TS_REGEX = Regex("""\(\d+,\d+(?:,\d+)?\)""")
-    private val CLEAN_ANGLED_TS_REGEX = Regex("""<\d{1,2}:\d{2}(?:\.\d{1,3})?>""")
+    private val CLEAN_ANGLED_TS_REGEX = Regex("""<\d{1,2}:\d{2}(?:\.\d{1,3})?>|<\d+,\d+(?:,\d+)?>""")
 
     // 智能语元匹配：CJK 字符单字切分（保留后随空白以防混排黏连），欧美/拉丁单词保留词尾空格作为整体单元
     private val TOKEN_REGEX = Regex("""([\u4e00-\u9fa5\u3040-\u30ff\uac00-\ud7af]\s*|(?:[^\s\u4e00-\u9fa5\u3040-\u30ff\uac00-\ud7af]+\s*))""")
@@ -30,6 +32,101 @@ object LyricWordParser {
             .replace(CLEAN_ANGLED_TS_REGEX, "")
     }
 
+    internal fun clampWordsToInterval(
+        words: List<LyricWord>,
+        startTimeMs: Long,
+        endTimeMs: Long?
+    ): List<LyricWord> {
+        if (words.isEmpty()) return emptyList()
+        val validEnd = endTimeMs?.takeIf { it > startTimeMs }
+        var lastStart = startTimeMs
+        return words.map { word ->
+            val rawStart = word.startTimeMs
+            val rawEnd = rawStart + word.durationMs.coerceAtLeast(0L)
+            if (validEnd != null) {
+                val clampedStart = rawStart.coerceIn(lastStart, validEnd)
+                val clampedEnd = rawEnd.coerceIn(clampedStart, validEnd)
+                lastStart = clampedStart
+                word.copy(
+                    startTimeMs = clampedStart,
+                    durationMs = (clampedEnd - clampedStart).coerceAtLeast(0L)
+                )
+            } else {
+                val clampedStart = maxOf(rawStart, lastStart)
+                val clampedEnd = maxOf(rawEnd, clampedStart)
+                lastStart = clampedStart
+                word.copy(
+                    startTimeMs = clampedStart,
+                    durationMs = (clampedEnd - clampedStart).coerceAtLeast(0L)
+                )
+            }
+        }
+    }
+
+    private fun parseDelimitedWordTags(
+        rawLine: String,
+        tagRegex: Regex,
+        startTimeMs: Long,
+        endTimeMs: Long?,
+        allowRelativeOffset: Boolean
+    ): List<LyricWord> {
+        val body = rawLine.trimStart().replace(LEADING_LINE_HEADER_REGEX, "").trimStart()
+        if (body.isEmpty()) return emptyList()
+        val matches = tagRegex.findAll(body).toList()
+        if (matches.isEmpty()) return emptyList()
+
+        val rawTags = matches.map { match ->
+            val s = match.groupValues[1].toLongOrNull() ?: startTimeMs
+            val d = match.groupValues[2].toLongOrNull() ?: 200L
+            s to d
+        }
+        val validGap = if (endTimeMs != null && endTimeMs > startTimeMs) endTimeMs - startTimeMs else null
+        val firstRawStart = rawTags.first().first
+        val maxRawEnd = rawTags.maxOf { (s, d) -> s + d.coerceAtLeast(0L) }
+        val isRelative = allowRelativeOffset && startTimeMs > 0L && firstRawStart < startTimeMs && (
+            firstRawStart <= 1000L ||
+                if (validGap != null) maxRawEnd <= validGap + 500L else firstRawStart < startTimeMs / 2
+            )
+
+        val leadingText = body.substring(0, matches.first().range.first)
+        val trailingText = body.substring(matches.last().range.last + 1)
+        val isTagAfterWord = leadingText.isNotBlank() && trailingText.isBlank()
+
+        val words = mutableListOf<LyricWord>()
+        if (isTagAfterWord) {
+            for (i in matches.indices) {
+                val segStart = if (i == 0) 0 else matches[i - 1].range.last + 1
+                val segEnd = matches[i].range.first
+                val text = cleanInlineTimestamps(body.substring(segStart, segEnd))
+                if (text.isNotEmpty()) {
+                    val (rawS, rawD) = rawTags[i]
+                    val wordStart = if (isRelative) startTimeMs + rawS else rawS
+                    val duration = if (rawD <= 0L) 60L else rawD
+                    words.add(LyricWord(text = text, startTimeMs = wordStart, durationMs = duration))
+                }
+            }
+        } else {
+            val cleanLead = cleanInlineTimestamps(leadingText)
+            if (cleanLead.isNotBlank()) {
+                val firstTagStart = if (isRelative) startTimeMs + rawTags[0].first else rawTags[0].first
+                val leadDur = (firstTagStart - startTimeMs).coerceAtLeast(60L)
+                words.add(LyricWord(text = cleanLead, startTimeMs = startTimeMs, durationMs = leadDur))
+            }
+            for (i in matches.indices) {
+                val segStart = matches[i].range.last + 1
+                val segEnd = if (i + 1 < matches.size) matches[i + 1].range.first else body.length
+                val text = cleanInlineTimestamps(body.substring(segStart, segEnd))
+                if (text.isNotEmpty()) {
+                    val (rawS, rawD) = rawTags[i]
+                    val wordStart = if (isRelative) startTimeMs + rawS else rawS
+                    val duration = if (rawD <= 0L) 60L else rawD
+                    words.add(LyricWord(text = text, startTimeMs = wordStart, durationMs = duration))
+                }
+            }
+        }
+        return clampWordsToInterval(words, startTimeMs, endTimeMs)
+    }
+
     /**
      * 解析单行歌词中的逐字/逐音节单元列表
      */
@@ -42,23 +139,31 @@ object LyricWordParser {
             return emptyList()
         }
 
-        // 1. 尝试解析 YRC/QRC 括号时间戳格式: (start,duration,0)Word
-        val parenMatches = INLINE_PAREN_REGEX.findAll(rawLine).toList()
-        if (parenMatches.isNotEmpty()) {
-            val words = mutableListOf<LyricWord>()
-            for (match in parenMatches) {
-                val start = match.groupValues[1].toLongOrNull() ?: startTimeMs
-                val rawDur = match.groupValues[2].toLongOrNull()
-                val duration = if (rawDur == null) 200L else if (rawDur <= 0L) 60L else rawDur
-                val text = match.groupValues[3]
-                if (text.isNotEmpty()) {
-                    words.add(LyricWord(text = text, startTimeMs = start, durationMs = duration))
-                }
-            }
-            if (words.isNotEmpty()) return words
+        // 1. 尝试解析 YRC/QRC 括号时间戳格式: (start,duration[,0])Word 或 Word(start,duration)
+        val parenWords = parseDelimitedWordTags(
+            rawLine = rawLine,
+            tagRegex = PAREN_TAG_REGEX,
+            startTimeMs = startTimeMs,
+            endTimeMs = endTimeMs,
+            allowRelativeOffset = false
+        )
+        if (parenWords.isNotEmpty()) {
+            return parenWords
         }
 
-        // 2. 尝试解析 Enhanced LRC 尖括号时间戳格式: <01:23.45>Word
+        // 2. 尝试解析 KRC / 毫秒级尖括号时间戳格式: <startOrOffset,duration[,0]>Word 或 Word<start,duration>
+        val angledMsWords = parseDelimitedWordTags(
+            rawLine = rawLine,
+            tagRegex = ANGLED_MS_TAG_REGEX,
+            startTimeMs = startTimeMs,
+            endTimeMs = endTimeMs,
+            allowRelativeOffset = true
+        )
+        if (angledMsWords.isNotEmpty()) {
+            return angledMsWords
+        }
+
+        // 3. 尝试解析 Enhanced LRC 尖括号时间戳格式: <01:23.45>Word
         val angledMatches = INLINE_ANGLED_REGEX.findAll(rawLine).toList()
         if (angledMatches.isNotEmpty()) {
             val words = mutableListOf<LyricWord>()
@@ -93,7 +198,7 @@ object LyricWordParser {
                 val nextStart = if (i + 1 < angledMatches.size) {
                     parseAngledMs(angledMatches[i + 1])
                 } else {
-                    endTimeMs ?: (wordStart + 400L)
+                    endTimeMs?.takeIf { it > wordStart } ?: (wordStart + 400L)
                 }
 
                 val duration = (nextStart - wordStart).coerceIn(80L, 8000L)
@@ -101,10 +206,10 @@ object LyricWordParser {
                     words.add(LyricWord(text = text, startTimeMs = wordStart, durationMs = duration))
                 }
             }
-            if (words.isNotEmpty()) return words
+            if (words.isNotEmpty()) return clampWordsToInterval(words, startTimeMs, endTimeMs)
         }
 
-        // 3. 标准 LRC 行：智能语元切分与物理时间加权平滑分布
+        // 4. 标准 LRC 行：智能语元切分与物理时间加权平滑分布（严格限制在 [startTimeMs, endTimeMs] 内）
         val cleanText = cleanInlineTimestamps(rawLine)
         if (cleanText.isBlank()) return emptyList()
 
@@ -131,9 +236,9 @@ object LyricWordParser {
             val upperBound = if (rawGap > tailReserveMs + 80L) {
                 maxOf(minOf(450L, rawGap), rawGap - tailReserveMs)
             } else {
-                rawGap.coerceAtLeast(80L)
+                rawGap
             }
-            minOf(estimatedVocal, maxPhrasing).coerceAtMost(upperBound)
+            minOf(estimatedVocal, maxPhrasing).coerceAtMost(upperBound).coerceIn(0L, rawGap)
         } else {
             // 若为最后一句或下一句未定，按语元总数给一个自然的持续时长 (每字/词约 300ms)
             (tokens.size * 300L).coerceIn(1000L, 4500L)
@@ -152,13 +257,17 @@ object LyricWordParser {
         }
 
         val totalWeight = weights.sum().coerceAtLeast(0.1f)
-        val minWordDurationMs = minOf(60L, (totalLineDuration / tokens.size).coerceAtLeast(25L))
+        val minWordDurationMs = minOf(60L, totalLineDuration / tokens.size)
+        val extraBudget = (totalLineDuration - minWordDurationMs * tokens.size).coerceAtLeast(0L)
+        val maxEnd = startTimeMs + totalLineDuration
         val words = mutableListOf<LyricWord>()
         var currentStart = startTimeMs
 
         for (i in tokens.indices) {
             val token = tokens[i]
-            val duration = ((weights[i] / totalWeight) * totalLineDuration).toLong().coerceAtLeast(minWordDurationMs)
+            val remaining = (maxEnd - currentStart).coerceAtLeast(0L)
+            val weightedExtra = ((weights[i] / totalWeight) * extraBudget).toLong()
+            val duration = (minWordDurationMs + weightedExtra).coerceAtMost(remaining)
             words.add(
                 LyricWord(
                     text = token,
@@ -169,6 +278,6 @@ object LyricWordParser {
             currentStart += duration
         }
 
-        return words
+        return clampWordsToInterval(words, startTimeMs, endTimeMs)
     }
 }

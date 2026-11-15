@@ -3,6 +3,7 @@ package com.linernotes.app.data.remote
 import kotlinx.coroutines.runBlocking
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -169,5 +170,66 @@ class TranslationServiceTest {
 
         // 超长英文若仅产出极短 10 字残句，必须判定为异常截断以触发容灾重试
         assertTrue(service.isTranslationTruncated(orig390, "她深爱着那个人。"))
+    }
+
+    @Test
+    fun testBuildMyMemoryBatches_coalescesAndCapsAtTwoRequests() {
+        val service = TranslationService()
+        val sixShortLines = List(6) { "Line number $it of song" }
+        val batches = service.buildMyMemoryBatches(sixShortLines, maxChars = 450, maxRequests = 2)
+        assertNotNull(batches)
+        assertEquals(1, batches!!.size)
+        assertEquals((0 until 6).toList(), batches[0])
+
+        // 超出 2 个 450 字符批次的文本必须直接快速失败返回 null
+        val tooManyLines = List(30) { "Long lyric verse sentence number $it keeping pace here" }
+        assertNull(service.buildMyMemoryBatches(tooManyLines, maxChars = 450, maxRequests = 2))
+    }
+
+    @Test
+    fun testTranslateViaMyMemory_coalescesRequestsAndPreservesTimestamps() {
+        val service = TranslationService()
+        val lrc = """
+            [00:10.00] First line here
+            [00:15.00] Second line here
+            [00:20.00] Third line here
+        """.trimIndent()
+
+        var requestCount = 0
+        val translated = service.translateViaMyMemory(lrc, "zh-CN") { _ ->
+            requestCount++
+            """{"responseStatus":200,"responseData":{"translatedText":"第一行\n第二行\n第三行"}}"""
+        }
+
+        assertEquals(1, requestCount)
+        assertEquals(
+            "[00:10.00] 第一行\n[00:15.00] 第二行\n[00:20.00] 第三行",
+            translated
+        )
+    }
+
+    @Test
+    fun testTranslateViaMyMemory_failsFastOnQuotaOrExcessiveBatches() {
+        val service = TranslationService()
+        val quotaLrc = "[00:10.00] First line\n[00:15.00] Second line"
+        var calls = 0
+        val quotaResult = service.translateViaMyMemory(quotaLrc, "zh-CN") { _ ->
+            calls++
+            """{"responseStatus":429,"responseData":{"translatedText":"MYMEMORY WARNING: YOU USED ALL AVAILABLE FREE TRANSLATIONS"}}"""
+        }
+        assertNull(quotaResult)
+        assertEquals(1, calls)
+
+        val oversizedLrc = (1..40).joinToString("\n") { i ->
+            val sec = i.toString().padStart(2, '0')
+            "[00:$sec.00] This is a fairly long lyric line number $i for testing"
+        }
+        var oversizedCalls = 0
+        val oversizedResult = service.translateViaMyMemory(oversizedLrc, "zh-CN") { _ ->
+            oversizedCalls++
+            "{}"
+        }
+        assertNull(oversizedResult)
+        assertEquals(0, oversizedCalls)
     }
 }

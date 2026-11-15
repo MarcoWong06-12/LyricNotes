@@ -25,12 +25,15 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Shadow
+import androidx.compose.ui.graphics.StrokeJoin
+import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.input.pointer.changedToUp
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.input.pointer.positionChange
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalConfiguration
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.text.AnnotatedString
@@ -56,6 +59,8 @@ import com.linernotes.app.data.repository.LyricsContentState
 import com.linernotes.app.domain.model.LyricWord
 import com.linernotes.app.presentation.common.bouncyIconClickable
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.isActive
 
 /**
@@ -67,7 +72,7 @@ import kotlinx.coroutines.isActive
 @Composable
 fun FloatingLyricsCapsule(
     trackMetadata: TrackMetadataState,
-    playbackClock: PlaybackClockState,
+    playbackClockFlow: StateFlow<PlaybackClockState>,
     lyricsContent: LyricsContentState,
     activeIndex: Int,
     lyricOffsetMs: Long = 0L,
@@ -182,55 +187,7 @@ fun FloatingLyricsCapsule(
         finalOrig to finalTrans
     }
 
-    val wordMilestones = remember(currentLine, originalText, isWordByWordEnabled, isTraditional) {
-        if (isWordByWordEnabled && hasLineOriginal && currentLine != null && currentLine.words.isNotEmpty()) {
-            computeWordEndCharIndices(originalText, currentLine.words, isTraditional)
-        } else {
-            emptyList()
-        }
-    }
-
-    // 仅在单词边界唤醒协程的离散逐字高亮，无需每帧重排或高频轮询
-    var highlightedCharCount by remember(currentLine, wordMilestones, isWordByWordEnabled, originalText) {
-        mutableStateOf<Int?>(null)
-    }
-    LaunchedEffect(
-        currentLine,
-        wordMilestones,
-        isWordByWordEnabled,
-        playbackClock.trackEpoch,
-        playbackClock.isPlaying,
-        playbackClock.currentPositionMs,
-        playbackClock.lastUpdateTimeMs,
-        playbackClock.playbackSpeed,
-        lyricOffsetMs
-    ) {
-        if (!isWordByWordEnabled || wordMilestones.isEmpty()) {
-            highlightedCharCount = null
-            return@LaunchedEffect
-        }
-        val speed = playbackClock.playbackSpeed.coerceAtLeast(0.25f)
-        while (isActive) {
-            val effectivePos = (playbackClock.getEstimatedPositionMs() + lyricOffsetMs).coerceAtLeast(0L)
-            var reachedIdx = -1
-            for (i in wordMilestones.indices) {
-                if (effectivePos >= wordMilestones[i].first) {
-                    reachedIdx = i
-                } else {
-                    break
-                }
-            }
-            highlightedCharCount = when {
-                reachedIdx < 0 -> 0
-                reachedIdx >= wordMilestones.lastIndex -> originalText.length
-                else -> wordMilestones[reachedIdx].second
-            }
-            if (!playbackClock.isPlaying) break
-            val nextMilestone = wordMilestones.getOrNull(reachedIdx + 1) ?: break
-            val waitMs = ((nextMilestone.first - effectivePos).toDouble() / speed).toLong().coerceAtLeast(16L)
-            delay(waitMs)
-        }
-    }
+    val currentLineWords = currentLine?.words ?: emptyList()
 
     val hasCover = !trackMetadata.coverUrl.isNullOrBlank()
 
@@ -248,15 +205,8 @@ fun FloatingLyricsCapsule(
         offset = Offset(0f, 1.2f),
         blurRadius = 3f
     )
-
-    val styledOriginal = remember(originalText, highlightedCharCount, lyricColor, isLightColor) {
-        buildWordHighlightAnnotatedString(
-            text = originalText,
-            highlightedChars = highlightedCharCount,
-            activeColor = lyricColor,
-            dimmedColor = lyricColor.copy(alpha = if (isLightColor) 0.46f else 0.50f)
-        )
-    }
+    val isPureTransparent = floatingStyle == FloatingLyricsPreferences.STYLE_PURE_LYRICS && backgroundAlpha <= 0.05f
+    val outlineColor = if (isLightColor) Color.Black.copy(alpha = 0.88f) else Color.White.copy(alpha = 0.88f)
 
     val baseBgColor = if (isLightColor) Color(0xFF12141C) else Color(0xFFF2F4F7)
     val primaryUiColor = if (isLightColor) Color.White else Color(0xFF1A1C24)
@@ -307,14 +257,24 @@ fun FloatingLyricsCapsule(
                         onDragEnd = { onDragEnd(false) }
                     )
             ) {
-                FloatingLyricTextBlock(
-                    styledOriginal = styledOriginal,
-                    originalKey = originalText,
+                FloatingLyricTextSlot(
+                    lineKey = activeIndex to originalText,
+                    originalText = originalText,
+                    hasLineOriginal = hasLineOriginal,
+                    words = currentLineWords,
                     secondaryText = secondaryText,
+                    isBilingualSlot = isBilingual,
+                    playbackClockFlow = playbackClockFlow,
+                    lyricOffsetMs = lyricOffsetMs,
+                    isWordByWordEnabled = isWordByWordEnabled,
+                    isTraditional = isTraditional,
                     displayMode = displayMode,
                     lyricColor = lyricColor,
+                    isLightColor = isLightColor,
                     secondaryColor = secondaryColor,
                     textShadow = textShadow,
+                    useStrokeOutline = isPureTransparent,
+                    outlineColor = outlineColor,
                     primaryFontSize = (16f * fontScale).sp,
                     primaryLineHeight = (22f * fontScale).sp,
                     secondaryFontSize = (13f * fontScale).sp,
@@ -342,7 +302,7 @@ fun FloatingLyricsCapsule(
                         horizontalArrangement = Arrangement.spacedBy(2.dp),
                         modifier = Modifier
                             .horizontalScroll(rememberScrollState())
-                            .padding(horizontal = 8.dp, vertical = 4.dp)
+                            .padding(horizontal = 6.dp, vertical = 2.dp)
                     ) {
                         IconButton(
                             onClick = {
@@ -350,7 +310,7 @@ fun FloatingLyricsCapsule(
                                 lastInteractionTime = System.currentTimeMillis()
                                 onPrevious()
                             },
-                            modifier = Modifier.size(32.dp)
+                            modifier = Modifier.size(40.dp)
                         ) {
                             Icon(
                                 imageVector = Icons.Default.SkipPrevious,
@@ -366,12 +326,13 @@ fun FloatingLyricsCapsule(
                                 lastInteractionTime = System.currentTimeMillis()
                                 onPlayPause()
                             },
-                            modifier = Modifier.size(32.dp)
+                            modifier = Modifier.size(40.dp)
                         ) {
-                            Icon(
-                                imageVector = if (playbackClock.isPlaying) Icons.Default.Pause else Icons.Default.PlayArrow,
-                                contentDescription = if (playbackClock.isPlaying) strings.pauseDesc else strings.playDesc,
+                            FloatingPlayPauseIconSlot(
+                                playbackClockFlow = playbackClockFlow,
                                 tint = Color(0xFF1ED760),
+                                pauseDesc = strings.pauseDesc,
+                                playDesc = strings.playDesc,
                                 modifier = Modifier.size(20.dp)
                             )
                         }
@@ -382,7 +343,7 @@ fun FloatingLyricsCapsule(
                                 lastInteractionTime = System.currentTimeMillis()
                                 onNext()
                             },
-                            modifier = Modifier.size(32.dp)
+                            modifier = Modifier.size(40.dp)
                         ) {
                             Icon(
                                 imageVector = Icons.Default.SkipNext,
@@ -406,7 +367,7 @@ fun FloatingLyricsCapsule(
                                 lastInteractionTime = System.currentTimeMillis()
                                 onToggleBilingual()
                             },
-                            modifier = Modifier.size(32.dp)
+                            modifier = Modifier.size(40.dp)
                         ) {
                             Icon(
                                 imageVector = Icons.Default.Translate,
@@ -422,7 +383,7 @@ fun FloatingLyricsCapsule(
                                 showControls = false
                                 onToggleLock()
                             },
-                            modifier = Modifier.size(32.dp)
+                            modifier = Modifier.size(40.dp)
                         ) {
                             Icon(
                                 imageVector = Icons.Default.Lock,
@@ -438,7 +399,7 @@ fun FloatingLyricsCapsule(
                                 lastInteractionTime = System.currentTimeMillis()
                                 onOpenApp()
                             },
-                            modifier = Modifier.size(32.dp)
+                            modifier = Modifier.size(40.dp)
                         ) {
                             Icon(
                                 imageVector = Icons.Default.Settings,
@@ -454,7 +415,7 @@ fun FloatingLyricsCapsule(
                                 showControls = false
                                 onClose()
                             },
-                            modifier = Modifier.size(32.dp)
+                            modifier = Modifier.size(40.dp)
                         ) {
                             Icon(
                                 imageVector = Icons.Default.Close,
@@ -536,14 +497,24 @@ fun FloatingLyricsCapsule(
 
                             Spacer(modifier = Modifier.width(10.dp))
 
-                            FloatingLyricTextBlock(
-                                styledOriginal = styledOriginal,
-                                originalKey = originalText,
+                            FloatingLyricTextSlot(
+                                lineKey = activeIndex to originalText,
+                                originalText = originalText,
+                                hasLineOriginal = hasLineOriginal,
+                                words = currentLineWords,
                                 secondaryText = secondaryText,
+                                isBilingualSlot = isBilingual,
+                                playbackClockFlow = playbackClockFlow,
+                                lyricOffsetMs = lyricOffsetMs,
+                                isWordByWordEnabled = isWordByWordEnabled,
+                                isTraditional = isTraditional,
                                 displayMode = displayMode,
                                 lyricColor = lyricColor,
+                                isLightColor = isLightColor,
                                 secondaryColor = secondaryColor,
                                 textShadow = textShadow,
+                                useStrokeOutline = false,
+                                outlineColor = Color.Transparent,
                                 primaryFontSize = if (displayMode == FloatingLyricsPreferences.DISPLAY_MODE_MARQUEE) (14.5f * fontScale).sp else (14f * fontScale).sp,
                                 primaryLineHeight = (19f * fontScale).sp,
                                 secondaryFontSize = if (displayMode == FloatingLyricsPreferences.DISPLAY_MODE_MARQUEE) (12f * fontScale).sp else (11.5f * fontScale).sp,
@@ -635,7 +606,7 @@ fun FloatingLyricsCapsule(
                                     color = if (isBilingual) (if (isLightColor) Color(0xFF2E3345) else Color(0xFFD6E4F0)) else Color.Transparent,
                                     shape = CircleShape,
                                     modifier = Modifier
-                                        .size(28.dp)
+                                        .size(40.dp)
                                         .bouncyIconClickable(onClick = {
                                             haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
                                             onToggleBilingual()
@@ -646,18 +617,16 @@ fun FloatingLyricsCapsule(
                                             imageVector = Icons.Default.Translate,
                                             contentDescription = strings.bilingualTabParallel,
                                             tint = if (isBilingual) Color(0xFF03A9F4) else primaryUiColor.copy(alpha = 0.60f),
-                                            modifier = Modifier.size(15.dp)
+                                            modifier = Modifier.size(16.dp)
                                         )
                                     }
                                 }
-
-                                Spacer(modifier = Modifier.width(4.dp))
 
                                 Surface(
                                     color = Color.Transparent,
                                     shape = CircleShape,
                                     modifier = Modifier
-                                        .size(28.dp)
+                                        .size(40.dp)
                                         .bouncyIconClickable(onClick = {
                                             haptic.performHapticFeedback(HapticFeedbackType.LongPress)
                                             onToggleLock()
@@ -675,13 +644,11 @@ fun FloatingLyricsCapsule(
                                     }
                                 }
 
-                                Spacer(modifier = Modifier.width(4.dp))
-
                                 Surface(
                                     color = Color.Transparent,
                                     shape = CircleShape,
                                     modifier = Modifier
-                                        .size(28.dp)
+                                        .size(40.dp)
                                         .bouncyIconClickable(onClick = {
                                             haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
                                             isExpanded = false
@@ -698,13 +665,11 @@ fun FloatingLyricsCapsule(
                                     }
                                 }
 
-                                Spacer(modifier = Modifier.width(2.dp))
-
                                 Surface(
                                     color = Color.Transparent,
                                     shape = CircleShape,
                                     modifier = Modifier
-                                        .size(28.dp)
+                                        .size(40.dp)
                                         .bouncyIconClickable(onClick = {
                                             haptic.performHapticFeedback(HapticFeedbackType.LongPress)
                                             onClose()
@@ -744,14 +709,24 @@ fun FloatingLyricsCapsule(
                                         } else Modifier
                                     )
                             ) {
-                                FloatingLyricTextBlock(
-                                    styledOriginal = styledOriginal,
-                                    originalKey = originalText,
+                                FloatingLyricTextSlot(
+                                    lineKey = activeIndex to originalText,
+                                    originalText = originalText,
+                                    hasLineOriginal = hasLineOriginal,
+                                    words = currentLineWords,
                                     secondaryText = secondaryText,
+                                    isBilingualSlot = isBilingual,
+                                    playbackClockFlow = playbackClockFlow,
+                                    lyricOffsetMs = lyricOffsetMs,
+                                    isWordByWordEnabled = isWordByWordEnabled,
+                                    isTraditional = isTraditional,
                                     displayMode = FloatingLyricsPreferences.DISPLAY_MODE_WRAP,
                                     lyricColor = lyricColor,
+                                    isLightColor = isLightColor,
                                     secondaryColor = secondaryColor,
                                     textShadow = textShadow,
+                                    useStrokeOutline = false,
+                                    outlineColor = Color.Transparent,
                                     primaryFontSize = (16f * fontScale).sp,
                                     primaryLineHeight = (22f * fontScale).sp,
                                     secondaryFontSize = (13f * fontScale).sp,
@@ -763,38 +738,11 @@ fun FloatingLyricsCapsule(
 
                             Spacer(modifier = Modifier.height(10.dp))
 
-                            var currentPositionMs by remember { mutableLongStateOf(playbackClock.getEstimatedPositionMs()) }
-                            LaunchedEffect(
-                                isExpanded,
-                                playbackClock.trackEpoch,
-                                playbackClock.isPlaying,
-                                playbackClock.currentPositionMs,
-                                playbackClock.lastUpdateTimeMs,
-                                playbackClock.playbackSpeed
-                            ) {
-                                currentPositionMs = playbackClock.getEstimatedPositionMs()
-                                if (isExpanded && playbackClock.isPlaying) {
-                                    while (isActive) {
-                                        withFrameMillis {
-                                            currentPositionMs = playbackClock.getEstimatedPositionMs()
-                                        }
-                                    }
-                                }
-                            }
-
-                            val durationMs = playbackClock.durationMs.takeIf { it > 0 } ?: trackMetadata.durationMs
-                            LinearProgressIndicator(
-                                progress = {
-                                    if (durationMs > 0) {
-                                        (currentPositionMs.toFloat() / durationMs.toFloat()).coerceIn(0f, 1f)
-                                    } else 0f
-                                },
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .height(2.5.dp)
-                                    .clip(RoundedCornerShape(2.dp)),
-                                color = Color(0xFF1ED760),
-                                trackColor = primaryUiColor.copy(alpha = 0.15f)
+                            FloatingExpandedProgressSlot(
+                                playbackClockFlow = playbackClockFlow,
+                                fallbackDurationMs = trackMetadata.durationMs,
+                                primaryUiColor = primaryUiColor,
+                                isExpanded = isExpanded
                             )
 
                             Spacer(modifier = Modifier.height(10.dp))
@@ -808,7 +756,7 @@ fun FloatingLyricsCapsule(
                                     color = Color.Transparent,
                                     shape = CircleShape,
                                     modifier = Modifier
-                                        .size(36.dp)
+                                        .size(44.dp)
                                         .bouncyIconClickable(onClick = {
                                             haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
                                             onPrevious()
@@ -824,35 +772,36 @@ fun FloatingLyricsCapsule(
                                     }
                                 }
 
-                                Spacer(modifier = Modifier.width(20.dp))
+                                Spacer(modifier = Modifier.width(18.dp))
 
                                 Surface(
                                     color = if (isLightColor) Color.White else Color(0xFF1E2028),
                                     shape = CircleShape,
                                     modifier = Modifier
-                                        .size(42.dp)
+                                        .size(48.dp)
                                         .bouncyIconClickable(onClick = {
                                             haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
                                             onPlayPause()
                                         })
                                 ) {
                                     Box(contentAlignment = Alignment.Center) {
-                                        Icon(
-                                            imageVector = if (playbackClock.isPlaying) Icons.Default.Pause else Icons.Default.PlayArrow,
-                                            contentDescription = if (playbackClock.isPlaying) strings.pauseDesc else strings.playDesc,
+                                        FloatingPlayPauseIconSlot(
+                                            playbackClockFlow = playbackClockFlow,
                                             tint = if (isLightColor) Color.Black else Color.White,
+                                            pauseDesc = strings.pauseDesc,
+                                            playDesc = strings.playDesc,
                                             modifier = Modifier.size(24.dp)
                                         )
                                     }
                                 }
 
-                                Spacer(modifier = Modifier.width(20.dp))
+                                Spacer(modifier = Modifier.width(18.dp))
 
                                 Surface(
                                     color = Color.Transparent,
                                     shape = CircleShape,
                                     modifier = Modifier
-                                        .size(36.dp)
+                                        .size(44.dp)
                                         .bouncyIconClickable(onClick = {
                                             haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
                                             onNext()
@@ -912,14 +861,84 @@ fun FloatingLyricsCapsule(
 }
 
 @Composable
-private fun FloatingLyricTextBlock(
-    styledOriginal: AnnotatedString,
-    originalKey: String,
+private fun FloatingPlayPauseIconSlot(
+    playbackClockFlow: StateFlow<PlaybackClockState>,
+    tint: Color,
+    pauseDesc: String,
+    playDesc: String,
+    modifier: Modifier = Modifier
+) {
+    val playbackClock by playbackClockFlow.collectAsState()
+    Icon(
+        imageVector = if (playbackClock.isPlaying) Icons.Default.Pause else Icons.Default.PlayArrow,
+        contentDescription = if (playbackClock.isPlaying) pauseDesc else playDesc,
+        tint = tint,
+        modifier = modifier
+    )
+}
+
+@Composable
+private fun FloatingExpandedProgressSlot(
+    playbackClockFlow: StateFlow<PlaybackClockState>,
+    fallbackDurationMs: Long,
+    primaryUiColor: Color,
+    isExpanded: Boolean
+) {
+    val playbackClock by playbackClockFlow.collectAsState()
+    var currentPositionMs by remember { mutableLongStateOf(playbackClock.getEstimatedPositionMs()) }
+    LaunchedEffect(
+        isExpanded,
+        playbackClock.trackEpoch,
+        playbackClock.isPlaying,
+        playbackClock.currentPositionMs,
+        playbackClock.lastUpdateTimeMs,
+        playbackClock.playbackSpeed
+    ) {
+        currentPositionMs = playbackClock.getEstimatedPositionMs()
+        if (isExpanded && playbackClock.isPlaying) {
+            while (isActive) {
+                withFrameMillis {
+                    currentPositionMs = playbackClock.getEstimatedPositionMs()
+                }
+            }
+        }
+    }
+
+    val durationMs = playbackClock.durationMs.takeIf { it > 0 } ?: fallbackDurationMs
+    LinearProgressIndicator(
+        progress = {
+            if (durationMs > 0) {
+                (currentPositionMs.toFloat() / durationMs.toFloat()).coerceIn(0f, 1f)
+            } else 0f
+        },
+        modifier = Modifier
+            .fillMaxWidth()
+            .height(2.5.dp)
+            .clip(RoundedCornerShape(2.dp)),
+        color = Color(0xFF1ED760),
+        trackColor = primaryUiColor.copy(alpha = 0.15f)
+    )
+}
+
+@Composable
+private fun FloatingLyricTextSlot(
+    lineKey: Any,
+    originalText: String,
+    hasLineOriginal: Boolean,
+    words: List<LyricWord>,
     secondaryText: String?,
+    isBilingualSlot: Boolean,
+    playbackClockFlow: StateFlow<PlaybackClockState>,
+    lyricOffsetMs: Long,
+    isWordByWordEnabled: Boolean,
+    isTraditional: Boolean,
     displayMode: Int,
     lyricColor: Color,
+    isLightColor: Boolean,
     secondaryColor: Color,
     textShadow: Shadow,
+    useStrokeOutline: Boolean,
+    outlineColor: Color,
     primaryFontSize: TextUnit,
     primaryLineHeight: TextUnit,
     secondaryFontSize: TextUnit,
@@ -928,80 +947,281 @@ private fun FloatingLyricTextBlock(
     textAlign: TextAlign,
     modifier: Modifier = Modifier
 ) {
+    val wordMilestones = remember(lineKey, originalText, words, isWordByWordEnabled, isTraditional) {
+        if (isWordByWordEnabled && hasLineOriginal && words.isNotEmpty()) {
+            computeWordEndCharIndices(originalText, words, isTraditional)
+        } else {
+            emptyList()
+        }
+    }
+
+    // 仅在单词边界更新高亮字符数，彻底隔离高频时钟流对胶囊根布局的无效重组
+    var highlightedCharCount by remember(lineKey, wordMilestones, isWordByWordEnabled, originalText) {
+        mutableStateOf<Int?>(null)
+    }
+    LaunchedEffect(lineKey, wordMilestones, isWordByWordEnabled, lyricOffsetMs, playbackClockFlow) {
+        if (!isWordByWordEnabled || wordMilestones.isEmpty()) {
+            highlightedCharCount = null
+            return@LaunchedEffect
+        }
+        playbackClockFlow.collectLatest { clock ->
+            val speed = clock.playbackSpeed.coerceAtLeast(0.25f)
+            while (isActive) {
+                val effectivePos = (clock.getEstimatedPositionMs() + lyricOffsetMs).coerceAtLeast(0L)
+                var reachedIdx = -1
+                for (i in wordMilestones.indices) {
+                    if (effectivePos >= wordMilestones[i].first) {
+                        reachedIdx = i
+                    } else {
+                        break
+                    }
+                }
+                val nextCount = when {
+                    reachedIdx < 0 -> 0
+                    reachedIdx >= wordMilestones.lastIndex -> originalText.length
+                    else -> wordMilestones[reachedIdx].second
+                }
+                if (highlightedCharCount != nextCount) {
+                    highlightedCharCount = nextCount
+                }
+                if (!clock.isPlaying) break
+                val nextMilestone = wordMilestones.getOrNull(reachedIdx + 1) ?: break
+                val waitMs = ((nextMilestone.first - effectivePos).toDouble() / speed).toLong().coerceAtLeast(16L)
+                delay(waitMs)
+            }
+        }
+    }
+
+    val styledOriginal = remember(originalText, highlightedCharCount, lyricColor, isLightColor) {
+        buildWordHighlightAnnotatedString(
+            text = originalText,
+            highlightedChars = highlightedCharCount,
+            activeColor = lyricColor,
+            dimmedColor = lyricColor.copy(alpha = if (isLightColor) 0.46f else 0.50f)
+        )
+    }
+
+    FloatingLyricTextBlock(
+        styledOriginal = styledOriginal,
+        plainOriginal = originalText,
+        secondaryText = secondaryText,
+        isBilingualSlot = isBilingualSlot,
+        displayMode = displayMode,
+        lyricColor = lyricColor,
+        secondaryColor = secondaryColor,
+        textShadow = textShadow,
+        useStrokeOutline = useStrokeOutline,
+        outlineColor = outlineColor,
+        primaryFontSize = primaryFontSize,
+        primaryLineHeight = primaryLineHeight,
+        secondaryFontSize = secondaryFontSize,
+        secondaryLineHeight = secondaryLineHeight,
+        contentAlignment = contentAlignment,
+        textAlign = textAlign,
+        modifier = modifier
+    )
+}
+
+@Composable
+private fun FloatingLyricTextBlock(
+    styledOriginal: AnnotatedString,
+    plainOriginal: String,
+    secondaryText: String?,
+    isBilingualSlot: Boolean,
+    displayMode: Int,
+    lyricColor: Color,
+    secondaryColor: Color,
+    textShadow: Shadow,
+    useStrokeOutline: Boolean,
+    outlineColor: Color,
+    primaryFontSize: TextUnit,
+    primaryLineHeight: TextUnit,
+    secondaryFontSize: TextUnit,
+    secondaryLineHeight: TextUnit,
+    contentAlignment: Alignment.Horizontal,
+    textAlign: TextAlign,
+    modifier: Modifier = Modifier
+) {
+    val density = LocalDensity.current
+    val isMarquee = displayMode == FloatingLyricsPreferences.DISPLAY_MODE_MARQUEE
+    val effectivePrimaryLines = if (isMarquee) 1 else 2
+    val effectiveSecondaryLines = if (isBilingualSlot) (if (isMarquee) 1 else 2) else 0
+    val minSlotHeight = with(density) {
+        val primaryH = (primaryLineHeight * effectivePrimaryLines).toDp()
+        val secondaryH = if (effectiveSecondaryLines > 0) {
+            3.dp + (secondaryLineHeight * effectiveSecondaryLines).toDp()
+        } else 0.dp
+        primaryH + secondaryH
+    }
+    val strokeWidthPx = remember(density) { with(density) { 2.8.dp.toPx() } }
+
     Column(
         verticalArrangement = Arrangement.Center,
         horizontalAlignment = contentAlignment,
-        modifier = modifier.fillMaxWidth()
+        modifier = modifier
+            .fillMaxWidth()
+            .heightIn(min = minSlotHeight)
     ) {
-        if (displayMode == FloatingLyricsPreferences.DISPLAY_MODE_MARQUEE) {
-            key(originalKey) {
-                Text(
-                    text = styledOriginal,
-                    color = lyricColor,
+        if (isMarquee) {
+            key(plainOriginal, useStrokeOutline) {
+                DualLayerOutlinedFloatingText(
+                    styledText = styledOriginal,
+                    plainText = plainOriginal,
+                    fgColor = lyricColor,
+                    outlineColor = outlineColor,
+                    useStrokeOutline = useStrokeOutline,
+                    strokeWidthPx = strokeWidthPx,
+                    textShadow = textShadow,
                     fontSize = primaryFontSize,
+                    lineHeight = primaryLineHeight,
                     fontWeight = FontWeight.Bold,
-                    fontFamily = FontFamily.SansSerif,
                     textAlign = textAlign,
                     maxLines = 1,
-                    style = TextStyle(shadow = textShadow, letterSpacing = 0.sp),
-                    modifier = Modifier.basicMarquee(
-                        iterations = Int.MAX_VALUE,
-                        initialDelayMillis = 1200,
-                        repeatDelayMillis = 1500,
-                        velocity = 32.dp
-                    )
+                    isMarquee = true,
+                    marqueeVelocityDp = 32f
                 )
             }
             if (!secondaryText.isNullOrBlank()) {
                 Spacer(modifier = Modifier.height(2.5.dp))
-                key(secondaryText) {
-                    Text(
-                        text = secondaryText,
-                        color = secondaryColor,
+                key(secondaryText, useStrokeOutline) {
+                    DualLayerOutlinedFloatingText(
+                        styledText = AnnotatedString(secondaryText),
+                        plainText = secondaryText,
+                        fgColor = secondaryColor,
+                        outlineColor = outlineColor,
+                        useStrokeOutline = useStrokeOutline,
+                        strokeWidthPx = strokeWidthPx * 0.85f,
+                        textShadow = textShadow,
                         fontSize = secondaryFontSize,
+                        lineHeight = secondaryLineHeight,
                         fontWeight = FontWeight.SemiBold,
-                        fontFamily = FontFamily.SansSerif,
                         textAlign = textAlign,
                         maxLines = 1,
-                        style = TextStyle(shadow = textShadow, letterSpacing = 0.sp),
-                        modifier = Modifier.basicMarquee(
-                            iterations = Int.MAX_VALUE,
-                            initialDelayMillis = 1200,
-                            repeatDelayMillis = 1500,
-                            velocity = 28.dp
-                        )
+                        isMarquee = true,
+                        marqueeVelocityDp = 28f
                     )
                 }
             }
         } else {
-            Text(
-                text = styledOriginal,
-                color = lyricColor,
+            DualLayerOutlinedFloatingText(
+                styledText = styledOriginal,
+                plainText = plainOriginal,
+                fgColor = lyricColor,
+                outlineColor = outlineColor,
+                useStrokeOutline = useStrokeOutline,
+                strokeWidthPx = strokeWidthPx,
+                textShadow = textShadow,
                 fontSize = primaryFontSize,
                 lineHeight = primaryLineHeight,
                 fontWeight = FontWeight.Bold,
-                fontFamily = FontFamily.SansSerif,
                 textAlign = textAlign,
                 maxLines = 2,
-                overflow = TextOverflow.Ellipsis,
-                style = TextStyle(shadow = textShadow, letterSpacing = 0.sp)
+                isMarquee = false,
+                marqueeVelocityDp = 0f
             )
             if (!secondaryText.isNullOrBlank()) {
                 Spacer(modifier = Modifier.height(3.dp))
-                Text(
-                    text = secondaryText,
-                    color = secondaryColor,
+                DualLayerOutlinedFloatingText(
+                    styledText = AnnotatedString(secondaryText),
+                    plainText = secondaryText,
+                    fgColor = secondaryColor,
+                    outlineColor = outlineColor,
+                    useStrokeOutline = useStrokeOutline,
+                    strokeWidthPx = strokeWidthPx * 0.85f,
+                    textShadow = textShadow,
                     fontSize = secondaryFontSize,
                     lineHeight = secondaryLineHeight,
                     fontWeight = FontWeight.SemiBold,
-                    fontFamily = FontFamily.SansSerif,
                     textAlign = textAlign,
                     maxLines = 2,
-                    overflow = TextOverflow.Ellipsis,
-                    style = TextStyle(shadow = textShadow, letterSpacing = 0.sp)
+                    isMarquee = false,
+                    marqueeVelocityDp = 0f
                 )
             }
         }
+    }
+}
+
+@Composable
+private fun DualLayerOutlinedFloatingText(
+    styledText: AnnotatedString,
+    plainText: String,
+    fgColor: Color,
+    outlineColor: Color,
+    useStrokeOutline: Boolean,
+    strokeWidthPx: Float,
+    textShadow: Shadow,
+    fontSize: TextUnit,
+    lineHeight: TextUnit,
+    fontWeight: FontWeight,
+    textAlign: TextAlign,
+    maxLines: Int,
+    isMarquee: Boolean,
+    marqueeVelocityDp: Float
+) {
+    val marqueeMod = if (isMarquee) {
+        Modifier.basicMarquee(
+            iterations = Int.MAX_VALUE,
+            initialDelayMillis = 1200,
+            repeatDelayMillis = 1500,
+            velocity = marqueeVelocityDp.dp
+        )
+    } else Modifier
+
+    if (useStrokeOutline) {
+        Box(
+            contentAlignment = if (textAlign == TextAlign.Start) Alignment.CenterStart else Alignment.Center,
+            modifier = marqueeMod
+        ) {
+            Text(
+                text = plainText,
+                color = outlineColor,
+                fontSize = fontSize,
+                lineHeight = if (isMarquee) TextUnit.Unspecified else lineHeight,
+                fontWeight = fontWeight,
+                fontFamily = FontFamily.SansSerif,
+                textAlign = textAlign,
+                maxLines = maxLines,
+                softWrap = !isMarquee,
+                overflow = if (isMarquee) TextOverflow.Clip else TextOverflow.Ellipsis,
+                style = TextStyle(
+                    shadow = textShadow,
+                    drawStyle = Stroke(
+                        width = strokeWidthPx,
+                        miter = 10f,
+                        join = StrokeJoin.Round
+                    ),
+                    letterSpacing = 0.sp
+                )
+            )
+            Text(
+                text = styledText,
+                color = fgColor,
+                fontSize = fontSize,
+                lineHeight = if (isMarquee) TextUnit.Unspecified else lineHeight,
+                fontWeight = fontWeight,
+                fontFamily = FontFamily.SansSerif,
+                textAlign = textAlign,
+                maxLines = maxLines,
+                softWrap = !isMarquee,
+                overflow = if (isMarquee) TextOverflow.Clip else TextOverflow.Ellipsis,
+                style = TextStyle(letterSpacing = 0.sp)
+            )
+        }
+    } else {
+        Text(
+            text = styledText,
+            color = fgColor,
+            fontSize = fontSize,
+            lineHeight = if (isMarquee) TextUnit.Unspecified else lineHeight,
+            fontWeight = fontWeight,
+            fontFamily = FontFamily.SansSerif,
+            textAlign = textAlign,
+            maxLines = maxLines,
+            overflow = if (isMarquee) TextOverflow.Clip else TextOverflow.Ellipsis,
+            style = TextStyle(shadow = textShadow, letterSpacing = 0.sp),
+            modifier = marqueeMod
+        )
     }
 }
 

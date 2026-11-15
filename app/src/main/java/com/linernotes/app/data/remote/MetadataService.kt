@@ -61,6 +61,51 @@ object MetadataService {
         return searchAlbums(query).firstOrNull()
     }
 
+    private const val MIN_COVER_MATCH_SCORE = 50
+
+    internal data class ItunesTrackCandidate(
+        val trackName: String,
+        val artistName: String,
+        val artworkUrl100: String
+    )
+
+    internal fun selectBestItunesCover(
+        candidates: List<ItunesTrackCandidate>,
+        targetTitle: String,
+        targetArtist: String,
+        minScore: Int = MIN_COVER_MATCH_SCORE
+    ): String? {
+        if (candidates.isEmpty() || targetTitle.isBlank()) return null
+        val cleanTitle = LyricSearchCleaner.cleanTrackTitle(targetTitle).ifBlank { targetTitle }
+        val artistTargets = GeniusService.extractArtistCandidates(targetArtist)
+            .ifEmpty { listOf(LyricSearchCleaner.cleanArtist(targetArtist)).filter { it.isNotBlank() } }
+            .ifEmpty { listOf("") }
+
+        var bestCover: String? = null
+        var bestScore = Int.MIN_VALUE
+
+        for (cand in candidates) {
+            if (cand.artworkUrl100.isBlank()) continue
+            var candBest = Int.MIN_VALUE
+            for (tArtist in artistTargets) {
+                val s = LyricSearchCleaner.scoreCandidateMatch(
+                    candidateTitle = cand.trackName,
+                    candidateArtist = cand.artistName,
+                    targetTitle = cleanTitle,
+                    targetArtist = tArtist
+                )
+                if (s > candBest) candBest = s
+            }
+            if (candBest >= minScore && candBest > bestScore) {
+                bestScore = candBest
+                bestCover = cand.artworkUrl100
+                    .replace("100x100bb.jpg", "600x600bb.jpg")
+                    .replace("100x100", "600x600")
+            }
+        }
+        return bestCover
+    }
+
     /**
      * 针对正在播放的单曲检索官方原版超高清专辑封面（优先 iTunes / Apple Music 1000x1000/600x600 原图，兜底网易云音乐）
      */
@@ -77,13 +122,20 @@ object MetadataService {
                     val root = JSONObject(jsonStr)
                     val results = root.optJSONArray("results")
                     if (results != null && results.length() > 0) {
+                        val candidates = mutableListOf<ItunesTrackCandidate>()
                         for (i in 0 until results.length()) {
                             val item = results.optJSONObject(i) ?: continue
-                            val rawCover = item.optString("artworkUrl100", "")
-                            if (rawCover.isNotBlank()) {
-                                return@withContext rawCover.replace("100x100bb.jpg", "600x600bb.jpg")
-                                    .replace("100x100", "600x600")
-                            }
+                            candidates.add(
+                                ItunesTrackCandidate(
+                                    trackName = item.optString("trackName", ""),
+                                    artistName = item.optString("artistName", ""),
+                                    artworkUrl100 = item.optString("artworkUrl100", "")
+                                )
+                            )
+                        }
+                        val matchedCover = selectBestItunesCover(candidates, title, artist)
+                        if (!matchedCover.isNullOrBlank()) {
+                            return@withContext matchedCover
                         }
                     }
                 }
@@ -92,12 +144,24 @@ object MetadataService {
             }
         }
 
-        // 兜底：网易云专辑检索
+        // 兜底：网易云专辑检索（当指定了目标歌手时校验歌手相似度，避免纯歌名搜到同名异主专辑）
+        val targetArtists = GeniusService.extractArtistCandidates(artist)
+            .ifEmpty { listOf(LyricSearchCleaner.cleanArtist(artist)).filter { it.isNotBlank() } }
+            .map { LyricSearchCleaner.normalizeForMatching(it) }
+            .filter { it.isNotBlank() }
         for (q in queries) {
             try {
-                val album = searchAlbum(q)
-                if (album != null && album.coverUrl.isNotBlank()) {
-                    return@withContext album.coverUrl
+                val albums = searchAlbums(q)
+                val matchedAlbum = albums.firstOrNull { album ->
+                    if (album.coverUrl.isBlank()) return@firstOrNull false
+                    if (targetArtists.isEmpty()) return@firstOrNull true
+                    val normAlbumArtist = LyricSearchCleaner.normalizeForMatching(album.artist)
+                    normAlbumArtist.isNotBlank() && targetArtists.any { t ->
+                        normAlbumArtist == t || normAlbumArtist.contains(t) || t.contains(normAlbumArtist)
+                    }
+                }
+                if (matchedAlbum != null) {
+                    return@withContext matchedAlbum.coverUrl
                 }
             } catch (e: Exception) {
                 // ignore

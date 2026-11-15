@@ -14,6 +14,11 @@ import kotlinx.coroutines.supervisorScope
 import kotlinx.coroutines.sync.Semaphore
 import kotlinx.coroutines.sync.withPermit
 import kotlinx.coroutines.withContext
+import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.contentOrNull
+import kotlinx.serialization.json.intOrNull
+import kotlinx.serialization.json.jsonObject
+import kotlinx.serialization.json.jsonPrimitive
 import okhttp3.ConnectionPool
 import okhttp3.Dispatcher
 import okhttp3.FormBody
@@ -98,6 +103,7 @@ class TranslationService(
         private const val PROSE_BATCH_MAX_CHARS = 3200
         private const val MAX_360_FANYI_CHARS = 900
         private const val MAX_MYMEMORY_CHARS = 450
+        private const val MAX_MYMEMORY_REQUESTS = 2
         private const val TRANSMART_URL = "https://transmart.qq.com/api/imt"
         private const val FANYI_360_URL = "https://fanyi.so.com/index/search"
         private val PARA_SPLIT_REGEX = Regex("""(?:\r?\n\s*){2,}""")
@@ -846,40 +852,137 @@ class TranslationService(
         }
     }
 
-    private fun translateViaMyMemory(text: String, targetIso: String): String? {
+    private fun executeMyMemoryGet(url: String): String? {
+        val req = Request.Builder().url(url).build()
+        return fastGoogleClient.newCall(req).execute().use { resp ->
+            if (!resp.isSuccessful) return null
+            resp.body?.string()
+        }
+    }
+
+    internal fun buildMyMemoryBatches(
+        items: List<String>,
+        maxChars: Int = MAX_MYMEMORY_CHARS,
+        maxRequests: Int = MAX_MYMEMORY_REQUESTS
+    ): List<List<Int>>? {
+        if (items.isEmpty()) return emptyList()
+        val batches = mutableListOf<List<Int>>()
+        var current = mutableListOf<Int>()
+        var currentLen = 0
+
+        for (idx in items.indices) {
+            val itemLen = items[idx].length
+            if (itemLen > maxChars) return null
+            val addedLen = if (current.isEmpty()) itemLen else 1 + itemLen
+            if (current.isNotEmpty() && currentLen + addedLen > maxChars) {
+                batches.add(current)
+                if (batches.size >= maxRequests) return null
+                current = mutableListOf(idx)
+                currentLen = itemLen
+            } else {
+                current.add(idx)
+                currentLen += addedLen
+            }
+        }
+        if (current.isNotEmpty()) {
+            batches.add(current)
+        }
+        return if (batches.size <= maxRequests) batches else null
+    }
+
+    private data class MyMemoryEntry(
+        val origIdx: Int,
+        val clean: String
+    )
+
+    internal fun translateViaMyMemory(
+        text: String,
+        targetIso: String,
+        fetcher: (String) -> String? = ::executeMyMemoryGet
+    ): String? {
         return try {
-            val lines = text.lines()
-            val translatedLines = mutableListOf<String>()
-            for (line in lines) {
+            val rawLines = text.lines()
+            val tsPrefixes = arrayOfNulls<String>(rawLines.size)
+            val entries = mutableListOf<MyMemoryEntry>()
+
+            for (i in rawLines.indices) {
+                val line = rawLines[i]
+                tsPrefixes[i] = Regex("""^(\[\d{1,2}:\d{2}(?:\.\d{1,3})?\])""").find(line.trim())?.value
                 val clean = LyricAligner.cleanLine(line)
-                if (clean.isBlank()) {
-                    translatedLines.add(line)
-                } else {
-                    val encoded = URLEncoder.encode(clean, "UTF-8")
-                    val detectedSrc = detectLineScriptBucket(clean).let { if (it == "auto") "en" else it }
-                    val queryUrl = "https://api.mymemory.translated.net/get?q=$encoded&langpair=$detectedSrc|$targetIso"
-                    val req = Request.Builder().url(queryUrl).build()
-                    val body = fastGoogleClient.newCall(req).execute().use { resp ->
-                        if (!resp.isSuccessful) return null
-                        resp.body?.string()
-                    } ?: return null
-                    val obj = JSONObject(body)
-                    val status = obj.optInt("responseStatus", 200)
-                    if (status != 200) {
-                        // 配额耗尽或服务拒绝，立即熔断返回 null，绝不继续请求
-                        return null
-                    }
-                    val trans = obj.optJSONObject("responseData")?.optString("translatedText", "") ?: ""
-                    if (trans.isBlank() || isInvalidTranslation(trans)) {
-                        // 发现配额告警或空译文，立即熔断
-                        return null
-                    }
-                    val match = Regex("""^(\[\d{1,2}:\d{2}(?:\.\d{1,3})?\])""").find(line)
-                    val lineTrans = if (match != null) "${match.value}$trans" else trans
-                    translatedLines.add(lineTrans)
+                if (clean.isNotBlank()) {
+                    entries.add(MyMemoryEntry(origIdx = i, clean = clean))
                 }
             }
-            translatedLines.joinToString("\n")
+
+            if (entries.isEmpty()) {
+                return text
+            }
+
+            // 将多行合并打包进至多 1~2 个不超过 MAX_MYMEMORY_CHARS 的紧凑请求，绝不逐行串行打爆连接池
+            val batches = buildMyMemoryBatches(entries.map { it.clean }) ?: return null
+            val translatedByOrigIdx = HashMap<Int, String>(entries.size)
+
+            for (batch in batches) {
+                val batchLines = batch.map { entries[it].clean }
+                val joinedText = batchLines.joinToString("\n")
+                val encoded = URLEncoder.encode(joinedText, "UTF-8")
+                val detectedSrc = detectLineScriptBucket(joinedText).let { if (it == "auto") "en" else it }
+                val queryUrl = "https://api.mymemory.translated.net/get?q=$encoded&langpair=$detectedSrc|$targetIso"
+                val body = fetcher(queryUrl) ?: return null
+
+                val root = Json.parseToJsonElement(body).jsonObject
+                val status = root["responseStatus"]?.jsonPrimitive?.intOrNull ?: 200
+                if (status != 200) {
+                    // 配额耗尽或服务拒绝，立即熔断返回 null，绝不继续请求
+                    return null
+                }
+                val rawTrans = root["responseData"]?.jsonObject?.get("translatedText")?.jsonPrimitive?.contentOrNull ?: ""
+                if (rawTrans.isBlank() || isInvalidTranslation(rawTrans)) {
+                    // 发现配额告警或空译文，立即熔断
+                    return null
+                }
+
+                val decodedTrans = HtmlUtils.unescapeHtml(rawTrans)
+                val splitLines = decodedTrans.lines().map { it.trim() }
+
+                when {
+                    batchLines.size == 1 -> {
+                        val singleTrans = decodedTrans.replace('\n', ' ').trim()
+                        if (singleTrans.isBlank() || isInvalidTranslation(singleTrans)) return null
+                        translatedByOrigIdx[entries[batch[0]].origIdx] = singleTrans
+                    }
+                    splitLines.size == batchLines.size -> {
+                        for (k in batch.indices) {
+                            val lineTrans = splitLines[k]
+                            if (isInvalidTranslation(lineTrans)) return null
+                            translatedByOrigIdx[entries[batch[k]].origIdx] = lineTrans
+                        }
+                    }
+                    batchLines.all { INDEXED_LINE_REGEX.matches(it) } -> {
+                        val parsed = parseIndexedLines(splitLines, batchLines.size)
+                        if (parsed.size != batchLines.size || parsed.all { it.isBlank() }) return null
+                        for (k in batch.indices) {
+                            val lineTrans = parsed[k]
+                            if (lineTrans.isNotBlank() && isInvalidTranslation(lineTrans)) return null
+                            translatedByOrigIdx[entries[batch[k]].origIdx] = lineTrans
+                        }
+                    }
+                    else -> {
+                        // 返回行数无法与合批输入对齐，快速熔断防止跨行错位
+                        return null
+                    }
+                }
+            }
+
+            rawLines.indices.joinToString("\n") { i ->
+                val ts = tsPrefixes[i]
+                val trans = translatedByOrigIdx[i]
+                when {
+                    trans == null -> rawLines[i]
+                    ts != null -> if (trans.isNotBlank()) "$ts $trans" else ts
+                    else -> trans
+                }
+            }
         } catch (e: Exception) {
             null
         }

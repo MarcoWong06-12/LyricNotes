@@ -15,6 +15,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -24,6 +25,7 @@ import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
@@ -78,6 +80,12 @@ fun NowPlayingQueueSheet(
     // 定时睡眠关闭状态管理
     var showTimerDialog by remember { mutableStateOf(false) }
     val isTimerActive = sleepTimerMinutesLeft > 0
+    var selectedTimerPresetMinutes by rememberSaveable { mutableIntStateOf(0) }
+    LaunchedEffect(isTimerActive) {
+        if (!isTimerActive) selectedTimerPresetMinutes = 0
+    }
+    val configuration = LocalConfiguration.current
+    val isLandscape = configuration.screenWidthDp > configuration.screenHeightDp
 
     val isDark = MaterialTheme.colorScheme.background.luminance() < 0.5f
     val isPureAmoled = isDark && isAmoledMode
@@ -121,7 +129,7 @@ fun NowPlayingQueueSheet(
         },
         modifier = Modifier
             .fillMaxWidth()
-            .fillMaxHeight(0.72f) // 核心：严格限制半屏 (72% 黄金高度，露出顶部在播封面)
+            .fillMaxHeight(if (isLandscape) 0.88f else 0.72f) // 竖屏严格半屏露出顶部封面，横屏自适应扩容
     ) {
         LockWindowRefreshRateEffect()
 
@@ -326,7 +334,7 @@ fun NowPlayingQueueSheet(
             ) {
                 SpotifyDockButton(
                     icon = Icons.Default.Shuffle,
-                    label = strings.shuffleOnDesc,
+                    label = if (trackState.isShuffleActive) strings.shuffleOnDesc else strings.shuffleOffDesc,
                     isActive = trackState.isShuffleActive,
                     isDark = isDark,
                     spotifyGreen = spotifyGreen,
@@ -391,7 +399,10 @@ fun NowPlayingQueueSheet(
                 Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                     val minutesOptions = listOf(15, 30, 45, 60)
                     minutesOptions.forEach { min ->
-                        val isSelected = isTimerActive && sleepTimerMinutesLeft == min
+                        val isSelected = isTimerActive && (
+                            selectedTimerPresetMinutes == min ||
+                                (selectedTimerPresetMinutes == 0 && sleepTimerMinutesLeft == min)
+                            )
                         Surface(
                             color = if (isSelected) spotifyGreen.copy(alpha = 0.18f) else optionBg,
                             shape = CircleShape,
@@ -399,6 +410,7 @@ fun NowPlayingQueueSheet(
                             modifier = Modifier
                                 .fillMaxWidth()
                                 .bouncyClickable(pressedScale = 0.96f) {
+                                    selectedTimerPresetMinutes = min
                                     onSetSleepTimer(min)
                                     showTimerDialog = false
                                 }
@@ -422,6 +434,7 @@ fun NowPlayingQueueSheet(
                             modifier = Modifier
                                 .fillMaxWidth()
                                 .bouncyClickable(pressedScale = 0.96f) {
+                                    selectedTimerPresetMinutes = 0
                                     onCancelSleepTimer()
                                     showTimerDialog = false
                                 }

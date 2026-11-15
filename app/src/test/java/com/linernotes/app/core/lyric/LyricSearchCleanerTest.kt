@@ -79,4 +79,74 @@ class LyricSearchCleanerTest {
         assertTrue(queries3.contains("Shape of You Ed Sheeran / Khalid"))
         assertTrue(queries3.contains("Shape of You"))
     }
+
+    @Test
+    fun testKoreanHangulCyrillicAndDiacriticNormalization() {
+        // 韩文 Hangul 不得被丢弃，且 NFD/NFC 组合韩文应一致归一化
+        assertEquals("밤편지", LyricSearchCleaner.normalizeForMatching("밤편지 (Through the Night)"))
+        assertEquals("아이유", LyricSearchCleaner.normalizeForMatching("아이유 (IU)".substringBefore(" (")))
+        assertEquals(
+            LyricSearchCleaner.normalizeForMatching("밤편지"),
+            LyricSearchCleaner.normalizeForMatching("\u1107\u1161\u11B7\u1111\u1167\u11AB\u110C\u1175")
+        )
+
+        // 俄语 Cyrillic 保留（包括 й 与 ё）
+        assertEquals("группакрови", LyricSearchCleaner.normalizeForMatching("Группа крови"))
+        assertEquals("кино", LyricSearchCleaner.normalizeForMatching("Кино"))
+
+        // 拉丁音调符号剥离但保留基础字母，同时不破坏韩日文字母本身
+        assertEquals("beyonce", LyricSearchCleaner.normalizeForMatching("Beyoncé"))
+        assertEquals("canciondeamor", LyricSearchCleaner.normalizeForMatching("Canción de amor"))
+        assertEquals("rosalia", LyricSearchCleaner.normalizeForMatching("ROSALÍA"))
+    }
+
+    @Test
+    fun testKoreanHangulAndCyrillicCandidateScoring_doesNotReturnMinus100() {
+        val hangulExact = LyricSearchCleaner.scoreCandidateMatch(
+            candidateTitle = "밤편지",
+            candidateArtist = "아이유",
+            targetTitle = "밤편지",
+            targetArtist = "아이유"
+        )
+        assertTrue("Expected high positive score for Hangul match, got $hangulExact", hangulExact >= 80)
+
+        val hangulMismatch = LyricSearchCleaner.scoreCandidateMatch(
+            candidateTitle = "좋은 날",
+            candidateArtist = "아이유",
+            targetTitle = "밤편지",
+            targetArtist = "아이유"
+        )
+        assertEquals(-100, hangulMismatch)
+
+        val cyrillicExact = LyricSearchCleaner.scoreCandidateMatch(
+            candidateTitle = "Группа крови",
+            candidateArtist = "Кино",
+            targetTitle = "Группа крови",
+            targetArtist = "Кино"
+        )
+        assertTrue("Expected high positive score for Cyrillic match, got $cyrillicExact", cyrillicExact >= 80)
+
+        val diacriticScore = LyricSearchCleaner.scoreCandidateMatch(
+            candidateTitle = "Canción de Amor",
+            candidateArtist = "Beyoncé",
+            targetTitle = "Cancion de Amor",
+            targetArtist = "Beyonce"
+        )
+        assertTrue("Expected high positive score across diacritics, got $diacriticScore", diacriticScore >= 80)
+    }
+
+    @Test
+    fun testExtractLyricSungFingerprint_preservesHangulCyrillicAndNormalizedLatin() {
+        val mixedLrc = """
+            [00:10.00] (10000,300,0)이 (10300,400,0)밤 (10700,500,0)그날의 반딧불을
+            [00:15.00] Группа крови на рукаве
+            [00:20.00] Canción para Beyoncé
+        """.trimIndent()
+
+        val fp = LyricSearchCleaner.extractLyricSungFingerprint(mixedLrc)
+        assertEquals(3, fp.size)
+        assertTrue(fp[0].contains("이밤그날의반딧불을"))
+        assertTrue(fp[1].contains("группакровинарукаве"))
+        assertEquals("cancion para beyonce", fp[2])
+    }
 }

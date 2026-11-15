@@ -1,12 +1,20 @@
 package com.linernotes.app.presentation.nowplaying.components
 
 import android.provider.Settings
+import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.*
+import androidx.compose.animation.expandVertically
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.shrinkVertically
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.gestures.awaitEachGesture
+import androidx.compose.foundation.gestures.awaitFirstDown
+import androidx.compose.foundation.gestures.waitForUpOrCancellation
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
@@ -18,6 +26,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
@@ -28,6 +37,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
@@ -53,6 +63,9 @@ import com.linernotes.app.core.preference.AiPreferences
 import com.linernotes.app.core.preference.FloatingLyricsPreferences
 import com.linernotes.app.core.util.SpotifyLauncher
 import com.linernotes.app.presentation.common.*
+import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
 import com.linernotes.app.presentation.floating.FloatingLyricColorPickerDialog
 import com.linernotes.app.presentation.nowplaying.FuriganaDisplayMode
 
@@ -446,20 +459,29 @@ fun LyricNotesSettingsSheet(
                     "システム設定" -> "自動"
                     else -> strings.themeModeSystem
                 }
-                // 介面语言分段选择器
-                AppleSegmentedControl(
-                    items = listOf(
-                        AppLanguage.SYSTEM.code to systemLanguageLabel,
-                        AppLanguage.ZH_CN.code to "简体中文",
-                        AppLanguage.ZH_TW.code to "繁體中文",
-                        AppLanguage.EN.code to "English",
-                        AppLanguage.JA.code to "日本語"
-                    ),
-                    selectedItem = appLanguage,
-                    onItemSelected = onSetAppLanguage,
-                    isDark = isDark,
-                    fontSize = 11.sp
+                // 介面语言流式标签选择器
+                val appLanguages = listOf(
+                    AppLanguage.SYSTEM.code to systemLanguageLabel,
+                    AppLanguage.ZH_CN.code to "简体中文",
+                    AppLanguage.ZH_TW.code to "繁體中文",
+                    AppLanguage.EN.code to "English",
+                    AppLanguage.JA.code to "日本語"
                 )
+                FlowRow(
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    verticalArrangement = Arrangement.spacedBy(8.dp),
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    appLanguages.forEach { (code, label) ->
+                        SettingsOptionChip(
+                            label = label,
+                            selected = appLanguage == code,
+                            isDark = isDark,
+                            isPureAmoled = isPureAmoled,
+                            onClick = { onSetAppLanguage(code) }
+                        )
+                    }
+                }
 
                 SettingsCardDivider(dividerColor)
 
@@ -617,18 +639,30 @@ fun LyricNotesSettingsSheet(
                     )
                 }
 
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.spacedBy(6.dp)
-                ) {
-                    val onAdjust = if (offsetScope == 0) onAdjustSongOffset else onAdjustGlobalOffset
-                    val onReset = if (offsetScope == 0) onResetSongOffset else onResetGlobalOffset
+                val onAdjust = if (offsetScope == 0) onAdjustSongOffset else onAdjustGlobalOffset
+                val onReset = if (offsetScope == 0) onResetSongOffset else onResetGlobalOffset
 
-                    OffsetButton("-100ms", onClick = { onAdjust(-100) }, modifier = Modifier.weight(1f), isDark = isDark)
-                    OffsetButton("-50ms", onClick = { onAdjust(-50) }, modifier = Modifier.weight(1f), isDark = isDark)
-                    OffsetButton("0ms", onClick = onReset, modifier = Modifier.weight(1.1f), isReset = true, isDark = isDark)
-                    OffsetButton("+50ms", onClick = { onAdjust(50) }, modifier = Modifier.weight(1f), isDark = isDark)
-                    OffsetButton("+100ms", onClick = { onAdjust(100) }, modifier = Modifier.weight(1f), isDark = isDark)
+                Column(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalArrangement = Arrangement.spacedBy(6.dp)
+                ) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(6.dp)
+                    ) {
+                        OffsetButton("-100ms", onClick = { onAdjust(-100) }, modifier = Modifier.weight(1f), isDark = isDark, allowRepeat = true)
+                        OffsetButton("-50ms", onClick = { onAdjust(-50) }, modifier = Modifier.weight(1f), isDark = isDark, allowRepeat = true)
+                        OffsetButton("0ms", onClick = onReset, modifier = Modifier.weight(1.05f), isReset = true, enabled = currentVal != 0L, isDark = isDark)
+                        OffsetButton("+50ms", onClick = { onAdjust(50) }, modifier = Modifier.weight(1f), isDark = isDark, allowRepeat = true)
+                        OffsetButton("+100ms", onClick = { onAdjust(100) }, modifier = Modifier.weight(1f), isDark = isDark, allowRepeat = true)
+                    }
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(6.dp)
+                    ) {
+                        OffsetButton("-500ms", onClick = { onAdjust(-500) }, modifier = Modifier.weight(1f), isDark = isDark, allowRepeat = true)
+                        OffsetButton("+500ms", onClick = { onAdjust(500) }, modifier = Modifier.weight(1f), isDark = isDark, allowRepeat = true)
+                    }
                 }
             }
 
@@ -658,6 +692,8 @@ fun LyricNotesSettingsSheet(
             val currentTextAlignment by floatingPrefs.textAlignmentFlow.collectAsState(initial = floatingPrefs.textAlignment)
             val isFloatingWordByWord by floatingPrefs.isWordByWordEnabledFlow.collectAsState(initial = floatingPrefs.isWordByWordEnabled)
 
+            var floatingDetailsExpanded by rememberSaveable { mutableStateOf(isFloatingActive) }
+
             SettingsGroupCard(
                 title = strings.floatingLyricsTitle,
                 isDark = isDark,
@@ -667,6 +703,7 @@ fun LyricNotesSettingsSheet(
                     if (checked) {
                         isOverlayGranted = Settings.canDrawOverlays(context)
                         launchFloatingLyrics()
+                        floatingDetailsExpanded = true
                     } else {
                         FloatingLyricsService.stop(context)
                     }
@@ -712,7 +749,55 @@ fun LyricNotesSettingsSheet(
 
                 SettingsCardDivider(dividerColor)
 
-                // 悬浮形态
+                val floatingChevronRotation by animateFloatAsState(
+                    targetValue = if (floatingDetailsExpanded) 180f else 0f,
+                    animationSpec = spring(dampingRatio = 0.85f, stiffness = 420f),
+                    label = "floatingChevron"
+                )
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clip(RoundedCornerShape(10.dp))
+                        .bouncyItemClickable(pressedScale = 0.985f) {
+                            floatingDetailsExpanded = !floatingDetailsExpanded
+                        }
+                        .padding(vertical = 4.dp),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    val styleSummary = if (currentFloatingStyle == FloatingLyricsPreferences.STYLE_PURE_LYRICS) {
+                        strings.floatingPureLyrics
+                    } else {
+                        strings.floatingCapsuleCard
+                    }
+                    Text(
+                        text = "$styleSummary · ${(currentBgAlpha * 100).toInt()}% · ${kotlin.math.round(currentFontScale * 100f).toInt()}%",
+                        color = textSecondary,
+                        fontSize = 12.sp,
+                        fontFamily = FontFamily.SansSerif,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                        modifier = Modifier.weight(1f).padding(end = 8.dp)
+                    )
+                    Icon(
+                        imageVector = Icons.Default.KeyboardArrowDown,
+                        contentDescription = null,
+                        tint = textSecondary,
+                        modifier = Modifier
+                            .size(20.dp)
+                            .graphicsLayer { rotationZ = floatingChevronRotation }
+                    )
+                }
+
+                AnimatedVisibility(
+                    visible = floatingDetailsExpanded,
+                    enter = fadeIn(tween(180)) + expandVertically(spring(dampingRatio = 0.88f, stiffness = 360f)),
+                    exit = fadeOut(tween(140)) + shrinkVertically(tween(180))
+                ) {
+                    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                        SettingsCardDivider(dividerColor)
+
+                        // 悬浮形态
                 Text(
                     text = strings.floatingStyleLabel,
                     color = textPrimary,
@@ -754,17 +839,18 @@ fun LyricNotesSettingsSheet(
                         style = LocalTextStyle.current.copy(fontFeatureSettings = "tnum")
                     )
                 }
-                AppleSegmentedControl(
-                    items = listOf(
-                        0.0f to "0%",
-                        0.30f to "30%",
-                        0.60f to "60%",
-                        0.85f to "85%",
-                        1.0f to "100%"
+                Slider(
+                    value = currentBgAlpha.coerceIn(0f, 1f),
+                    onValueChange = { raw ->
+                        floatingPrefs.backgroundAlpha = (kotlin.math.round(raw * 20f) / 20f).coerceIn(0f, 1f)
+                    },
+                    valueRange = 0f..1f,
+                    colors = SliderDefaults.colors(
+                        thumbColor = accentBlue,
+                        activeTrackColor = accentBlue,
+                        inactiveTrackColor = if (isDark) Color.White.copy(alpha = 0.14f) else Color.Black.copy(alpha = 0.10f)
                     ),
-                    selectedItem = currentBgAlpha,
-                    onItemSelected = { floatingPrefs.backgroundAlpha = it },
-                    isDark = isDark
+                    modifier = Modifier.fillMaxWidth()
                 )
 
                 SettingsCardDivider(dividerColor)
@@ -866,17 +952,18 @@ fun LyricNotesSettingsSheet(
                         style = LocalTextStyle.current.copy(fontFeatureSettings = "tnum")
                     )
                 }
-                AppleSegmentedControl(
-                    items = listOf(
-                        0.85f to "85%",
-                        1.00f to "100%",
-                        1.15f to "115%",
-                        1.30f to "130%",
-                        1.45f to "145%"
+                Slider(
+                    value = currentFontScale.coerceIn(0.85f, 1.45f),
+                    onValueChange = { raw ->
+                        floatingPrefs.fontScale = (kotlin.math.round(raw * 20f) / 20f).coerceIn(0.85f, 1.45f)
+                    },
+                    valueRange = 0.85f..1.45f,
+                    colors = SliderDefaults.colors(
+                        thumbColor = accentBlue,
+                        activeTrackColor = accentBlue,
+                        inactiveTrackColor = if (isDark) Color.White.copy(alpha = 0.14f) else Color.Black.copy(alpha = 0.10f)
                     ),
-                    selectedItem = currentFontScale,
-                    onItemSelected = { floatingPrefs.fontScale = it },
-                    isDark = isDark
+                    modifier = Modifier.fillMaxWidth()
                 )
 
                 SettingsCardDivider(dividerColor)
@@ -1055,6 +1142,8 @@ fun LyricNotesSettingsSheet(
                     isDark = isDark,
                     onCheckedChange = { floatingPrefs.isWordByWordEnabled = !isFloatingWordByWord }
                 )
+                    }
+                }
             }
 
             // 6. Genius 歌曲创作背景与典故 (Genius Insights)
@@ -1186,7 +1275,13 @@ fun LyricNotesSettingsSheet(
                 }
             }
 
-            // Genius Developer Token（始终可见，避免限流时无处配置）
+            // Genius Developer Token（默认折叠，需配置时一键展开）
+            var tokenSectionExpanded by rememberSaveable { mutableStateOf(false) }
+            val tokenChevronRotation by animateFloatAsState(
+                targetValue = if (tokenSectionExpanded) 180f else 0f,
+                animationSpec = spring(dampingRatio = 0.85f, stiffness = 420f),
+                label = "tokenChevron"
+            )
             SettingsGroupCard(
                 title = strings.geniusTokenLabel,
                 isDark = isDark,
@@ -1197,77 +1292,127 @@ fun LyricNotesSettingsSheet(
                 val focusManager = LocalFocusManager.current
                 val hasUnsavedToken = tokenDraft.trim() != geniusToken.trim()
 
-                Text(
-                    text = strings.geniusTokenDesc,
-                    color = textSecondary,
-                    fontSize = 12.sp,
-                    lineHeight = 16.sp,
-                    fontFamily = FontFamily.SansSerif
-                )
-
                 Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clip(RoundedCornerShape(10.dp))
+                        .bouncyItemClickable(pressedScale = 0.985f) {
+                            tokenSectionExpanded = !tokenSectionExpanded
+                        }
+                        .padding(vertical = 2.dp),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
                 ) {
-                    OutlinedTextField(
-                        value = tokenDraft,
-                        onValueChange = { tokenDraft = it },
-                        placeholder = {
-                            Text(
-                                text = strings.geniusTokenPlaceholder,
-                                fontSize = 12.5.sp,
-                                fontFamily = FontFamily.SansSerif,
-                                maxLines = 1,
-                                overflow = TextOverflow.Ellipsis
-                            )
-                        },
-                        singleLine = true,
-                        visualTransformation = if (tokenVisible) VisualTransformation.None else PasswordVisualTransformation(),
-                        trailingIcon = {
-                            IconButton(onClick = { tokenVisible = !tokenVisible }) {
-                                Icon(
-                                    imageVector = if (tokenVisible) Icons.Default.VisibilityOff else Icons.Default.Visibility,
-                                    contentDescription = null,
-                                    tint = textSecondary,
-                                    modifier = Modifier.size(18.dp)
-                                )
-                            }
-                        },
-                        colors = OutlinedTextFieldDefaults.colors(
-                            focusedTextColor = textPrimary,
-                            unfocusedTextColor = textPrimary,
-                            focusedBorderColor = Color(0xFF0A84FF),
-                            unfocusedBorderColor = cardBorder,
-                            focusedPlaceholderColor = textSecondary,
-                            unfocusedPlaceholderColor = textSecondary
-                        ),
-                        shape = RoundedCornerShape(12.dp),
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
                         modifier = Modifier.weight(1f)
-                    )
-
-                    Surface(
-                        color = if (hasUnsavedToken) Color(0xFF34C759) else (if (isDark) Color.White.copy(alpha = 0.08f) else Color.Black.copy(alpha = 0.05f)),
-                        shape = RoundedCornerShape(12.dp),
-                        border = if (hasUnsavedToken) null else BorderStroke(0.5.dp, cardBorder),
-                        modifier = Modifier
-                            .height(50.dp)
-                            .bouncyClickable(pressedScale = 0.94f) {
-                                onSetGeniusToken(tokenDraft)
-                                focusManager.clearFocus()
-                            }
                     ) {
-                        Box(
-                            contentAlignment = Alignment.Center,
-                            modifier = Modifier.padding(horizontal = 14.dp)
-                        ) {
-                            Text(
-                                text = strings.saveTokenBtn,
-                                color = if (hasUnsavedToken) Color.White else textPrimary,
-                                fontSize = 13.sp,
-                                fontWeight = FontWeight.SemiBold,
-                                fontFamily = FontFamily.SansSerif
+                        Text(
+                            text = strings.geniusTokenLabel,
+                            color = textPrimary,
+                            fontSize = 14.5.sp,
+                            fontWeight = FontWeight.SemiBold,
+                            fontFamily = FontFamily.SansSerif
+                        )
+                        if (geniusToken.isNotBlank()) {
+                            Box(
+                                modifier = Modifier
+                                    .size(7.dp)
+                                    .clip(CircleShape)
+                                    .background(Color(0xFF34C759))
                             )
+                        }
+                    }
+                    Icon(
+                        imageVector = Icons.Default.KeyboardArrowDown,
+                        contentDescription = null,
+                        tint = textSecondary,
+                        modifier = Modifier
+                            .size(20.dp)
+                            .graphicsLayer { rotationZ = tokenChevronRotation }
+                    )
+                }
+
+                AnimatedVisibility(
+                    visible = tokenSectionExpanded,
+                    enter = fadeIn(tween(180)) + expandVertically(spring(dampingRatio = 0.88f, stiffness = 360f)),
+                    exit = fadeOut(tween(140)) + shrinkVertically(tween(180))
+                ) {
+                    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                        Text(
+                            text = strings.geniusTokenDesc,
+                            color = textSecondary,
+                            fontSize = 12.sp,
+                            lineHeight = 16.sp,
+                            fontFamily = FontFamily.SansSerif
+                        )
+
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(8.dp)
+                        ) {
+                            OutlinedTextField(
+                                value = tokenDraft,
+                                onValueChange = { tokenDraft = it },
+                                placeholder = {
+                                    Text(
+                                        text = strings.geniusTokenPlaceholder,
+                                        fontSize = 12.5.sp,
+                                        fontFamily = FontFamily.SansSerif,
+                                        maxLines = 1,
+                                        overflow = TextOverflow.Ellipsis
+                                    )
+                                },
+                                singleLine = true,
+                                visualTransformation = if (tokenVisible) VisualTransformation.None else PasswordVisualTransformation(),
+                                trailingIcon = {
+                                    IconButton(onClick = { tokenVisible = !tokenVisible }) {
+                                        Icon(
+                                            imageVector = if (tokenVisible) Icons.Default.VisibilityOff else Icons.Default.Visibility,
+                                            contentDescription = null,
+                                            tint = textSecondary,
+                                            modifier = Modifier.size(18.dp)
+                                        )
+                                    }
+                                },
+                                colors = OutlinedTextFieldDefaults.colors(
+                                    focusedTextColor = textPrimary,
+                                    unfocusedTextColor = textPrimary,
+                                    focusedBorderColor = Color(0xFF0A84FF),
+                                    unfocusedBorderColor = cardBorder,
+                                    focusedPlaceholderColor = textSecondary,
+                                    unfocusedPlaceholderColor = textSecondary
+                                ),
+                                shape = RoundedCornerShape(12.dp),
+                                modifier = Modifier.weight(1f)
+                            )
+
+                            Surface(
+                                color = if (hasUnsavedToken) Color(0xFF34C759) else (if (isDark) Color.White.copy(alpha = 0.08f) else Color.Black.copy(alpha = 0.05f)),
+                                shape = RoundedCornerShape(12.dp),
+                                border = if (hasUnsavedToken) null else BorderStroke(0.5.dp, cardBorder),
+                                modifier = Modifier
+                                    .height(50.dp)
+                                    .bouncyClickable(pressedScale = 0.94f) {
+                                        onSetGeniusToken(tokenDraft)
+                                        focusManager.clearFocus()
+                                    }
+                            ) {
+                                Box(
+                                    contentAlignment = Alignment.Center,
+                                    modifier = Modifier.padding(horizontal = 14.dp)
+                                ) {
+                                    Text(
+                                        text = strings.saveTokenBtn,
+                                        color = if (hasUnsavedToken) Color.White else textPrimary,
+                                        fontSize = 13.sp,
+                                        fontWeight = FontWeight.SemiBold,
+                                        fontFamily = FontFamily.SansSerif
+                                    )
+                                }
+                            }
                         }
                     }
                 }
@@ -1492,18 +1637,60 @@ private fun OffsetButton(
     onClick: () -> Unit,
     modifier: Modifier = Modifier,
     isReset: Boolean = false,
+    enabled: Boolean = true,
+    allowRepeat: Boolean = false,
     isDark: Boolean = true
 ) {
+    val haptic = LocalHapticFeedback.current
+    val currentOnClick by rememberUpdatedState(onClick)
+    var isPressed by remember { mutableStateOf(false) }
+
     val unselectedBg = if (isDark) Color.White.copy(alpha = 0.06f) else Color.Black.copy(alpha = 0.04f)
     val resetBg = if (isDark) Color.White.copy(alpha = 0.14f) else Color.Black.copy(alpha = 0.09f)
     val unselectedBorder = if (isDark) Color.White.copy(alpha = 0.08f) else Color.Black.copy(alpha = 0.05f)
     val resetBorder = if (isDark) Color.White.copy(alpha = 0.20f) else Color.Black.copy(alpha = 0.12f)
 
     val buttonScale by animateFloatAsState(
-        targetValue = if (isReset) 1.02f else 1.0f,
+        targetValue = if (isPressed && enabled) 0.92f else 1.0f,
         animationSpec = spring(dampingRatio = 0.78f, stiffness = 650f),
         label = "offsetBtnScale"
     )
+
+    val interactionModifier = if (allowRepeat && enabled) {
+        Modifier.pointerInput(enabled) {
+            coroutineScope {
+                awaitEachGesture {
+                    awaitFirstDown(requireUnconsumed = false)
+                    isPressed = true
+                    try {
+                        haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                    } catch (_: Exception) {
+                    }
+                    currentOnClick()
+                    val repeatJob = launch {
+                        delay(380L)
+                        while (true) {
+                            try {
+                                haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                            } catch (_: Exception) {
+                            }
+                            currentOnClick()
+                            delay(90L)
+                        }
+                    }
+                    waitForUpOrCancellation()
+                    repeatJob.cancel()
+                    isPressed = false
+                }
+            }
+        }
+    } else {
+        Modifier.bouncyClickable(
+            enabled = enabled,
+            pressedScale = 0.90f,
+            onClick = onClick
+        )
+    }
 
     Surface(
         color = if (isReset) resetBg else unselectedBg,
@@ -1511,14 +1698,13 @@ private fun OffsetButton(
         border = BorderStroke(0.5.dp, if (isReset) resetBorder else unselectedBorder),
         modifier = modifier
             .height(36.dp)
+            .alpha(if (enabled) 1f else 0.42f)
             .graphicsLayer {
                 scaleX = buttonScale
                 scaleY = buttonScale
             }
-            .bouncyClickable(
-                pressedScale = 0.90f,
-                onClick = onClick
-            )
+            .clip(RoundedCornerShape(10.dp))
+            .then(interactionModifier)
     ) {
         Box(contentAlignment = Alignment.Center) {
             val textColor = if (isDark) Color.White else Color(0xFF1C1C1E)

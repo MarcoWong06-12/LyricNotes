@@ -25,24 +25,95 @@ object NetEaseLyricsService {
         "User-Agent" to "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36"
     )
 
+    private val YRC_WORD_LINE_REGEX = Regex("""^\[\d+,\d+\].*\(\d+,\d+(?:,\d+)?\)""")
+    private val LRC_TIMED_LINE_REGEX = Regex("""^\[\d{1,2}:\d{2}(?:\.\d{1,3})?\]""")
+    private val INLINE_TAG_STRIP_REGEX = Regex("""\[\d+,\d+\]|\[\d{1,2}:\d{2}(?:\.\d{1,3})?\]|\(\d+,\d+(?:,\d+)?\)""")
+
+    private fun isSafePlainText(text: String): Boolean {
+        if (text.isBlank()) return false
+        return text.none { ch ->
+            ch == '\u0000' || (ch.code in 0x01..0x08) || ch.code == 0x0B || ch.code == 0x0C || (ch.code in 0x0E..0x1F)
+        }
+    }
+
+    internal fun isValidWordTimedYrc(yrc: String?): Boolean {
+        if (yrc.isNullOrBlank() || !isSafePlainText(yrc)) return false
+        return yrc.lines().any { line ->
+            val trimmed = line.trim()
+            YRC_WORD_LINE_REGEX.containsMatchIn(trimmed) &&
+                trimmed.replace(INLINE_TAG_STRIP_REGEX, "").isNotBlank()
+        }
+    }
+
+    internal fun selectPreferredNetEaseLyricPayload(
+        origLrc: String,
+        transLrc: String,
+        yrcLrc: String,
+        ytLrc: String
+    ): Pair<String, String>? {
+        val safeOrig = origLrc.takeIf { isSafePlainText(it) }.orEmpty()
+        val safeTrans = transLrc.takeIf { isSafePlainText(it) }.orEmpty()
+        val safeYrc = yrcLrc.takeIf { isValidWordTimedYrc(it) }.orEmpty()
+        val safeYt = ytLrc.takeIf { isSafePlainText(it) }.orEmpty()
+
+        if (safeYrc.isNotBlank()) {
+            val yrcLineCount = safeYrc.lines().count { line ->
+                val trimmed = line.trim()
+                YRC_WORD_LINE_REGEX.containsMatchIn(trimmed) &&
+                    trimmed.replace(INLINE_TAG_STRIP_REGEX, "").isNotBlank()
+            }
+            val lrcLineCount = safeOrig.lines().count { line ->
+                val trimmed = line.trim()
+                LRC_TIMED_LINE_REGEX.containsMatchIn(trimmed) &&
+                    trimmed.replace(INLINE_TAG_STRIP_REGEX, "").isNotBlank()
+            }
+            if (yrcLineCount >= 1 && (lrcLineCount == 0 || yrcLineCount * 2 >= lrcLineCount)) {
+                return safeYrc to safeYt.ifBlank { safeTrans }
+            }
+        }
+
+        if (safeOrig.isNotBlank()) {
+            return safeOrig to safeTrans
+        }
+        return null
+    }
+
+    private fun alignPreferredNetEaseLyrics(
+        origLrc: String,
+        transLrc: String,
+        yrcLrc: String,
+        ytLrc: String
+    ): Pair<String, String>? {
+        val selected = selectPreferredNetEaseLyricPayload(origLrc, transLrc, yrcLrc, ytLrc) ?: return null
+        val aligned = LyricAligner.alignLrcTimestamps(selected.first, selected.second)
+        // 若选中了 YRC 但 tlyric 与 YRC 时间轴不兼容导致官方译文丢失、而原 LRC 可成功对齐官方译文，优先保真原双语对齐或保持 YRC
+        if (selected.first == yrcLrc && isValidWordTimedYrc(selected.first) && selected.second.isNotBlank() && aligned.second.isBlank() && origLrc.isNotBlank()) {
+            val lrcAligned = LyricAligner.alignLrcTimestamps(origLrc, transLrc)
+            if (lrcAligned.second.isNotBlank()) {
+                return lrcAligned
+            }
+        }
+        return aligned
+    }
+
     suspend fun fetchLyricById(
         songId: Long,
         fallbackTitle: String = "",
         fallbackArtist: String = ""
     ): OnlineLyricsResult? = withContext(Dispatchers.IO) {
         if (songId <= 0L) return@withContext null
-        val lyricUrl = "$LYRIC_API?id=$songId&lv=1&kv=1&tv=1"
+        val lyricUrl = "$LYRIC_API?id=$songId&lv=1&kv=1&tv=1&yv=1&ytv=1"
         val lyricJson = LinerNotesHttpClient.getAsync(lyricUrl, HEADERS) ?: return@withContext null
         try {
             val lyricRoot = JSONObject(lyricJson)
-            val lrcObj = lyricRoot.optJSONObject("lrc")
-            val origLrc = lrcObj?.optString("lyric", "")?.trim() ?: ""
-            if (origLrc.isBlank()) return@withContext null
+            val origLrc = lyricRoot.optJSONObject("lrc")?.optString("lyric", "")?.trim() ?: ""
+            val transLrc = lyricRoot.optJSONObject("tlyric")?.optString("lyric", "")?.trim() ?: ""
+            val yrcLrc = lyricRoot.optJSONObject("yrc")?.optString("lyric", "")?.trim() ?: ""
+            val ytLrc = lyricRoot.optJSONObject("ytlrc")?.optString("lyric", "")?.trim() ?: ""
 
-            val tlyricObj = lyricRoot.optJSONObject("tlyric")
-            val transLrc = tlyricObj?.optString("lyric", "")?.trim() ?: ""
-
-            val alignedPair = LyricAligner.alignLrcTimestamps(origLrc, transLrc)
+            val alignedPair = alignPreferredNetEaseLyrics(origLrc, transLrc, yrcLrc, ytLrc)
+                ?: return@withContext null
+            if (alignedPair.first.isBlank()) return@withContext null
 
             OnlineLyricsResult(
                 songId = songId,
@@ -96,19 +167,18 @@ object NetEaseLyricsService {
             ?.optString("picUrl")
             ?.takeIf { it.isNotBlank() }
 
-        val lyricUrl = "$LYRIC_API?id=$songId&lv=1&kv=1&tv=1"
+        val lyricUrl = "$LYRIC_API?id=$songId&lv=1&kv=1&tv=1&yv=1&ytv=1"
         val lyricJson = LinerNotesHttpClient.getAsync(lyricUrl, HEADERS) ?: return null
 
         return try {
             val lyricRoot = JSONObject(lyricJson)
-            val lrcObj = lyricRoot.optJSONObject("lrc")
-            val origLrc = lrcObj?.optString("lyric", "")?.trim() ?: ""
-            if (origLrc.isBlank()) return null
+            val origLrc = lyricRoot.optJSONObject("lrc")?.optString("lyric", "")?.trim() ?: ""
+            val transLrc = lyricRoot.optJSONObject("tlyric")?.optString("lyric", "")?.trim() ?: ""
+            val yrcLrc = lyricRoot.optJSONObject("yrc")?.optString("lyric", "")?.trim() ?: ""
+            val ytLrc = lyricRoot.optJSONObject("ytlrc")?.optString("lyric", "")?.trim() ?: ""
 
-            val tlyricObj = lyricRoot.optJSONObject("tlyric")
-            val transLrc = tlyricObj?.optString("lyric", "")?.trim() ?: ""
-
-            val alignedPair = LyricAligner.alignLrcTimestamps(origLrc, transLrc)
+            val alignedPair = alignPreferredNetEaseLyrics(origLrc, transLrc, yrcLrc, ytLrc) ?: return null
+            if (alignedPair.first.isBlank()) return null
 
             OnlineLyricsResult(
                 songId = songId,

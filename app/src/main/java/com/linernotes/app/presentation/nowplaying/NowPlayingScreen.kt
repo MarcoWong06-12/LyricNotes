@@ -10,6 +10,8 @@ import androidx.compose.animation.*
 import androidx.compose.animation.core.*
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
+import androidx.compose.foundation.basicMarquee
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.*
@@ -23,6 +25,8 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.drawBehind
+import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.TransformOrigin
 import androidx.compose.ui.graphics.graphicsLayer
@@ -188,6 +192,7 @@ fun NowPlayingScreen(
 
     val isDark = MaterialTheme.colorScheme.background.luminance() < 0.5f
     val isDarkUi = isDark
+    val isDualPane = configuration.screenWidthDp >= 720 && configuration.screenWidthDp > configuration.screenHeightDp
     val strings = LocalStrings.current
     val snackbarHostState = remember { SnackbarHostState() }
 
@@ -200,14 +205,20 @@ fun NowPlayingScreen(
         viewModel.clearUserMessage()
     }
 
+    val isAnySheetOpen = state.isSettingsSheetOpen || state.isGeniusSheetOpen || state.isSongStorySheetOpen || state.isQueueSheetOpen || state.isManualSearchSheetOpen
+    val sheetBackdropColor = if (isDarkUi) Color.Black else PaperWhite
+
     Box(
         modifier = Modifier
             .fillMaxSize()
-            .background(if (isDarkUi) Color.Black else PaperWhite)
+            .drawBehind {
+                if (isAnySheetOpen) {
+                    drawRect(sheetBackdropColor)
+                }
+            }
     ) {
         LockWindowRefreshRateEffect()
         // 核心主内容区 (歌词与弥散极光全屏贯通，并在呼出底部抽屉时整体呈现 iOS 18 / Apple Music 卡片堆栈纵深后退与圆角形态演变)
-        val isAnySheetOpen = state.isSettingsSheetOpen || state.isGeniusSheetOpen || state.isSongStorySheetOpen || state.isQueueSheetOpen || state.isManualSearchSheetOpen
         val contentParallaxScale by animateFloatAsState(
             targetValue = when {
                 state.isQueueSheetOpen -> 0.925f
@@ -316,54 +327,116 @@ fun NowPlayingScreen(
                         clip = true
                     }
                 }
-                .background(
-                    if (isDarkUi) {
-                        if (state.isAmoledMode) Color.Black else Color(0xFF070709)
-                    } else MaterialTheme.colorScheme.background
-                )
         ) {
-            // 1. 灵动流体弥散背景 (随主卡片一起参与 iOS 纵深缩放与圆角裁切)
+            // 1. 灵动流体弥散背景 (随主卡片一起参与 iOS 纵深缩放与圆角裁切；暂停或遮挡时冻结着色器计算零空转)
             AmbientGlowBackground(
                 coverUrl = trackState.coverUrl,
                 isDark = isDarkUi,
                 isAmoledMode = state.isAmoledMode,
                 isDynamicAurora = state.isDynamicAuroraEnabled,
+                isPaused = !state.isPlaying || isAnySheetOpen || showEnlargedCover,
                 modifier = Modifier.fillMaxSize()
             )
 
             if (hasTrack) {
-                Box(
-                    modifier = Modifier
-                        .fillMaxSize()
-                        .then(trackSwipeModifier)
-                        .graphicsLayer {
-                            translationX = swipeOffsetX.value
-                            val dragRatio = (kotlin.math.abs(swipeOffsetX.value) / screenWidthPx).coerceIn(0f, 1f)
-                            alpha = (swipeContentAlpha.value * (1f - dragRatio * 0.45f)).coerceIn(0f, 1f)
+                if (isDualPane && !isImmersiveMode) {
+                    Row(
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .then(trackSwipeModifier)
+                            .graphicsLayer {
+                                translationX = swipeOffsetX.value
+                                val dragRatio = (kotlin.math.abs(swipeOffsetX.value) / screenWidthPx).coerceIn(0f, 1f)
+                                alpha = (swipeContentAlpha.value * (1f - dragRatio * 0.45f)).coerceIn(0f, 1f)
+                            }
+                            .statusBarsPadding()
+                            .navigationBarsPadding()
+                    ) {
+                        DualPaneLeftConsole(
+                            trackState = trackState,
+                            playbackClockFlow = viewModel.playbackClockFlow,
+                            hasSongStory = lyricsContent.songStory != null,
+                            isTraditional = state.isTraditionalChinese,
+                            isDark = isDarkUi,
+                            showPlaybackControls = state.showPlaybackControls,
+                            onCoverClick = { showEnlargedCover = true },
+                            onOpenManualSearch = onOpenManualSearch,
+                            onOpenSongStory = onOpenSongStory,
+                            onOpenQueue = onOpenQueue,
+                            onOpenSettings = onOpenSettings,
+                            onToggleImmersive = { isImmersiveMode = true },
+                            onPlayPause = onPlayPause,
+                            onNext = onNext,
+                            onPrevious = onPrevious,
+                            onToggleShuffle = onToggleShuffle,
+                            onCycleRepeat = onCycleRepeat,
+                            onSeekTo = onSeekTo,
+                            modifier = Modifier
+                                .weight(0.42f)
+                                .fillMaxHeight()
+                        )
+
+                        Box(
+                            modifier = Modifier
+                                .weight(0.58f)
+                                .fillMaxHeight()
+                        ) {
+                            NowPlayingLyricsSlot(
+                                lyrics = lyricsContent.lyrics,
+                                currentLineIndexFlow = viewModel.currentLineIndexFlow,
+                                playbackClockFlow = viewModel.playbackClockFlow,
+                                annotatedLines = lyricsContent.annotatedLines,
+                                isTraditional = state.isTraditionalChinese,
+                                isLoadingLyrics = lyricsContent.isLoadingLyrics,
+                                isDark = isDarkUi,
+                                isAmoledMode = state.isAmoledMode,
+                                baseTrackState = trackState,
+                                lyricOffsetMs = state.lyricOffsetMs,
+                                isWordByWordEnabled = state.isWordByWordEnabled,
+                                lyricAlignment = state.lyricAlignment,
+                                lyricTextSize = state.lyricTextSize,
+                                showPlaybackControls = false,
+                                furiganaMode = state.furiganaMode,
+                                onLineClicked = onLineClicked,
+                                onAnnotationClicked = onAnnotationClicked,
+                                onRetryLyrics = onRetryLyrics,
+                                onOpenManualSearch = onOpenManualSearch
+                            )
                         }
-                ) {
-                    NowPlayingLyricsSlot(
-                        lyrics = lyricsContent.lyrics,
-                        currentLineIndexFlow = viewModel.currentLineIndexFlow,
-                        playbackClockFlow = viewModel.playbackClockFlow,
-                        annotatedLines = lyricsContent.annotatedLines,
-                        isPlaying = state.isPlaying,
-                        isTraditional = state.isTraditionalChinese,
-                        isLoadingLyrics = lyricsContent.isLoadingLyrics,
-                        isDark = isDarkUi,
-                        isAmoledMode = state.isAmoledMode,
-                        baseTrackState = trackState,
-                        lyricOffsetMs = state.lyricOffsetMs,
-                        isWordByWordEnabled = state.isWordByWordEnabled,
-                        lyricAlignment = state.lyricAlignment,
-                        lyricTextSize = state.lyricTextSize,
-                        showPlaybackControls = state.showPlaybackControls && !isImmersiveMode,
-                        furiganaMode = state.furiganaMode,
-                        onLineClicked = onLineClicked,
-                        onAnnotationClicked = onAnnotationClicked,
-                        onRetryLyrics = onRetryLyrics,
-                        onOpenManualSearch = onOpenManualSearch
-                    )
+                    }
+                } else {
+                    Box(
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .then(trackSwipeModifier)
+                            .graphicsLayer {
+                                translationX = swipeOffsetX.value
+                                val dragRatio = (kotlin.math.abs(swipeOffsetX.value) / screenWidthPx).coerceIn(0f, 1f)
+                                alpha = (swipeContentAlpha.value * (1f - dragRatio * 0.45f)).coerceIn(0f, 1f)
+                            }
+                    ) {
+                        NowPlayingLyricsSlot(
+                            lyrics = lyricsContent.lyrics,
+                            currentLineIndexFlow = viewModel.currentLineIndexFlow,
+                            playbackClockFlow = viewModel.playbackClockFlow,
+                            annotatedLines = lyricsContent.annotatedLines,
+                            isTraditional = state.isTraditionalChinese,
+                            isLoadingLyrics = lyricsContent.isLoadingLyrics,
+                            isDark = isDarkUi,
+                            isAmoledMode = state.isAmoledMode,
+                            baseTrackState = trackState,
+                            lyricOffsetMs = state.lyricOffsetMs,
+                            isWordByWordEnabled = state.isWordByWordEnabled,
+                            lyricAlignment = state.lyricAlignment,
+                            lyricTextSize = state.lyricTextSize,
+                            showPlaybackControls = state.showPlaybackControls && !isImmersiveMode && !isDualPane,
+                            furiganaMode = state.furiganaMode,
+                            onLineClicked = onLineClicked,
+                            onAnnotationClicked = onAnnotationClicked,
+                            onRetryLyrics = onRetryLyrics,
+                            onOpenManualSearch = onOpenManualSearch
+                        )
+                    }
                 }
 
                 // 左右滑动指示器微徽标（仅在超过死区阈值切换可见状态，位移与透明度全走 graphicsLayer 实现 0 Recompose）
@@ -448,9 +521,9 @@ fun NowPlayingScreen(
                 )
             }
 
-            // 3. 极简顶部状态微栏 (为歌词留出 80% 屏幕纵向空间，集成外层歌曲故事直达入口与全屏沉浸入口)
+            // 3. 极简顶部状态微栏 (单栏模式显示；横屏/平板双栏由左侧中控台承载)
             AnimatedVisibility(
-                visible = !isImmersiveMode,
+                visible = !isImmersiveMode && (!hasTrack || !isDualPane),
                 enter = fadeIn(tween(180)) + slideInVertically(spring(dampingRatio = 0.88f, stiffness = 320f)) { -it / 2 },
                 exit = fadeOut(tween(160)) + slideOutVertically(tween(220)) { -it / 2 },
                 modifier = Modifier.align(Alignment.TopCenter)
@@ -516,9 +589,9 @@ fun NowPlayingScreen(
                         scaleIn(spring(dampingRatio = 0.76f, stiffness = 380f), initialScale = 0.82f),
                 exit = fadeOut(tween(150)) + slideOutVertically(tween(200)) { -it / 2 } + scaleOut(tween(150), targetScale = 0.86f),
                 modifier = Modifier
-                    .align(Alignment.TopCenter)
+                    .align(if (isDualPane) Alignment.TopEnd else Alignment.TopCenter)
                     .statusBarsPadding()
-                    .padding(top = 56.dp, start = 16.dp, end = 16.dp)
+                    .padding(top = if (isDualPane) 16.dp else 56.dp, start = 16.dp, end = 16.dp)
             ) {
                 Surface(
                     color = if (isDarkUi) {
@@ -605,9 +678,9 @@ fun NowPlayingScreen(
                 }
             }
 
-            // 5. 底栏悬浮毛玻璃全能胶囊 (物理弹簧与呼吸式扩展，集合歌曲信息、滑条与播控)
+            // 5. 底栏悬浮毛玻璃全能胶囊 (单栏模式显示；横屏/平板双栏内嵌于左侧中控台)
             AnimatedVisibility(
-                visible = hasTrack && state.showPlaybackControls && !isImmersiveMode,
+                visible = hasTrack && state.showPlaybackControls && !isImmersiveMode && !isDualPane,
                 enter = fadeIn(tween(180)) + slideInVertically(spring(dampingRatio = 0.88f, stiffness = 320f)) { it / 3 } + scaleIn(initialScale = 0.95f),
                 exit = fadeOut(tween(160)) + slideOutVertically(tween(220)) { it / 3 } + scaleOut(targetScale = 0.95f),
                 modifier = Modifier.align(Alignment.BottomCenter)
@@ -615,17 +688,13 @@ fun NowPlayingScreen(
                 NowPlayingFloatingGlassPlayer(
                     trackState = trackState,
                     playbackClockFlow = viewModel.playbackClockFlow,
-                    isTraditional = state.isTraditionalChinese,
                     isDark = isDarkUi,
-                    isAmoledMode = state.isAmoledMode,
                     onPlayPause = onPlayPause,
                     onNext = onNext,
                     onPrevious = onPrevious,
                     onToggleShuffle = onToggleShuffle,
                     onCycleRepeat = onCycleRepeat,
-                    onSeekTo = onSeekTo,
-                    onOpenQueue = onOpenQueue,
-                    onOpenSettings = onOpenSettings
+                    onSeekTo = onSeekTo
                 )
             }
 
@@ -816,13 +885,240 @@ fun NowPlayingScreen(
 }
 
 @Composable
+private fun DualPaneLeftConsole(
+    trackState: TrackPlaybackState,
+    playbackClockFlow: StateFlow<PlaybackClockState>,
+    hasSongStory: Boolean,
+    isTraditional: Boolean,
+    isDark: Boolean,
+    showPlaybackControls: Boolean,
+    onCoverClick: () -> Unit,
+    onOpenManualSearch: () -> Unit,
+    onOpenSongStory: () -> Unit,
+    onOpenQueue: () -> Unit,
+    onOpenSettings: () -> Unit,
+    onToggleImmersive: () -> Unit,
+    onPlayPause: () -> Unit,
+    onNext: () -> Unit,
+    onPrevious: () -> Unit,
+    onToggleShuffle: () -> Unit,
+    onCycleRepeat: () -> Unit,
+    onSeekTo: (Long) -> Unit,
+    modifier: Modifier = Modifier
+) {
+    val context = LocalContext.current
+    val strings = LocalStrings.current
+    val pillBg = if (isDark) Color.White.copy(alpha = 0.14f) else MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.85f)
+    val pillBorder = if (isDark) Color.White.copy(alpha = 0.18f) else Color.Black.copy(alpha = 0.10f)
+    val pillIconTint = if (isDark) Color.White else MaterialTheme.colorScheme.onSurface
+    val textPrimary = if (isDark) Color.White else MaterialTheme.colorScheme.onBackground
+    val textSecondary = if (isDark) Color.White.copy(alpha = 0.68f) else MaterialTheme.colorScheme.onBackground.copy(alpha = 0.65f)
+
+    val displayTitle = remember(trackState.title, isTraditional) {
+        if (isTraditional) ChineseConverter.toTraditional(trackState.title) else trackState.title
+    }
+    val rawArtist = remember(trackState.artist, trackState.album) {
+        trackState.artist.ifBlank { trackState.album ?: "" }
+    }
+    val displayArtist = remember(rawArtist, isTraditional) {
+        if (isTraditional) ChineseConverter.toTraditional(rawArtist) else rawArtist
+    }
+
+    Column(
+        modifier = modifier.padding(start = 8.dp, end = 4.dp, top = 12.dp, bottom = 8.dp),
+        horizontalAlignment = Alignment.CenterHorizontally,
+        verticalArrangement = Arrangement.SpaceBetween
+    ) {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 12.dp),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            DualPanePillButton(
+                icon = Icons.Default.Tune,
+                contentDescription = strings.topBarSettings,
+                pillBg = pillBg,
+                pillBorder = pillBorder,
+                tint = pillIconTint,
+                onClick = onOpenSettings
+            )
+            Row(
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                if (hasSongStory) {
+                    DualPanePillButton(
+                        icon = Icons.Default.AutoAwesome,
+                        contentDescription = strings.storyBadge,
+                        pillBg = pillBg,
+                        pillBorder = pillBorder,
+                        tint = if (isDark) Color(0xFFFFD54F) else Color(0xFFE65100),
+                        onClick = onOpenSongStory
+                    )
+                }
+                DualPanePillButton(
+                    icon = Icons.Default.Search,
+                    contentDescription = strings.topBarSearchVersion,
+                    pillBg = pillBg,
+                    pillBorder = pillBorder,
+                    tint = pillIconTint,
+                    onClick = onOpenManualSearch
+                )
+                DualPanePillButton(
+                    icon = Icons.Default.QueueMusic,
+                    contentDescription = strings.topBarQueue,
+                    pillBg = pillBg,
+                    pillBorder = pillBorder,
+                    tint = pillIconTint,
+                    onClick = onOpenQueue
+                )
+                DualPanePillButton(
+                    icon = Icons.Default.Fullscreen,
+                    contentDescription = strings.topBarImmersive,
+                    pillBg = pillBg,
+                    pillBorder = pillBorder,
+                    tint = pillIconTint,
+                    onClick = onToggleImmersive
+                )
+            }
+        }
+
+        Column(
+            modifier = Modifier
+                .weight(1f)
+                .fillMaxWidth()
+                .padding(vertical = 10.dp),
+            horizontalAlignment = Alignment.CenterHorizontally,
+            verticalArrangement = Arrangement.Center
+        ) {
+            Box(
+                contentAlignment = Alignment.Center,
+                modifier = Modifier
+                    .weight(1f, fill = false)
+                    .sizeIn(maxWidth = 300.dp, maxHeight = 300.dp)
+                    .aspectRatio(1f)
+                    .shadow(20.dp, RoundedCornerShape(22.dp), ambientColor = Color.Black.copy(alpha = 0.45f))
+                    .clip(RoundedCornerShape(22.dp))
+                    .border(BorderStroke(0.8.dp, pillBorder), RoundedCornerShape(22.dp))
+                    .background(if (isDark) Color.White.copy(alpha = 0.08f) else Color.Black.copy(alpha = 0.05f))
+                    .bouncyClickable(pressedScale = 0.96f, onClick = onCoverClick)
+            ) {
+                if (!trackState.coverUrl.isNullOrBlank()) {
+                    val coverRequest = remember(trackState.coverUrl) {
+                        ImageRequest.Builder(context)
+                            .data(trackState.coverUrl)
+                            .crossfade(true)
+                            .build()
+                    }
+                    AsyncImage(
+                        model = coverRequest,
+                        contentDescription = strings.albumCover,
+                        contentScale = ContentScale.Crop,
+                        modifier = Modifier.fillMaxSize()
+                    )
+                } else {
+                    Icon(
+                        imageVector = Icons.Default.MusicNote,
+                        contentDescription = null,
+                        tint = textSecondary,
+                        modifier = Modifier.size(56.dp)
+                    )
+                }
+            }
+
+            Spacer(modifier = Modifier.height(14.dp))
+
+            Column(
+                horizontalAlignment = Alignment.CenterHorizontally,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clip(RoundedCornerShape(12.dp))
+                    .bouncyClickable(pressedScale = 0.98f, onClick = onOpenManualSearch)
+                    .padding(horizontal = 12.dp, vertical = 4.dp)
+            ) {
+                Text(
+                    text = displayTitle,
+                    color = textPrimary,
+                    fontSize = 18.sp,
+                    fontWeight = FontWeight.Bold,
+                    fontFamily = FontFamily.SansSerif,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                    modifier = Modifier.basicMarquee(
+                        iterations = Int.MAX_VALUE,
+                        initialDelayMillis = 4000,
+                        repeatDelayMillis = 3000,
+                        velocity = 26.dp
+                    )
+                )
+                if (displayArtist.isNotBlank()) {
+                    Spacer(modifier = Modifier.height(2.dp))
+                    Text(
+                        text = displayArtist,
+                        color = textSecondary,
+                        fontSize = 13.5.sp,
+                        fontWeight = FontWeight.Medium,
+                        fontFamily = FontFamily.SansSerif,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
+                    )
+                }
+            }
+        }
+
+        if (showPlaybackControls) {
+            NowPlayingFloatingGlassPlayer(
+                trackState = trackState,
+                playbackClockFlow = playbackClockFlow,
+                isDark = isDark,
+                onPlayPause = onPlayPause,
+                onNext = onNext,
+                onPrevious = onPrevious,
+                onToggleShuffle = onToggleShuffle,
+                onCycleRepeat = onCycleRepeat,
+                onSeekTo = onSeekTo
+            )
+        }
+    }
+}
+
+@Composable
+private fun DualPanePillButton(
+    icon: androidx.compose.ui.graphics.vector.ImageVector,
+    contentDescription: String,
+    pillBg: Color,
+    pillBorder: Color,
+    tint: Color,
+    onClick: () -> Unit
+) {
+    Surface(
+        color = pillBg,
+        shape = CircleShape,
+        border = BorderStroke(0.5.dp, pillBorder),
+        modifier = Modifier
+            .size(36.dp)
+            .bouncyIconClickable(onClick = onClick)
+    ) {
+        Box(contentAlignment = Alignment.Center) {
+            Icon(
+                imageVector = icon,
+                contentDescription = contentDescription,
+                tint = tint,
+                modifier = Modifier.size(18.dp)
+            )
+        }
+    }
+}
+
+@Composable
 private fun NowPlayingLyricsSlot(
     lyrics: List<BilingualLyricLine>,
     currentLineIndexFlow: StateFlow<Int>,
     playbackClockFlow: StateFlow<PlaybackClockState>,
     annotatedLines: Map<Int, LyricAnnotationEntity>,
     baseTrackState: TrackPlaybackState,
-    isPlaying: Boolean,
     isTraditional: Boolean,
     isLoadingLyrics: Boolean,
     isDark: Boolean,

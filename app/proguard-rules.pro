@@ -14,8 +14,6 @@
 -keep public class com.linernotes.app.core.floating.FloatingLyricsTileService
 -keep public class com.linernotes.app.core.playback.MediaPlaybackSyncService
 -keep public class com.linernotes.app.core.playback.SpotifyBroadcastReceiver
--keep public class com.linernotes.app.core.translation.BatchTranslationService
--keep public class com.linernotes.app.core.media.CompanionPlaybackService
 
 # Keep Hilt EntryPoints and generated components
 -keep @dagger.hilt.EntryPoint interface * { *; }

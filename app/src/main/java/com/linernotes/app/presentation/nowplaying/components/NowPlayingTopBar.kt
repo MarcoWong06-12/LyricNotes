@@ -155,14 +155,16 @@ fun NowPlayingTopBar(
                     }
                 }
 
-                // 2. 歌名与歌手
+                // 2. 歌名与歌手（轻触检索与匹配歌词版本）
                 Column(
                     modifier = Modifier
                         .weight(1f)
+                        .clip(RoundedCornerShape(10.dp))
                         .bouncyClickable(
                             pressedScale = 0.97f,
-                            onClick = onOpenSettings
-                        ),
+                            onClick = onOpenManualSearch
+                        )
+                        .padding(horizontal = 4.dp, vertical = 2.dp),
                     verticalArrangement = Arrangement.spacedBy(1.dp)
                 ) {
                     val displayTitle = if (isTraditional) ChineseConverter.toTraditional(trackState.title) else trackState.title

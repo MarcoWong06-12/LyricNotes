@@ -21,6 +21,7 @@ import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
@@ -101,12 +102,15 @@ fun NowPlayingSongStorySheet(
         // 锁定 120Hz 高刷新率，消除弹窗滚动微卡顿
         LockWindowRefreshRateEffect()
 
+        val maxSheetHeight = (LocalConfiguration.current.screenHeightDp * 0.88f).dp.coerceAtLeast(260.dp)
+
         Column(
             modifier = Modifier
                 .fillMaxWidth()
-                .fillMaxHeight(0.88f)
+                .heightIn(min = 260.dp, max = maxSheetHeight)
                 .padding(horizontal = 20.dp)
-                .padding(bottom = 32.dp)
+                .navigationBarsPadding()
+                .padding(bottom = 28.dp)
                 .verticalScroll(rememberScrollState()),
             verticalArrangement = Arrangement.spacedBy(18.dp)
         ) {

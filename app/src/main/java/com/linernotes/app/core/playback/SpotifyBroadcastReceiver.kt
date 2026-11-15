@@ -14,7 +14,6 @@ class SpotifyBroadcastReceiver : BroadcastReceiver() {
     override fun onReceive(context: Context, intent: Intent) {
         val action = intent.action ?: return
         val manager = PlaybackStateManager.get(context)
-        val current = manager.playbackState.value
 
         when (action) {
             ACTION_METADATA_CHANGED -> {
@@ -22,48 +21,59 @@ class SpotifyBroadcastReceiver : BroadcastReceiver() {
                 val artist = intent.getStringExtra("artist") ?: ""
                 val album = intent.getStringExtra("album") ?: ""
                 val track = intent.getStringExtra("track") ?: ""
-                val isSameTrack = (track == current.title && artist == current.artist)
+                val playing = intent.getBooleanExtra("playing", false)
                 val length = intent.getIntExtra("length", -1).takeIf { it > 0 }?.toLong()
                     ?: intent.getLongExtra("length", -1L).takeIf { it > 0L }
-                    ?: if (isSameTrack) current.durationMs else 0L
+                    ?: 0L
 
                 if (track.isNotBlank()) {
-                    manager.updateState(
-                        current.copy(
-                            title = track,
-                            artist = artist,
-                            album = album,
-                            durationMs = length,
-                            currentPositionMs = if (isSameTrack) current.currentPositionMs else 0L,
-                            coverUrl = if (isSameTrack) current.coverUrl else null,
-                            trackId = trackId ?: if (isSameTrack) current.trackId else null,
-                            packageName = "com.spotify.music",
-                            sourceApp = MediaSourceApp.SPOTIFY,
-                            lastUpdateTimeMs = if (isSameTrack) current.lastUpdateTimeMs else SystemClock.elapsedRealtime()
-                        )
+                    manager.updateMetadataAndCover(
+                        title = track,
+                        artist = artist,
+                        album = album,
+                        durationMs = length,
+                        coverUrl = null,
+                        packageName = SPOTIFY_PACKAGE,
+                        trackId = trackId,
+                        sourceApp = MediaSourceApp.SPOTIFY,
+                        precondition = { current -> shouldAcceptSpotifyBroadcast(current, playing) }
                     )
                 }
             }
             ACTION_PLAYBACK_STATE_CHANGED -> {
                 val playing = intent.getBooleanExtra("playing", false)
-                val isSpotifyActiveSource = current.packageName == "com.spotify.music" ||
-                    current.sourceApp == MediaSourceApp.SPOTIFY ||
-                    current.title.isBlank()
-                if (!isSpotifyActiveSource && (!playing || current.isPlaying)) {
-                    return
-                }
                 val position = intent.getIntExtra("playbackPosition", -1).takeIf { it >= 0 }?.toLong()
                     ?: intent.getLongExtra("playbackPosition", -1L).takeIf { it >= 0L }
-                    ?: current.currentPositionMs
 
-                manager.updatePositionOnly(position, playing)
+                manager.updatePlaybackClock(
+                    positionMs = position,
+                    isPlaying = playing,
+                    playbackSpeed = null,
+                    lastUpdateTimeMs = SystemClock.elapsedRealtime(),
+                    requireValidTrack = true,
+                    precondition = { current -> shouldAcceptSpotifyBroadcast(current, playing) }
+                )
             }
         }
     }
 
     companion object {
+        const val SPOTIFY_PACKAGE = "com.spotify.music"
         const val ACTION_METADATA_CHANGED = "com.spotify.music.metadatachanged"
         const val ACTION_PLAYBACK_STATE_CHANGED = "com.spotify.music.playbackstatechanged"
         const val ACTION_QUEUE_CHANGED = "com.spotify.music.queuechanged"
+
+        internal fun shouldAcceptSpotifyBroadcast(
+            current: TrackPlaybackState,
+            isPlayingExtra: Boolean
+        ): Boolean {
+            val isSpotifyActiveSource = current.packageName == SPOTIFY_PACKAGE ||
+                current.sourceApp == MediaSourceApp.SPOTIFY ||
+                current.title.isBlank()
+            if (!isSpotifyActiveSource && (!isPlayingExtra || current.isPlaying)) {
+                return false
+            }
+            return true
+        }
     }
 }
