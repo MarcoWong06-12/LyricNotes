@@ -155,23 +155,26 @@ class NowPlayingCacheAndBindingTest {
     fun hasUnresolvedCensorship_triggersCacheSelfHealingOnlyWhenDeCensorEnabled() {
         val staleYrcCached = listOf(
             BilingualLyricLine(
-                timestampMs = 38520L,
+                lineNumber = 1,
                 original = "(38520,240,0)Lil' (39330,120,0)f(39450,0,0)*(39450,0,0)*(39450,90,0)k around",
-                translation = "别乱搞"
+                translation = "别乱搞",
+                startTimeMs = 38520L
             )
         )
         val stalePlainCached = listOf(
             BilingualLyricLine(
-                timestampMs = 25440L,
+                lineNumber = 1,
                 original = "Biggie Smalls is some mark a** b**ches",
-                translation = "他们都是软脚虾"
+                translation = "他们都是软脚虾",
+                startTimeMs = 25440L
             )
         )
         val cleanCached = listOf(
             BilingualLyricLine(
-                timestampMs = 38520L,
+                lineNumber = 1,
                 original = "(38520,240,0)Lil' (39330,210,0)fuck around",
-                translation = "别乱搞"
+                translation = "别乱搞",
+                startTimeMs = 38520L
             )
         )
 
