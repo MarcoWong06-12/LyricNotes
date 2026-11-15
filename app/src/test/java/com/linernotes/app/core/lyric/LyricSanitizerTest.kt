@@ -179,4 +179,55 @@ class LyricSanitizerTest {
         val result3 = LyricSanitizer.decensorLine(trailingDropped, trailingRef)
         assertEquals("What the fuck", result3)
     }
+
+    @Test
+    fun `test yrc inline word tags splitting censored profanity in hit em up`() {
+        val rawYrc = """
+            [25440,2880](25440,270,0)Biggie (25710,270,0)Smalls (25980,90,0)and (26070,270,0)Junior (26850,60,0)is (26910,180,0)some (27090,330,0)mark (27420,120,0)a(27540,70,0)*(27610,80,0)* (27690,210,0)b(27900,0,0)*(27900,0,0)*(27900,330,0)ches(28230,90,0)
+            [38520,2010](38520,240,0)Lil' (38760,330,0)Kim (39090,240,0)don't (39330,120,0)f(39450,0,0)*(39450,0,0)*(39450,90,0)k (39540,270,0)around (39810,120,0)with (39930,300,0)real (40230,300,0)G's
+            [40530,3060](40530,180,0)Quick (40710,90,0)to (40800,300,0)snatch (41100,120,0)yo' (41220,360,0)ugly (41580,120,0)a(41700,60,0)*(41760,60,0)* (41820,180,0)off (42000,120,0)the (42120,360,0)streets (42480,60,0) (42540,210,0)so (42750,60,0)f(42810,0,0)*(42810,0,0)*(42810,210,0)k (43020,30,0) (43050,360,0)peace(43410,180,0)
+            [96030,2400](96030,150,0)And (96180,90,0)I'm (96270,360,0)smokin' (97440,60,0)in (97500,330,0)front (97830,60,0)of (97890,120,0)you (98010,240,0)ni(98250,0,0)*(98250,0,0)*(98250,30,0)a(98280,150,0)
+        """.trimIndent()
+
+        assertTrue(LyricSanitizer.hasCensorship(rawYrc))
+        val cleaned = LyricSanitizer.decensorLyrics(rawYrc)
+        assertFalse(cleaned.contains("*"))
+
+        val lines = cleaned.lines()
+        assertEquals("Biggie Smalls and Junior is some mark ass bitches", LyricWordParser.cleanInlineTimestamps(lines[0]))
+        assertEquals("Lil' Kim don't fuck around with real G's", LyricWordParser.cleanInlineTimestamps(lines[1]))
+        assertEquals("Quick to snatch yo' ugly ass off the streets  so fuck  peace", LyricWordParser.cleanInlineTimestamps(lines[2]))
+        assertEquals("And I'm smokin' in front of you nigga", LyricWordParser.cleanInlineTimestamps(lines[3]))
+
+        // Verify restored profanity merges sub-word tags into one intact word unit so UI never wraps mid-word
+        val parsedLine2 = LyricWordParser.parseLineWords(lines[1], 38520L, 40530L)
+        val fuckWord = parsedLine2.firstOrNull { it.text.trim() == "fuck" }
+        assertTrue(fuckWord != null)
+        assertEquals(39330L, fuckWord!!.startTimeMs)
+        assertEquals(210L, fuckWord.durationMs)
+    }
+
+    @Test
+    fun `test pure asterisk split yrc krc elrc and fullwidth asterisks`() {
+        val pureYrc = "[35700,2010](35700,240,0)Lil' (35940,330,0)Kim, (36270,330,0)don't (36600,30,0)*(36630,30,0)*(36660,30,0)*(36690,30,0)* (36720,240,0)around"
+        assertTrue(LyricSanitizer.hasCensorship(pureYrc))
+        val cleanedPure = LyricSanitizer.decensorLine(pureYrc)
+        assertEquals("[35700,2010](35700,240,0)Lil' (35940,330,0)Kim, (36270,330,0)don't (36600,120,0)fuck (36720,240,0)around", cleanedPure)
+
+        val krcLine = "[1000,1500]<0,200,0>What <200,200,0>the <400,100,0>f<500,50,0>*<550,50,0>*<600,100,0>k"
+        assertTrue(LyricSanitizer.hasCensorship(krcLine))
+        assertEquals("[1000,1500]<0,200,0>What <200,200,0>the <400,300,0>fuck", LyricSanitizer.decensorLine(krcLine))
+
+        val elrcLine = "[00:10.00]<00:10.00>f<00:10.10>**<00:10.20>kin'"
+        assertTrue(LyricSanitizer.hasCensorship(elrcLine))
+        assertEquals("[00:10.00]<00:10.00>fuckin'", LyricSanitizer.decensorLine(elrcLine))
+
+        val fullwidth = "Lil' Kim don't f＊＊k around"
+        assertTrue(LyricSanitizer.hasCensorship(fullwidth))
+        assertEquals("Lil' Kim don't fuck around", LyricSanitizer.decensorLine(fullwidth))
+
+        val tagAfter = "don't(100,100) f(200,50)*(250,50)*(300,50)k(350,50)"
+        assertTrue(LyricSanitizer.hasCensorship(tagAfter))
+        assertEquals("don't(100,100) fuck(200,200)", LyricSanitizer.decensorLine(tagAfter))
+    }
 }

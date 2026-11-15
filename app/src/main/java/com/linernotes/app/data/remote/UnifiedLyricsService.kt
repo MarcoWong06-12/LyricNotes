@@ -19,31 +19,34 @@ object UnifiedLyricsService {
         trackTitle: String,
         artistName: String,
         sourcePref: String = AiPreferences.LyricsSourcePreference.AUTO_FIRST.code,
-        targetDurationMs: Long = 0L
+        targetDurationMs: Long = 0L,
+        enableDeCensor: Boolean = true
     ): OnlineLyricsResult? {
         val pref = AiPreferences.LyricsSourcePreference.fromCode(sourcePref)
 
         val primaryResult = when (pref) {
             AiPreferences.LyricsSourcePreference.NETEASE_ONLY -> {
                 val res = NetEaseLyricsService.fetchLyrics(trackTitle, artistName, targetDurationMs)
-                res?.let { sanitizeResult(it, null) }
+                res?.let { sanitizeResult(it, null, enableDeCensor) }
             }
             AiPreferences.LyricsSourcePreference.QQ_ONLY -> {
                 val res = QQMusicLyricsService.fetchLyrics(trackTitle, artistName, targetDurationMs)
-                res?.let { sanitizeResult(it, null) }
+                res?.let { sanitizeResult(it, null, enableDeCensor) }
             }
             AiPreferences.LyricsSourcePreference.KUGOU_ONLY -> {
                 val res = KugouLyricsService.fetchLyrics(trackTitle, artistName, targetDurationMs)
-                res?.let { sanitizeResult(it, null) }
+                res?.let { sanitizeResult(it, null, enableDeCensor) }
             }
             AiPreferences.LyricsSourcePreference.MUSIXMATCH_ONLY -> {
-                MusixmatchLyricsService.fetchLyrics(trackTitle, artistName)
+                val res = MusixmatchLyricsService.fetchLyrics(trackTitle, artistName)
+                res?.let { sanitizeResult(it, null, enableDeCensor) }
             }
             AiPreferences.LyricsSourcePreference.LRCLIB_ONLY -> {
-                LrclibLyricsService.fetchLyrics(trackTitle, artistName, targetDurationMs)
+                val res = LrclibLyricsService.fetchLyrics(trackTitle, artistName, targetDurationMs)
+                res?.let { sanitizeResult(it, null, enableDeCensor) }
             }
             AiPreferences.LyricsSourcePreference.AUTO_FIRST -> {
-                fetchAutoAggregated(trackTitle, artistName, targetDurationMs)
+                fetchAutoAggregated(trackTitle, artistName, targetDurationMs, enableDeCensor)
             }
         }
 
@@ -52,7 +55,7 @@ object UnifiedLyricsService {
             return primaryResult
         }
         return if (pref != AiPreferences.LyricsSourcePreference.AUTO_FIRST) {
-            fetchAutoAggregated(trackTitle, artistName, targetDurationMs)
+            fetchAutoAggregated(trackTitle, artistName, targetDurationMs, enableDeCensor)
         } else null
     }
 
@@ -64,7 +67,8 @@ object UnifiedLyricsService {
     private suspend fun fetchAutoAggregated(
         trackTitle: String,
         artistName: String,
-        targetDurationMs: Long = 0L
+        targetDurationMs: Long = 0L,
+        enableDeCensor: Boolean = true
     ): OnlineLyricsResult? = supervisorScope {
         // 并发检索网易云与 QQ 音乐（具备官方双语翻译的最优源，给予 7000ms 充足检索窗口）
         val neteaseDeferred = async {
@@ -110,7 +114,7 @@ object UnifiedLyricsService {
                     qqDeferred.cancel()
                     kugouDeferred.cancel()
                     lrclibDeferred.cancel()
-                    return@supervisorScope sanitizeResult(calibrated, lrclib)
+                    return@supervisorScope sanitizeResult(calibrated, lrclib, enableDeCensor)
                 }
             }
             if (qqDeferred.isCompleted) {
@@ -127,7 +131,7 @@ object UnifiedLyricsService {
                     neteaseDeferred.cancel()
                     kugouDeferred.cancel()
                     lrclibDeferred.cancel()
-                    return@supervisorScope sanitizeResult(calibrated, lrclib)
+                    return@supervisorScope sanitizeResult(calibrated, lrclib, enableDeCensor)
                 }
             }
             if (neteaseDeferred.isCompleted && qqDeferred.isCompleted) {
@@ -161,13 +165,14 @@ object UnifiedLyricsService {
             }
 
             if (directFallback != null && directFallback.originalLyrics.isNotBlank()) {
-                return@supervisorScope sanitizeResult(directFallback, null)
+                return@supervisorScope sanitizeResult(directFallback, null, enableDeCensor)
             }
 
             // 尝试轻量 Musixmatch 兜底
-            return@supervisorScope withTimeoutOrNull(2500L) {
+            val musixmatchFallback = withTimeoutOrNull(2500L) {
                 MusixmatchLyricsService.fetchLyrics(trackTitle, artistName)
             }
+            return@supervisorScope musixmatchFallback?.let { sanitizeResult(it, null, enableDeCensor) }
         }
 
         // 提取各源的演唱正文指纹 (用于多源共识核验)
@@ -269,7 +274,7 @@ object UnifiedLyricsService {
             val reference = lrclibRes?.takeIf { it !== best && it.originalLyrics.isNotBlank() }
                 ?: candidates.firstOrNull { it !== best && !LyricSanitizer.hasCensorship(it.originalLyrics) && it.originalLyrics.isNotBlank() }
                 ?: candidates.firstOrNull { it !== best && it.originalLyrics.isNotBlank() }
-            sanitizeResult(enrichedWinner, reference)
+            sanitizeResult(enrichedWinner, reference, enableDeCensor)
         } else null
     }
 
@@ -355,10 +360,18 @@ object UnifiedLyricsService {
         return primary
     }
 
-    private fun sanitizeResult(result: OnlineLyricsResult, refResult: OnlineLyricsResult?): OnlineLyricsResult {
+    private fun sanitizeResult(
+        result: OnlineLyricsResult,
+        refResult: OnlineLyricsResult?,
+        enableDeCensor: Boolean = true
+    ): OnlineLyricsResult {
         val unescapedOrig = com.linernotes.app.core.util.HtmlUtils.unescapeHtml(result.originalLyrics)
         val unescapedTrans = result.translatedLyrics?.let { com.linernotes.app.core.util.HtmlUtils.unescapeHtml(it) }
         val unescapedTitle = com.linernotes.app.core.util.HtmlUtils.unescapeHtml(result.title)
+
+        if (!enableDeCensor) {
+            return result.copy(title = unescapedTitle, originalLyrics = unescapedOrig, translatedLyrics = unescapedTrans)
+        }
 
         val hasOrigCensor = LyricSanitizer.hasCensorship(unescapedOrig)
         val hasTransCensor = LyricSanitizer.hasCensorship(unescapedTrans)
@@ -456,7 +469,8 @@ object UnifiedLyricsService {
      * 精确拉取指定候选版本的在线歌词与双语翻译
      */
     suspend fun fetchLyricForCandidate(
-        candidate: com.linernotes.app.domain.model.LyricCandidateItem
+        candidate: com.linernotes.app.domain.model.LyricCandidateItem,
+        enableDeCensor: Boolean = true
     ): OnlineLyricsResult? {
         val result = when (candidate.source) {
             com.linernotes.app.domain.model.LyricSource.NETEASE -> {
@@ -473,7 +487,7 @@ object UnifiedLyricsService {
                 )
             }
         }
-        return result?.let { sanitizeResult(it, null) }
+        return result?.let { sanitizeResult(it, null, enableDeCensor) }
     }
 
     private fun normalizeCalibrationLine(cleanedLine: String): String {

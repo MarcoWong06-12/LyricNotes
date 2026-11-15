@@ -14,19 +14,21 @@ import java.util.regex.Pattern
 object LyricSanitizer {
 
     private val PROFANITY_LIST = listOf(
-        "fuck", "fucking", "fucked", "fucker", "fuckers", "fucks",
-        "motherfucker", "motherfuckers", "motherfucking", "motherfucka", "motherfuckas",
-        "bitch", "bitches", "bitching", "bitchy",
-        "shit", "shits", "shitty", "bullshit", "horseshit", "dipshit",
+        "fuck", "fucking", "fuckin", "fucked", "fucker", "fuckers", "fucks", "fucka", "fuckaz",
+        "motherfucker", "motherfuckers", "motherfucking", "motherfuckin", "motherfucka", "motherfuckas",
+        "muthafucka", "muthafuckas", "muthafuckin", "muthafucker", "muthafuckers", "muthafucking",
+        "bitch", "bitches", "bitchez", "bitching", "bitchin", "bitchy", "bitchass",
+        "shit", "shits", "shitty", "shittin", "shitting", "shitted", "bullshit", "bullshitting", "horseshit", "dipshit",
         "nigga", "niggas", "niggaz", "nigger", "niggers",
-        "ass", "asses", "asshole", "assholes", "badass", "jackass", "dumbass",
+        "ass", "asses", "asshole", "assholes", "badass", "jackass", "dumbass", "smartass", "fatass",
         "dick", "dicks", "dickhead",
         "cock", "cocks", "cocksucker", "cocksuckers",
         "pussy", "pussies",
         "cunt", "cunts",
         "bastard", "bastards",
-        "slut", "sluts", "whore", "whores",
-        "damn", "damned", "goddamn"
+        "slut", "sluts", "whore", "whores", "hoe", "hoes", "thot", "thots",
+        "piss", "pissed", "prick", "pricks", "twat", "twats", "tits", "titties",
+        "damn", "damned", "goddamn", "goddamnit", "dammit"
     )
 
     private val PROFANITY_ROOTS = listOf(
@@ -60,15 +62,25 @@ object LyricSanitizer {
 
     private val CENSOR_CHECK_REGEX = Regex("""(?<![\w*])(?:[a-zA-Z]+\*{2,}[a-zA-Z]*|[a-zA-Z]+\*[a-zA-Z]+|\*{2,}[a-zA-Z]*)(?![\w*])""")
     private val WORD_TOKEN_REGEX = Regex("""[\w'’*]+""")
-    private val TIMESTAMP_REGEX = Regex("""\[\d{1,2}:\d{2}(?:\.\d{1,3})?\]""")
+    private val TIMESTAMP_REGEX = Regex("""\[\d{1,3}:\d{2}(?:[.:]\d{1,3})?\]""")
+    private val LEADING_LINE_TS_REGEX = Regex("""^(?:\[\d{1,3}:\d{2}(?:[.:]\d{1,3})?\]|\[\d+,\d+\])+""")
+    private val INLINE_WORD_TAG_REGEX = Regex("""\((\d+),(\d+)(,\d+)?\)|<(\d+),(\d+)(,\d+)?>|<(\d{1,2}:\d{2}(?:\.\d{1,3})?)>""")
+    private val ALL_TS_STRIP_REGEX = Regex("""\[\d{1,3}:\d{2}(?:[.:]\d{1,3})?\]|\[\d+,\d+\]|\(\d+,\d+(?:,\d+)?\)|<\d+,\d+(?:,\d+)?>|<\d{1,2}:\d{2}(?:\.\d{1,3})?>""")
+    private val CHUNK_REGEX = Regex("""\S+|\s+""")
+
+    private fun normalizeAsterisks(text: String): String {
+        if (!text.contains('＊') && !text.contains('﹡') && !text.contains('∗')) return text
+        return text.replace('＊', '*').replace('﹡', '*').replace('∗', '*')
+    }
 
     /**
-     * 判断文本中是否包含审查掩码星号或电台审查净版短语
+     * 判断文本中是否包含审查掩码星号或电台审查净版短语（自动忽略 YRC/KRC/ELRC 行内逐字时间戳切割）
      */
     fun hasCensorship(text: String?): Boolean {
         if (text.isNullOrBlank()) return false
-        if (text.contains('*')) return CENSOR_CHECK_REGEX.containsMatchIn(text)
-        return hasRadioCleanPhrases(text)
+        val normalized = normalizeAsterisks(text).replace(ALL_TS_STRIP_REGEX, "")
+        if (normalized.contains('*')) return CENSOR_CHECK_REGEX.containsMatchIn(normalized)
+        return hasRadioCleanPhrases(normalized)
     }
 
     fun hasRadioCleanPhrases(text: String?): Boolean {
@@ -265,6 +277,206 @@ object LyricSanitizer {
         return sb.toString()
     }
 
+    private enum class InlineTagKind { PAREN_MS, ANGLED_MS, ANGLED_LRC }
+
+    private data class ExtractedInlineTag(
+        val plainIndex: Int,
+        val rawTag: String,
+        val kind: InlineTagKind,
+        val startMs: Long = 0L,
+        val durationMs: Long = 0L,
+        val thirdField: String = ""
+    )
+
+    private data class TextChunk(
+        val text: String,
+        val start: Int,
+        val end: Int
+    )
+
+    private fun extractInlineWordTags(text: String): Pair<String, List<ExtractedInlineTag>> {
+        val matches = INLINE_WORD_TAG_REGEX.findAll(text).toList()
+        if (matches.isEmpty()) return text to emptyList()
+        val sb = StringBuilder(text.length)
+        val tags = ArrayList<ExtractedInlineTag>(matches.size)
+        var cursor = 0
+        for (m in matches) {
+            if (m.range.first > cursor) {
+                sb.append(text, cursor, m.range.first)
+            }
+            val plainIdx = sb.length
+            val parenStart = m.groups[1]?.value?.toLongOrNull()
+            val angledStart = m.groups[4]?.value?.toLongOrNull()
+            when {
+                parenStart != null -> {
+                    tags.add(
+                        ExtractedInlineTag(
+                            plainIndex = plainIdx,
+                            rawTag = m.value,
+                            kind = InlineTagKind.PAREN_MS,
+                            startMs = parenStart,
+                            durationMs = m.groups[2]?.value?.toLongOrNull() ?: 0L,
+                            thirdField = m.groups[3]?.value.orEmpty()
+                        )
+                    )
+                }
+                angledStart != null -> {
+                    tags.add(
+                        ExtractedInlineTag(
+                            plainIndex = plainIdx,
+                            rawTag = m.value,
+                            kind = InlineTagKind.ANGLED_MS,
+                            startMs = angledStart,
+                            durationMs = m.groups[5]?.value?.toLongOrNull() ?: 0L,
+                            thirdField = m.groups[6]?.value.orEmpty()
+                        )
+                    )
+                }
+                else -> {
+                    tags.add(
+                        ExtractedInlineTag(
+                            plainIndex = plainIdx,
+                            rawTag = m.value,
+                            kind = InlineTagKind.ANGLED_LRC
+                        )
+                    )
+                }
+            }
+            cursor = m.range.last + 1
+        }
+        if (cursor < text.length) {
+            sb.append(text, cursor, text.length)
+        }
+        return sb.toString() to tags
+    }
+
+    private fun coalesceInlineTags(tags: List<ExtractedInlineTag>): String {
+        if (tags.isEmpty()) return ""
+        val first = tags.first()
+        if (tags.size == 1) return first.rawTag
+        return when (first.kind) {
+            InlineTagKind.PAREN_MS, InlineTagKind.ANGLED_MS -> {
+                val sameKind = tags.filter { it.kind == first.kind }
+                val startMs = sameKind.first().startMs
+                val maxEndMs = sameKind.maxOf { it.startMs + it.durationMs.coerceAtLeast(0L) }
+                val totalDur = (maxEndMs - startMs).coerceAtLeast(sameKind.first().durationMs)
+                if (first.kind == InlineTagKind.PAREN_MS) {
+                    "($startMs,$totalDur${first.thirdField})"
+                } else {
+                    "<$startMs,$totalDur${first.thirdField}>"
+                }
+            }
+            InlineTagKind.ANGLED_LRC -> first.rawTag
+        }
+    }
+
+    private fun applyDecensoredPlainWithInlineTags(
+        originalStageText: String,
+        plainText: String,
+        tags: List<ExtractedInlineTag>,
+        decensoredPlain: String
+    ): String {
+        if (tags.isEmpty() || decensoredPlain == plainText) {
+            return if (tags.isEmpty()) decensoredPlain else originalStageText
+        }
+        val firstTagMatch = INLINE_WORD_TAG_REGEX.find(originalStageText)
+        val lastTagMatch = INLINE_WORD_TAG_REGEX.findAll(originalStageText).lastOrNull()
+        val isTagAfterWord = firstTagMatch != null && lastTagMatch != null &&
+            originalStageText.substring(0, firstTagMatch.range.first).isNotBlank() &&
+            originalStageText.substring(lastTagMatch.range.last + 1).isBlank()
+
+        val oldChunks = CHUNK_REGEX.findAll(plainText).map { TextChunk(it.value, it.range.first, it.range.last + 1) }.toList()
+        val newChunks = CHUNK_REGEX.findAll(decensoredPlain).map { TextChunk(it.value, it.range.first, it.range.last + 1) }.toList()
+        val tagsByPos = tags.groupBy { it.plainIndex }
+
+        val m = oldChunks.size
+        val n = newChunks.size
+        val dp = Array(m + 1) { IntArray(n + 1) }
+        for (i in m - 1 downTo 0) {
+            for (j in n - 1 downTo 0) {
+                dp[i][j] = if (oldChunks[i].text == newChunks[j].text) {
+                    dp[i + 1][j + 1] + 1
+                } else {
+                    maxOf(dp[i + 1][j], dp[i][j + 1])
+                }
+            }
+        }
+
+        // Collect matched chunk index pairs (oldIdx, newIdx) in ascending order
+        val matches = ArrayList<Pair<Int, Int>>()
+        var ci = 0
+        var cj = 0
+        while (ci < m && cj < n) {
+            when {
+                oldChunks[ci].text == newChunks[cj].text -> {
+                    matches.add(ci to cj)
+                    ci++
+                    cj++
+                }
+                dp[ci + 1][cj] >= dp[ci][cj + 1] -> ci++
+                else -> cj++
+            }
+        }
+
+        val out = StringBuilder(originalStageText.length + 16)
+        if (isTagAfterWord) {
+            tagsByPos[0]?.forEach { out.append(it.rawTag) }
+        }
+
+        fun emitReplacedHunk(oldCharStart: Int, oldCharEnd: Int, newTextSlice: String) {
+            val tagRange = if (oldCharStart < oldCharEnd) {
+                if (isTagAfterWord) (oldCharStart + 1)..oldCharEnd else oldCharStart until oldCharEnd
+            } else IntRange.EMPTY
+            val collected = if (!tagRange.isEmpty()) {
+                tagRange.flatMap { pos -> tagsByPos[pos].orEmpty() }
+            } else emptyList()
+            val coalesced = coalesceInlineTags(collected)
+            if (isTagAfterWord) {
+                out.append(newTextSlice).append(coalesced)
+            } else {
+                out.append(coalesced).append(newTextSlice)
+            }
+        }
+
+        fun emitUnchangedChunk(oldStart: Int, text: String) {
+            for (k in text.indices) {
+                if (!isTagAfterWord) {
+                    tagsByPos[oldStart + k]?.forEach { out.append(it.rawTag) }
+                }
+                out.append(text[k])
+                if (isTagAfterWord) {
+                    tagsByPos[oldStart + k + 1]?.forEach { out.append(it.rawTag) }
+                }
+            }
+        }
+
+        var prevOldIdx = 0
+        var prevNewIdx = 0
+        for ((mi, mj) in matches) {
+            if (mi > prevOldIdx || mj > prevNewIdx) {
+                val oldStart = if (prevOldIdx < mi) oldChunks[prevOldIdx].start else (oldChunks.getOrNull(prevOldIdx)?.start ?: plainText.length)
+                val oldEnd = if (prevOldIdx < mi) oldChunks[mi - 1].end else oldStart
+                val newSlice = if (prevNewIdx < mj) decensoredPlain.substring(newChunks[prevNewIdx].start, newChunks[mj - 1].end) else ""
+                emitReplacedHunk(oldStart, oldEnd, newSlice)
+            }
+            emitUnchangedChunk(oldChunks[mi].start, oldChunks[mi].text)
+            prevOldIdx = mi + 1
+            prevNewIdx = mj + 1
+        }
+
+        if (prevOldIdx < m || prevNewIdx < n) {
+            val oldStart = if (prevOldIdx < m) oldChunks[prevOldIdx].start else plainText.length
+            val oldEnd = if (prevOldIdx < m) oldChunks[m - 1].end else oldStart
+            val newSlice = if (prevNewIdx < n) decensoredPlain.substring(newChunks[prevNewIdx].start, newChunks[n - 1].end) else ""
+            emitReplacedHunk(oldStart, oldEnd, newSlice)
+        }
+
+        if (!isTagAfterWord) {
+            tagsByPos[plainText.length]?.forEach { out.append(it.rawTag) }
+        }
+        return out.toString()
+    }
+
     /**
      * 单行英文歌词或标题反和谐
      * @param censoredLine 包含掩码或审查用语的行 (如 "I beg you, don't embarrass me, mother****er, oh")
@@ -276,15 +488,18 @@ object LyricSanitizer {
         uncensoredRefLine: String? = null,
         translationHint: String? = null
     ): String {
-        val unescaped = HtmlUtils.unescapeHtml(censoredLine)
+        val unescaped = normalizeAsterisks(HtmlUtils.unescapeHtml(censoredLine))
+        val cleanRef = uncensoredRefLine?.let { normalizeAsterisks(HtmlUtils.unescapeHtml(it)).replace(ALL_TS_STRIP_REGEX, "").trim() }
+        val cleanTrans = translationHint?.let { normalizeAsterisks(HtmlUtils.unescapeHtml(it)).replace(ALL_TS_STRIP_REGEX, "").trim() }
         val hasExplicitCensor = hasCensorship(unescaped)
-        val hasRefWithPotentialGap = !uncensoredRefLine.isNullOrBlank() && containsProfanityToken(uncensoredRefLine)
+        val hasRefWithPotentialGap = !cleanRef.isNullOrBlank() && containsProfanityToken(cleanRef)
 
         if (!hasExplicitCensor && !hasRefWithPotentialGap) return unescaped
 
-        val leadingTsMatch = Regex("""^(?:\[\d{1,3}:\d{2}(?:[.:]\d{1,3})?\]|\[\d+,\d+\])+""").find(unescaped)
+        val leadingTsMatch = LEADING_LINE_TS_REGEX.find(unescaped)
         val tsPrefix = leadingTsMatch?.value ?: TIMESTAMP_REGEX.find(unescaped)?.value
-        var stageText = if (leadingTsMatch != null) {
+        val hadSpaceAfterTs = leadingTsMatch != null && unescaped.getOrNull(leadingTsMatch.value.length)?.isWhitespace() == true
+        var rawBody = if (leadingTsMatch != null) {
             unescaped.substring(leadingTsMatch.value.length).trim()
         } else if (tsPrefix != null) {
             unescaped.replaceFirst(TIMESTAMP_REGEX, "").trim()
@@ -292,13 +507,19 @@ object LyricSanitizer {
             unescaped
         }
 
+        val (plainBody, inlineTags) = extractInlineWordTags(rawBody)
+        var stageText = plainBody
+
         // 阶段 0：针对无星号但被「消音留白/删词挖空」的审查行，基于参考源双向锚点补齐缺口
-        if (!uncensoredRefLine.isNullOrBlank()) {
-            stageText = restoreMutedBlankGaps(stageText, uncensoredRefLine)
+        if (!cleanRef.isNullOrBlank()) {
+            stageText = restoreMutedBlankGaps(stageText, cleanRef)
         }
 
         if (!hasCensorship(stageText)) {
-            return if (tsPrefix != null) "$tsPrefix $stageText" else stageText
+            val restored = if (inlineTags.isNotEmpty()) {
+                applyDecensoredPlainWithInlineTags(rawBody, plainBody, inlineTags, stageText)
+            } else stageText
+            return formatLineWithPrefix(tsPrefix, restored, hadSpaceAfterTs || leadingTsMatch == null)
         }
 
         // 阶段 1：优先匹配高置信多词短语规则并保留首字母/全大写大小写形态
@@ -320,13 +541,13 @@ object LyricSanitizer {
         }
 
         // 阶段 3：若仍有纯星号（如 ****, *************），且提供了参考行，执行单调游标安全锚点对齐
-        if (stageText.contains('*') && !uncensoredRefLine.isNullOrBlank()) {
-            stageText = alignWithReferenceSafe(stageText, uncensoredRefLine)
+        if (stageText.contains('*') && !cleanRef.isNullOrBlank()) {
+            stageText = alignWithReferenceSafe(stageText, cleanRef)
         }
 
         // 阶段 4：若仍有星号，结合该行译文语义线索按出现顺序交叉推导
-        if (stageText.contains('*') && !translationHint.isNullOrBlank()) {
-            stageText = resolveFromTranslationHint(stageText, translationHint)
+        if (stageText.contains('*') && !cleanTrans.isNullOrBlank()) {
+            stageText = resolveFromTranslationHint(stageText, cleanTrans)
         }
 
         // 阶段 4.5：在参考行与译文线索之后再执行双词弱上下文补全 (this ****, that **** 等)
@@ -362,7 +583,16 @@ object LyricSanitizer {
             stageText = replacePhrasePreservingCase(stageText, regex, replacement)
         }
 
-        return if (tsPrefix != null) "$tsPrefix $stageText" else stageText
+        val finalBody = if (inlineTags.isNotEmpty()) {
+            applyDecensoredPlainWithInlineTags(rawBody, plainBody, inlineTags, stageText)
+        } else stageText
+
+        return formatLineWithPrefix(tsPrefix, finalBody, hadSpaceAfterTs || leadingTsMatch == null)
+    }
+
+    private fun formatLineWithPrefix(tsPrefix: String?, body: String, addSpace: Boolean): String {
+        if (tsPrefix == null) return body
+        return if (addSpace) "$tsPrefix $body" else "$tsPrefix$body"
     }
 
     private fun isProfanityWord(word: String): Boolean {
@@ -745,21 +975,23 @@ object LyricSanitizer {
      * 基于参考行列表（如来自 Genius 注释引文列表）反和谐整首歌曲歌词
      */
     fun decensorLyrics(censoredLyrics: String, refLines: List<String>): String {
-        val unescaped = HtmlUtils.unescapeHtml(censoredLyrics)
+        val unescaped = normalizeAsterisks(HtmlUtils.unescapeHtml(censoredLyrics))
         val hasPotentialBlankGap = refLines.any { containsProfanityToken(it) }
         if (!hasCensorship(unescaped) && !hasPotentialBlankGap) return unescaped
         if (refLines.isEmpty()) return decensorLyrics(unescaped, null as String?)
 
-        val flattenedRef = refLines.flatMap { it.lines() }.map { HtmlUtils.unescapeHtml(it).trim() }.filter { it.isNotBlank() }
+        val flattenedRef = refLines.flatMap { it.lines() }
+            .map { normalizeAsterisks(HtmlUtils.unescapeHtml(it)).replace(ALL_TS_STRIP_REGEX, "").trim() }
+            .filter { it.isNotBlank() }
         val cLines = unescaped.lines()
 
         val sanitizedLines = cLines.map { cl ->
-            val clClean = cl.replace(TIMESTAMP_REGEX, "").trim()
+            val clClean = cl.replace(ALL_TS_STRIP_REGEX, "").trim()
             if (!hasCensorship(clClean) && !hasPotentialBlankGap) return@map cl
 
             val normCl = clClean.replace(Regex("""[^\w\s]"""), "").lowercase()
             val bestRef = flattenedRef.maxByOrNull { rl ->
-                val normRl = rl.replace(TIMESTAMP_REGEX, "").replace(Regex("""[^\w\s]"""), "").lowercase()
+                val normRl = rl.replace(Regex("""[^\w\s]"""), "").lowercase()
                 computeOverlapScore(normCl, normRl)
             }
 
@@ -777,23 +1009,27 @@ object LyricSanitizer {
         return sanitizedLines.joinToString("\n")
     }
 
-    private fun parseTimestampMs(tag: String): Long? {
-        val m = Regex("""\[(\d{1,2}):(\d{2})(?:\.(\d{1,3}))?\]""").find(tag) ?: return null
-        val min = m.groupValues[1].toLongOrNull() ?: return null
-        val sec = m.groupValues[2].toLongOrNull() ?: return null
-        val fracStr = m.groupValues[3]
-        val ms = when (fracStr.length) {
-            0 -> 0L
-            1 -> (fracStr.toLongOrNull() ?: 0L) * 100L
-            2 -> (fracStr.toLongOrNull() ?: 0L) * 10L
-            else -> fracStr.take(3).toLongOrNull() ?: 0L
+    private fun extractLineTimestampMs(line: String): Long? {
+        val lrcMatch = Regex("""\[(\d{1,3}):(\d{2})(?:[.:](\d{1,3}))?\]""").find(line)
+        if (lrcMatch != null) {
+            val min = lrcMatch.groupValues[1].toLongOrNull() ?: return null
+            val sec = lrcMatch.groupValues[2].toLongOrNull() ?: return null
+            val fracStr = lrcMatch.groupValues[3]
+            val ms = when (fracStr.length) {
+                0 -> 0L
+                1 -> (fracStr.toLongOrNull() ?: 0L) * 100L
+                2 -> (fracStr.toLongOrNull() ?: 0L) * 10L
+                else -> fracStr.take(3).toLongOrNull() ?: 0L
+            }
+            return min * 60_000L + sec * 1000L + ms
         }
-        return min * 60_000L + sec * 1000L + ms
+        val msPairMatch = Regex("""^\s*\[(\d+),(\d+)\]""").find(line)
+        return msPairMatch?.groupValues?.getOrNull(1)?.toLongOrNull()
     }
 
     /**
      * 整首歌曲歌词反和谐
-     * @param censoredLyrics 包含审查掩码的歌词文本 (支持 LRC 时间轴格式)
+     * @param censoredLyrics 包含审查掩码的歌词文本 (支持 LRC/YRC/KRC 时间轴格式)
      * @param uncensoredRefLyrics 可选的无审查全球参考歌词 (如 LRCLIB 返回的英文纯净歌词)
      * @param translationLyrics 可选的该歌曲中文双语翻译文本 (用于提供语义线索交叉校验)
      */
@@ -802,22 +1038,21 @@ object LyricSanitizer {
         uncensoredRefLyrics: String? = null,
         translationLyrics: String? = null
     ): String {
-        val unescaped = HtmlUtils.unescapeHtml(censoredLyrics)
+        val unescaped = normalizeAsterisks(HtmlUtils.unescapeHtml(censoredLyrics))
         val refHasProfanity = !uncensoredRefLyrics.isNullOrBlank() && containsProfanityToken(uncensoredRefLyrics)
         if (!hasCensorship(unescaped) && !refHasProfanity) return unescaped
 
         val cLines = unescaped.lines()
 
-        val rLines = uncensoredRefLyrics?.let { HtmlUtils.unescapeHtml(it).lines() } ?: emptyList()
-        val tLines = translationLyrics?.let { HtmlUtils.unescapeHtml(it).lines() } ?: emptyList()
+        val rLines = uncensoredRefLyrics?.let { normalizeAsterisks(HtmlUtils.unescapeHtml(it)).lines() } ?: emptyList()
+        val tLines = translationLyrics?.let { normalizeAsterisks(HtmlUtils.unescapeHtml(it)).lines() } ?: emptyList()
 
         val refTimed = mutableListOf<Pair<Long, String>>()
         val pureRefLines = mutableListOf<String>()
         for (rl in rLines) {
-            val cleaned = rl.replace(TIMESTAMP_REGEX, "").trim()
+            val cleaned = rl.replace(ALL_TS_STRIP_REGEX, "").trim()
             if (cleaned.isBlank()) continue
-            val tsMatch = TIMESTAMP_REGEX.find(rl)
-            val tsMs = tsMatch?.value?.let { parseTimestampMs(it) }
+            val tsMs = extractLineTimestampMs(rl)
             if (tsMs != null) {
                 refTimed.add(tsMs to rl)
             }
@@ -827,10 +1062,9 @@ object LyricSanitizer {
         val transTimed = mutableListOf<Pair<Long, String>>()
         val pureTransLines = mutableListOf<String>()
         for (tl in tLines) {
-            val cleaned = tl.replace(TIMESTAMP_REGEX, "").trim()
+            val cleaned = tl.replace(ALL_TS_STRIP_REGEX, "").trim()
             if (cleaned.isBlank()) continue
-            val tsMatch = TIMESTAMP_REGEX.find(tl)
-            val tsMs = tsMatch?.value?.let { parseTimestampMs(it) }
+            val tsMs = extractLineTimestampMs(tl)
             if (tsMs != null) {
                 transTimed.add(tsMs to tl)
             }
@@ -841,12 +1075,12 @@ object LyricSanitizer {
         var pureTransIdx = 0
 
         val sanitizedLines = cLines.map { cl ->
-            val clClean = cl.replace(TIMESTAMP_REGEX, "").trim()
-            val clMs = TIMESTAMP_REGEX.find(cl)?.value?.let { parseTimestampMs(it) }
+            val clClean = cl.replace(ALL_TS_STRIP_REGEX, "").trim()
+            val clMs = extractLineTimestampMs(cl)
 
             val timedRef = if (clMs != null && refTimed.isNotEmpty()) {
                 refTimed.minByOrNull { kotlin.math.abs(it.first - clMs) }
-                    ?.takeIf { kotlin.math.abs(it.first - clMs) <= 350L }
+                    ?.takeIf { kotlin.math.abs(it.first - clMs) <= 650L }
                     ?.second
             } else null
 
@@ -861,7 +1095,7 @@ object LyricSanitizer {
 
             val timedTrans = if (clMs != null && transTimed.isNotEmpty()) {
                 transTimed.minByOrNull { kotlin.math.abs(it.first - clMs) }
-                    ?.takeIf { kotlin.math.abs(it.first - clMs) <= 350L }
+                    ?.takeIf { kotlin.math.abs(it.first - clMs) <= 650L }
                     ?.second
             } else null
 

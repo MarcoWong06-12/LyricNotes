@@ -2,9 +2,12 @@ package com.linernotes.app.data.repository
 
 import com.linernotes.app.core.preference.AiPreferences
 import com.linernotes.app.data.remote.OnlineLyricsResult
+import com.linernotes.app.domain.model.BilingualLyricLine
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotEquals
 import org.junit.Assert.assertNull
+import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class NowPlayingCacheAndBindingTest {
@@ -146,5 +149,35 @@ class NowPlayingCacheAndBindingTest {
 
         assertEquals(timedOrig, resolvedOrig)
         assertNull(resolvedTrans)
+    }
+
+    @Test
+    fun hasUnresolvedCensorship_triggersCacheSelfHealingOnlyWhenDeCensorEnabled() {
+        val staleYrcCached = listOf(
+            BilingualLyricLine(
+                timestampMs = 38520L,
+                original = "(38520,240,0)Lil' (39330,120,0)f(39450,0,0)*(39450,0,0)*(39450,90,0)k around",
+                translation = "别乱搞"
+            )
+        )
+        val stalePlainCached = listOf(
+            BilingualLyricLine(
+                timestampMs = 25440L,
+                original = "Biggie Smalls is some mark a** b**ches",
+                translation = "他们都是软脚虾"
+            )
+        )
+        val cleanCached = listOf(
+            BilingualLyricLine(
+                timestampMs = 38520L,
+                original = "(38520,240,0)Lil' (39330,210,0)fuck around",
+                translation = "别乱搞"
+            )
+        )
+
+        assertTrue(NowPlayingRepository.hasUnresolvedCensorship(staleYrcCached, isDeCensorEnabled = true))
+        assertTrue(NowPlayingRepository.hasUnresolvedCensorship(stalePlainCached, isDeCensorEnabled = true))
+        assertFalse(NowPlayingRepository.hasUnresolvedCensorship(cleanCached, isDeCensorEnabled = true))
+        assertFalse(NowPlayingRepository.hasUnresolvedCensorship(staleYrcCached, isDeCensorEnabled = false))
     }
 }

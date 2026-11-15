@@ -567,7 +567,8 @@ class NowPlayingRepository internal constructor(
             val cached = synchronized(memoryCache) { memoryCache[cacheKey] }
             val isCachedIncomplete = isCacheTranslationIncomplete(cached)
             val hasCorruptedInMem = cached?.lyrics?.any { LyricAligner.isInvalidTranslationLine(it.translation) } == true
-            if (cached != null && !isCachedIncomplete && cached.lyrics.isNotEmpty() && cached.hasAttemptedGenius) {
+            val hasStaleCensorInMem = hasUnresolvedCensorshipInCache(cached)
+            if (cached != null && !isCachedIncomplete && !hasStaleCensorInMem && cached.lyrics.isNotEmpty() && cached.hasAttemptedGenius) {
                 val safeLyrics = cached.lyrics.map { line ->
                     if (LyricAligner.isInvalidTranslationLine(line.translation)) line.copy(translation = "") else line
                 }
@@ -587,7 +588,7 @@ class NowPlayingRepository internal constructor(
                 _currentLineIndexFlow.value = lineIndex
                 syncNowPlayingAggregate(playbackState = state, content = cachedContent, lineIndex = lineIndex)
             } else {
-                val canKeepPartialLyrics = cached != null && cached.lyrics.isNotEmpty() && !hasCorruptedInMem
+                val canKeepPartialLyrics = cached != null && cached.lyrics.isNotEmpty() && !hasCorruptedInMem && !hasStaleCensorInMem
                 val initialLyrics = if (canKeepPartialLyrics) cached!!.lyrics else emptyList()
                 val initialPos = (state.getEstimatedPositionMs() + lyricOffsetMs).coerceAtLeast(0L)
                 val initialIdx = if (initialLyrics.isNotEmpty()) calculateActiveLineIndex(initialLyrics, initialPos) else -1
@@ -1105,8 +1106,9 @@ class NowPlayingRepository internal constructor(
         val cacheKey = cacheKeyFor(songKey, title, artist)
         val cached = synchronized(memoryCache) { memoryCache[cacheKey] }
         val isCachedTranslationSeverelyIncomplete = isCacheTranslationIncomplete(cached)
+        val hasStaleCensorship = hasUnresolvedCensorshipInCache(cached)
 
-        if (cached != null && !isCachedTranslationSeverelyIncomplete && cached.lyrics.isNotEmpty() && cached.hasAttemptedGenius) {
+        if (cached != null && !isCachedTranslationSeverelyIncomplete && !hasStaleCensorship && cached.lyrics.isNotEmpty() && cached.hasAttemptedGenius) {
             val safeLyrics = emitCompleteCacheHit(trackEpoch, cached)
             val proseSpec = currentProseTranslationSpec()
             val distinctCachedAnnots = cached.annotatedLines.values.distinctBy { "${it.lyricFragment}|${it.explanationText}" }
@@ -1125,13 +1127,14 @@ class NowPlayingRepository internal constructor(
         }
 
         val initialCanKeepPartialLyrics = cached != null && isCachedTranslationSeverelyIncomplete &&
+            !hasStaleCensorship &&
             cached.lyrics.isNotEmpty() &&
             cached.lyrics.none { LyricAligner.isInvalidTranslationLine(it.translation) }
         val initialHasReusableGeniusCache = cached != null && cached.hasAttemptedGenius &&
             cached.lyrics.none { LyricAligner.isInvalidTranslationLine(it.translation) } &&
             (cached.annotatedLines.isNotEmpty() || cached.songStory != null)
 
-        if (cached != null && !isCachedTranslationSeverelyIncomplete && cached.lyrics.isNotEmpty()) {
+        if (cached != null && !isCachedTranslationSeverelyIncomplete && !hasStaleCensorship && cached.lyrics.isNotEmpty()) {
             val safeLyrics = cached.lyrics.map { line ->
                 if (LyricAligner.isInvalidTranslationLine(line.translation)) line.copy(translation = "") else line
             }
@@ -1179,14 +1182,15 @@ class NowPlayingRepository internal constructor(
                     val hydrated = putMemoryCacheSafely(cacheKey, l2Cached)
                     val l2Incomplete = isCacheTranslationIncomplete(hydrated)
                     val l2HasCorrupted = hydrated.lyrics.any { LyricAligner.isInvalidTranslationLine(it.translation) }
+                    val l2HasStaleCensor = hasUnresolvedCensorshipInCache(hydrated)
                     if (trackEpoch != activeTrackEpoch) return@launch
-                    if (!l2Incomplete && !l2HasCorrupted && hydrated.lyrics.isNotEmpty() && hydrated.hasAttemptedGenius) {
+                    if (!l2Incomplete && !l2HasCorrupted && !l2HasStaleCensor && hydrated.lyrics.isNotEmpty() && hydrated.hasAttemptedGenius) {
                         val safeLyrics = emitCompleteCacheHit(trackEpoch, hydrated)
                         resumeProseTranslationIfNeeded(trackEpoch, cacheKey, safeLyrics, hydrated)
                         return@launch
                     }
                     effectiveCached = hydrated
-                    if (!l2Incomplete && !l2HasCorrupted && hydrated.lyrics.isNotEmpty()) {
+                    if (!l2Incomplete && !l2HasCorrupted && !l2HasStaleCensor && hydrated.lyrics.isNotEmpty()) {
                         val curPosL2 = (playbackClockFlow.value.getEstimatedPositionMs() + lyricOffsetMs).coerceAtLeast(0L)
                         val lineIdxL2 = calculateActiveLineIndex(hydrated.lyrics, curPosL2)
                         val partialL2Content = LyricsContentState(
@@ -1207,14 +1211,16 @@ class NowPlayingRepository internal constructor(
             }
 
             val effectiveIncomplete = isCacheTranslationIncomplete(effectiveCached)
+            val effectiveStaleCensor = hasUnresolvedCensorshipInCache(effectiveCached)
             val canKeepPartialLyrics = effectiveCached != null && effectiveIncomplete &&
+                !effectiveStaleCensor &&
                 effectiveCached.lyrics.isNotEmpty() &&
                 effectiveCached.lyrics.none { LyricAligner.isInvalidTranslationLine(it.translation) }
             val hasReusableGeniusCache = effectiveCached != null && effectiveCached.hasAttemptedGenius &&
                 effectiveCached.lyrics.none { LyricAligner.isInvalidTranslationLine(it.translation) } &&
                 (effectiveCached.annotatedLines.isNotEmpty() || effectiveCached.songStory != null)
             val hasCorruptedTranslation = effectiveCached?.lyrics?.any { LyricAligner.isInvalidTranslationLine(it.translation) } == true
-            var fetchedLyrics: List<BilingualLyricLine> = if (hasCorruptedTranslation || effectiveIncomplete) emptyList() else (effectiveCached?.lyrics ?: emptyList())
+            var fetchedLyrics: List<BilingualLyricLine> = if (hasCorruptedTranslation || effectiveIncomplete || effectiveStaleCensor) emptyList() else (effectiveCached?.lyrics ?: emptyList())
             var fetchedStory: SongStoryEntity? = effectiveCached?.songStory
             var fetchedAnnotations: List<LyricAnnotationEntity> = if (hasReusableGeniusCache) {
                 effectiveCached!!.annotatedLines.values.distinctBy { "${it.lyricFragment}|${it.explanationText}" }
@@ -1242,7 +1248,8 @@ class NowPlayingRepository internal constructor(
                             trackTitle = title,
                             artistName = artist,
                             sourcePref = aiPreferences.lyricsSource,
-                            targetDurationMs = curState.durationMs
+                            targetDurationMs = curState.durationMs,
+                            enableDeCensor = aiPreferences.isDeCensorEnabled
                         )
                     }
 
@@ -1516,6 +1523,7 @@ class NowPlayingRepository internal constructor(
                     ?: readCacheFromL2(cacheKey)?.also { putMemoryCacheSafely(cacheKey, it) }
                 val needsPreload = cached == null ||
                     isCacheTranslationIncomplete(cached) ||
+                    hasUnresolvedCensorshipInCache(cached) ||
                     (!cached.hasAttemptedGenius && cached.annotatedLines.isEmpty() && cached.songStory == null)
                 if (needsPreload) {
                     candidates.add(item)
@@ -1542,14 +1550,20 @@ class NowPlayingRepository internal constructor(
         val cachedInMem = synchronized(memoryCache) { memoryCache[cacheKey] }
             ?: readCacheFromL2(cacheKey)?.also { putMemoryCacheSafely(cacheKey, it) }
         val isCachedTranslationSeverelyIncomplete = isCacheTranslationIncomplete(cachedInMem)
+        val hasStaleCensorship = hasUnresolvedCensorshipInCache(cachedInMem)
 
-        var lyrics = if (!isCachedTranslationSeverelyIncomplete) cachedInMem?.lyrics ?: emptyList() else emptyList()
+        var lyrics = if (!isCachedTranslationSeverelyIncomplete && !hasStaleCensorship) {
+            cachedInMem?.lyrics ?: emptyList()
+        } else {
+            emptyList()
+        }
 
         if (lyrics.isEmpty()) {
             val rawResult = UnifiedLyricsService.fetchLyrics(
                 trackTitle = title,
                 artistName = artist,
-                sourcePref = aiPreferences.lyricsSource
+                sourcePref = aiPreferences.lyricsSource,
+                enableDeCensor = aiPreferences.isDeCensorEnabled
             )
 
             val matchedRaw = if (rawResult != null && rawResult.originalLyrics.isNotBlank()) {
@@ -1897,7 +1911,7 @@ class NowPlayingRepository internal constructor(
             extraKey = candidate.extraKey
         )
 
-        val rawResult = UnifiedLyricsService.fetchLyricForCandidate(candidate)
+        val rawResult = UnifiedLyricsService.fetchLyricForCandidate(candidate, enableDeCensor = aiPreferences.isDeCensorEnabled)
         if (rawResult != null && rawResult.originalLyrics.isNotBlank()) {
             val curDuration = playbackStateManager.playbackState.value.durationMs
             val aligned = resolveAlignedBilingualLyrics(
@@ -1974,8 +1988,24 @@ class NowPlayingRepository internal constructor(
         forceReloadLyrics(trackTitle, artistName, songKey, playbackStateManager.trackMetadata.value.trackEpoch)
     }
 
+    private fun hasUnresolvedCensorshipInCache(cached: CachedSongData?): Boolean {
+        if (cached == null) return false
+        return hasUnresolvedCensorship(cached.lyrics, aiPreferences.isDeCensorEnabled)
+    }
+
     companion object {
         private val CJK_REGEX = Regex("""[\u4e00-\u9fa5]""")
+
+        internal fun hasUnresolvedCensorship(
+            lyrics: List<BilingualLyricLine>,
+            isDeCensorEnabled: Boolean
+        ): Boolean {
+            if (!isDeCensorEnabled || lyrics.isEmpty()) return false
+            return lyrics.any { line ->
+                LyricSanitizer.hasCensorship(line.original) ||
+                    LyricSanitizer.hasCensorship(line.translation)
+            }
+        }
 
         internal fun buildCacheKey(
             songKey: String,
