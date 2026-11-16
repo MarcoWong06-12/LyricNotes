@@ -1,5 +1,6 @@
 package com.linernotes.app.data.repository
 
+import com.linernotes.app.core.lyric.AiAnnotationCurator
 import com.linernotes.app.core.lyric.LyricAligner
 import com.linernotes.app.core.playback.PlaybackStateManager
 import com.linernotes.app.core.playback.QueueTrackItem
@@ -125,5 +126,35 @@ class QueueAndTranslationGuardTest {
         assertTrue(aligned.first.contains("Burn after reading this"))
         assertTrue(aligned.second.contains("发现一张密信"))
         assertTrue(aligned.second.contains("诡异感觉逐渐侵入心门"))
+    }
+
+    @Test
+    fun isAlreadyChinese_ignoresTrailingChineseCreditsInEnglishOrJapaneseSongs() {
+        val englishWithOutroCredits = """
+            [00:00.215] Maybe I lost my mind
+            [01:23.182] It's not right ('Cause I'm so over bein' lonely)
+            [01:28.164] Make you mine (I need a virtual connection)
+            [01:32.978] Take our time (Be my video obsession)
+            [04:39.466] 音频工程师 : Josh Conway/Gianluca Buccellati
+            [04:40.299] 贝斯 : Josh Conway
+            [04:41.132] 吉他 : Gianluca Buccellati/Jesse Perlman
+            [04:41.965] 母带工程师 : Joe LaPorta
+            [04:42.798] 人声 : Maria Zardoya
+            [04:43.631] 混音师 : NealHPogue
+        """.trimIndent()
+        assertFalse(AiAnnotationCurator.isAlreadyChinese(englishWithOutroCredits))
+
+        val japaneseWithManyKanji = """
+            [00:10.00] 夢ならばどれほどよかったでしょう
+            [00:15.00] 東京の空の下で君を待つ季節
+        """.trimIndent()
+        assertFalse(AiAnnotationCurator.isAlreadyChinese(japaneseWithManyKanji))
+
+        val englishGeniusWithChineseQuote = "In Chinese fan communities this track is often referred to as '永远无法触及的温柔与遗憾' because of its outro."
+        assertFalse(AiAnnotationCurator.isAlreadyChinese(englishGeniusWithChineseQuote))
+
+        assertTrue(AiAnnotationCurator.isAlreadyChinese("故事的小黄花，从出生那年就飘着"))
+        assertTrue(AiAnnotationCurator.isAlreadyChinese("你是我心中的 Baby"))
+        assertTrue(AiAnnotationCurator.isProductionCreditLine("[04:39.466] 音频工程师 : Josh Conway"))
     }
 }

@@ -924,6 +924,7 @@ class NowPlayingRepository internal constructor(
                 line.original.isNotBlank() &&
                 line.original.any { it.isLetter() } &&
                 !TranslationService.isPureVocalizationLine(line.original) &&
+                !(isChineseTarget && AiAnnotationCurator.isProductionCreditLine(line.original)) &&
                 !(isChineseTarget && AiAnnotationCurator.isAlreadyChinese(line.original)) &&
                 (line.translation.isBlank() ||
                     (isChineseTarget && !CJK_REGEX.containsMatchIn(line.translation) && line.original.count { it.isLetter() } >= 6))

@@ -1,6 +1,7 @@
 package com.linernotes.app.data.remote
 
 import com.linernotes.app.core.i18n.TranslationTargetLanguage
+import com.linernotes.app.core.lyric.AiAnnotationCurator
 import com.linernotes.app.core.lyric.LyricAligner
 import com.linernotes.app.core.lyric.LyricWordParser
 import com.linernotes.app.core.preference.AiPreferences
@@ -243,6 +244,7 @@ class TranslationService(
     private fun shouldAttemptLineTranslation(line: String, isChineseTarget: Boolean): Boolean {
         val clean = line.trim()
         if (clean.isBlank() || clean.none { it.isLetter() }) return false
+        if (isChineseTarget && AiAnnotationCurator.isProductionCreditLine(clean)) return false
         if (isChineseTarget && CJK_REGEX.containsMatchIn(clean) &&
             !LATIN_REGEX.containsMatchIn(clean) &&
             !KANA_REGEX.containsMatchIn(clean) &&

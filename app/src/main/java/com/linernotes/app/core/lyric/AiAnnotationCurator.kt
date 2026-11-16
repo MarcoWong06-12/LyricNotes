@@ -16,15 +16,62 @@ object AiAnnotationCurator {
     )
     private val BRACKET_TAG_REGEX = Regex("""\[.*?\]""")
     private val PUNCT_CLEAN_REGEX = Regex("""[,\.\?!\-\'\"“”‘’\(\)\[\]{}，。？！、“”‘’…—~：；:;·]+""")
+    private val LRC_META_TAG_REGEX = Regex(
+        """(?m)^\[(?:ti|ar|al|by|offset|length|re|ve|encoding|id|hash|total|sign|qq|language):.*?\]\s*$""",
+        RegexOption.IGNORE_CASE
+    )
+    private val INLINE_TS_STRIP_REGEX = Regex("""\[\d{1,3}:\d{2}(?:[.:]\d{1,3})?\]|\[\d+,\d+\]|<\d+,\d+(?:,\d+)?>|\(\d+,\d+(?:,\d+)?\)""")
+    private val PRODUCTION_CREDIT_LINE_REGEX = Regex(
+        """^\s*(?:作词|作曲|编曲|制作人?|监制|混音师?|母带(?:工程师)?|音频工程师|录音师?|吉他|贝斯|鼓手?|键盘|和[音声]|弦乐|人声|出品|发行|统筹|策划|企划|宣传|鸣谢|OP|SP|Lyrics?\s*by|Written\s*by|Composed\s*by|Arranged\s*by|Produced?\s*by|Mixed\s*by|Mastered\s*by|Vocals?|Guitar|Bass|Drums|Engineer)\s*[:：]""",
+        RegexOption.IGNORE_CASE
+    )
+
+    fun isProductionCreditLine(line: String): Boolean {
+        val stripped = line.replace(INLINE_TS_STRIP_REGEX, "").trim()
+        return stripped.isNotEmpty() && PRODUCTION_CREDIT_LINE_REGEX.containsMatchIn(stripped)
+    }
 
     /**
      * 判断文本是否已经是以中文为主。
-     * 若中文字符数量 >= 6 或中文字符占比超过 25%，则判定已是中文，避免将中文重复调用翻译。
+     * 先剥离 LRC 标签、逐字时间戳与网易云尾注制作人行（如「音频工程师 / 贝斯 / 吉他 / 人声 : ...」），
+     * 按语言字符比例并排除日语假名/韩语谚文干扰进行判定，彻底杜绝仅含十余字中文制作名单的英文歌被误判为纯中文而清空翻译。
      */
     fun isAlreadyChinese(text: String): Boolean {
         if (text.isBlank()) return false
-        val hanCount = text.count { it in '\u4e00'..'\u9fa5' }
-        return hanCount >= 6 || (text.isNotEmpty() && hanCount.toFloat() / text.length > 0.25f)
+        val withoutMeta = text
+            .replace(LRC_META_TAG_REGEX, "")
+            .replace(INLINE_TS_STRIP_REGEX, "")
+        val nonBlankLines = withoutMeta.lines().map { it.trim() }.filter { it.isNotEmpty() }
+        if (nonBlankLines.isEmpty()) return false
+
+        val singingLines = nonBlankLines.filterNot { PRODUCTION_CREDIT_LINE_REGEX.containsMatchIn(it) }
+        val effectiveText = if (singingLines.isNotEmpty()) {
+            singingLines.joinToString("\n")
+        } else {
+            withoutMeta
+        }
+
+        var hanCount = 0
+        var kanaCount = 0
+        var hangulCount = 0
+        var latinCount = 0
+        var otherLetterCount = 0
+        for (ch in effectiveText) {
+            when {
+                ch in '\u4e00'..'\u9fff' -> hanCount++
+                ch in '\u3040'..'\u30ff' -> kanaCount++
+                ch in '\uac00'..'\ud7af' -> hangulCount++
+                ch in 'a'..'z' || ch in 'A'..'Z' -> latinCount++
+                ch.isLetter() -> otherLetterCount++
+            }
+        }
+        if (hanCount == 0) return false
+        if (kanaCount >= 2 && kanaCount * 4 >= hanCount) return false
+        if (hangulCount >= 2 && hangulCount * 4 >= hanCount) return false
+
+        val totalLetters = hanCount + kanaCount + hangulCount + latinCount + otherLetterCount
+        if (totalLetters == 0) return false
+        return hanCount.toFloat() / totalLetters.toFloat() >= 0.35f
     }
 
     /**
