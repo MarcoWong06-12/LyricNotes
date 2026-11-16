@@ -27,6 +27,7 @@ import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.drawscope.withTransform
 import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.graphics.lerp
 import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
@@ -204,13 +205,17 @@ fun AmbientGlowBackground(
         val brightCoverDim = if (effectiveDark) {
             ((currentAvgLuminance - 0.45f) / 0.55f).coerceIn(0f, 1f) * 0.28f
         } else {
-            ((0.30f - currentAvgLuminance) / 0.30f).coerceIn(0f, 1f) * 0.22f
+            // 浅色模式下仅做轻微明度收敛，保留专辑封面的色彩饱和度与立体层次，避免像蒙了一层厚白布
+            ((0.28f - currentAvgLuminance) / 0.28f).coerceIn(0f, 1f) * 0.16f
+        }
+        val lightTintedBase = remember(effectiveDark, backgroundColor, currentSnapshot.primary) {
+            if (effectiveDark) Color(0xFF0E0E12) else lerp(backgroundColor, currentSnapshot.primary, 0.12f)
         }
 
         Box(
             modifier = modifier
                 .fillMaxSize()
-                .background(if (effectiveDark) Color(0xFF0E0E12) else backgroundColor)
+                .background(lightTintedBase)
         ) {
             // 1. 底层：唱片封面中等缩略采样与轻柔高斯感模糊（160x160 + 双轮 r=3 在保留柔和轮廓与极低开销间取得平衡）
             if (!coverUrl.isNullOrBlank()) {
@@ -233,11 +238,11 @@ fun AmbientGlowBackground(
                             val baseAlpha = if (effectiveDark) {
                                 if (isDynamicAurora) 0.90f else 0.82f
                             } else {
-                                if (isDynamicAurora) 0.56f else 0.48f
+                                if (isDynamicAurora) 0.68f else 0.58f
                             }
-                            alpha = (baseAlpha * (1f - brightCoverDim)).coerceIn(0.25f, 0.92f)
-                            scaleX = 1.15f
-                            scaleY = 1.15f
+                            alpha = (baseAlpha * (1f - brightCoverDim)).coerceIn(0.32f, 0.92f)
+                            scaleX = 1.20f
+                            scaleY = 1.20f
                         }
                 )
             }
@@ -311,31 +316,44 @@ private fun AuroraOrbsLayer(
     modifier: Modifier = Modifier
 ) {
     val effectiveDark = snapshot.effectiveDark
-    val orb1Colors = remember(snapshot.primary, snapshot.tertiary, effectiveDark) {
+    // 浅色模式下为光斑注入通透粉彩光感，替代暗沉灰调或大面积白雾遮罩
+    val lightOrbPrimary = remember(snapshot.primary, effectiveDark) {
+        if (effectiveDark) snapshot.primary else lerp(snapshot.primary, Color.White, 0.22f)
+    }
+    val lightOrbSecondary = remember(snapshot.secondary, effectiveDark) {
+        if (effectiveDark) snapshot.secondary else lerp(snapshot.secondary, Color.White, 0.24f)
+    }
+    val lightOrbTertiary = remember(snapshot.tertiary, effectiveDark) {
+        if (effectiveDark) snapshot.tertiary else lerp(snapshot.tertiary, Color.White, 0.22f)
+    }
+    val lightOrbAccent = remember(snapshot.accent, effectiveDark) {
+        if (effectiveDark) snapshot.accent else lerp(snapshot.accent, Color.White, 0.24f)
+    }
+    val orb1Colors = remember(lightOrbPrimary, lightOrbTertiary, effectiveDark) {
         listOf(
-            snapshot.primary.copy(alpha = if (effectiveDark) 0.68f else 0.24f),
-            snapshot.tertiary.copy(alpha = if (effectiveDark) 0.32f else 0.11f),
+            lightOrbPrimary.copy(alpha = if (effectiveDark) 0.68f else 0.44f),
+            lightOrbTertiary.copy(alpha = if (effectiveDark) 0.32f else 0.20f),
             Color.Transparent
         )
     }
-    val orb2Colors = remember(snapshot.secondary, snapshot.primary, effectiveDark) {
+    val orb2Colors = remember(lightOrbSecondary, lightOrbPrimary, effectiveDark) {
         listOf(
-            snapshot.secondary.copy(alpha = if (effectiveDark) 0.62f else 0.20f),
-            snapshot.primary.copy(alpha = if (effectiveDark) 0.28f else 0.09f),
+            lightOrbSecondary.copy(alpha = if (effectiveDark) 0.62f else 0.38f),
+            lightOrbPrimary.copy(alpha = if (effectiveDark) 0.28f else 0.16f),
             Color.Transparent
         )
     }
-    val orb3Colors = remember(snapshot.tertiary, snapshot.secondary, effectiveDark) {
+    val orb3Colors = remember(lightOrbTertiary, lightOrbSecondary, effectiveDark) {
         listOf(
-            snapshot.tertiary.copy(alpha = if (effectiveDark) 0.55f else 0.18f),
-            snapshot.secondary.copy(alpha = if (effectiveDark) 0.24f else 0.08f),
+            lightOrbTertiary.copy(alpha = if (effectiveDark) 0.55f else 0.34f),
+            lightOrbSecondary.copy(alpha = if (effectiveDark) 0.24f else 0.14f),
             Color.Transparent
         )
     }
-    val orb4Colors = remember(snapshot.accent, snapshot.primary, effectiveDark) {
+    val orb4Colors = remember(lightOrbAccent, lightOrbPrimary, effectiveDark) {
         listOf(
-            snapshot.accent.copy(alpha = if (effectiveDark) 0.50f else 0.16f),
-            snapshot.primary.copy(alpha = if (effectiveDark) 0.20f else 0.07f),
+            lightOrbAccent.copy(alpha = if (effectiveDark) 0.50f else 0.30f),
+            lightOrbPrimary.copy(alpha = if (effectiveDark) 0.20f else 0.12f),
             Color.Transparent
         )
     }
@@ -351,14 +369,15 @@ private fun AuroraOrbsLayer(
                 1.0f to Color.Black.copy(alpha = 0.28f + brightBoost * 0.30f)
             )
         } else {
-            val darkBoost = ((0.35f - avgLuminance) / 0.35f).coerceIn(0f, 1f)
-            val bg = snapshot.backgroundColor
+            // 仅在顶栏/底栏边缘柔化压亮保证深色字迹清晰，中部主歌词区接近零白雾遮挡，呈现通透彩色磨砂玻璃质感
+            val darkBoost = ((0.28f - avgLuminance) / 0.28f).coerceIn(0f, 1f)
+            val tintVeil = lerp(snapshot.backgroundColor, snapshot.primary, 0.10f)
             arrayOf(
-                0.0f to bg.copy(alpha = 0.42f + darkBoost * 0.34f),
-                0.22f to bg.copy(alpha = 0.20f + darkBoost * 0.22f),
-                0.52f to bg.copy(alpha = 0.14f + darkBoost * 0.18f),
-                0.80f to bg.copy(alpha = 0.26f + darkBoost * 0.24f),
-                1.0f to bg.copy(alpha = 0.46f + darkBoost * 0.34f)
+                0.0f to tintVeil.copy(alpha = 0.26f + darkBoost * 0.20f),
+                0.18f to tintVeil.copy(alpha = 0.09f + darkBoost * 0.10f),
+                0.50f to tintVeil.copy(alpha = 0.02f + darkBoost * 0.08f),
+                0.82f to tintVeil.copy(alpha = 0.11f + darkBoost * 0.12f),
+                1.0f to tintVeil.copy(alpha = 0.30f + darkBoost * 0.22f)
             )
         }
     }
@@ -395,7 +414,7 @@ private fun AuroraOrbsLayer(
                             brush = brush1,
                             topLeft = expandedTopLeft,
                             size = expandedSize,
-                            alpha = (if (effectiveDark) 0.65f else 0.42f) * layerAlpha
+                            alpha = (if (effectiveDark) 0.65f else 0.62f) * layerAlpha
                         )
                     }
 
@@ -406,7 +425,7 @@ private fun AuroraOrbsLayer(
                             brush = brush2,
                             topLeft = expandedTopLeft,
                             size = expandedSize,
-                            alpha = (if (effectiveDark) 0.55f else 0.36f) * layerAlpha
+                            alpha = (if (effectiveDark) 0.55f else 0.56f) * layerAlpha
                         )
                     }
 
@@ -418,7 +437,7 @@ private fun AuroraOrbsLayer(
                                 brush = brush3,
                                 topLeft = expandedTopLeft,
                                 size = expandedSize,
-                                alpha = (if (effectiveDark) 0.50f else 0.30f) * layerAlpha
+                                alpha = (if (effectiveDark) 0.50f else 0.50f) * layerAlpha
                             )
                         }
 
@@ -429,7 +448,7 @@ private fun AuroraOrbsLayer(
                                 brush = brush4,
                                 topLeft = expandedTopLeft,
                                 size = expandedSize,
-                                alpha = (if (effectiveDark) 0.45f else 0.25f) * layerAlpha
+                                alpha = (if (effectiveDark) 0.45f else 0.44f) * layerAlpha
                             )
                         }
                     }
