@@ -11,6 +11,7 @@ import com.linernotes.app.core.playback.PlaybackClockState
 import com.linernotes.app.core.playback.QueueTrackItem
 import com.linernotes.app.core.playback.TrackMetadataState
 import com.linernotes.app.core.preference.AiPreferences
+import com.linernotes.app.core.util.HtmlUtils
 import com.linernotes.app.data.local.entity.LyricAnnotationEntity
 import com.linernotes.app.data.local.entity.SongStoryEntity
 import com.linernotes.app.data.repository.LyricsContentState
@@ -102,7 +103,9 @@ class NowPlayingViewModel @Inject constructor(
     val notificationAccessGrantedFlow: StateFlow<Boolean> = nowPlayingRepository.notificationAccessGrantedFlow
 
     private var annotationTransJob: Job? = null
+    private var annotationTransToken: Long = 0L
     private var songStoryTransJob: Job? = null
+    private var songStoryTransToken: Long = 0L
 
     init {
         viewModelScope.launch {
@@ -398,9 +401,9 @@ class NowPlayingViewModel @Inject constructor(
     private fun isTranslationNeeded(original: String, translation: String?): Boolean {
         val targetIso = TranslationTargetLanguage.fromCode(aiPreferences.targetLanguage).fallbackIso
         val isChineseTarget = targetIso.startsWith("zh", ignoreCase = true)
-        if (original.isBlank() || (isChineseTarget && AiAnnotationCurator.isAlreadyChinese(original))) return false
+        val cleanOrig = HtmlUtils.cleanPlainText(original)
+        if (cleanOrig.isBlank() || (isChineseTarget && AiAnnotationCurator.isAlreadyChinese(cleanOrig))) return false
         if (translation.isNullOrBlank()) return true
-        val cleanOrig = original.trim()
         val cleanTrans = translation.trim()
         if (cleanOrig.equals(cleanTrans, ignoreCase = true)) return true
         if (!matchesExpectedTargetScript(cleanTrans, targetIso)) return true
@@ -431,6 +434,7 @@ class NowPlayingViewModel @Inject constructor(
 
     fun openGeniusAnnotation(annotation: LyricAnnotationEntity) {
         annotationTransJob?.cancel()
+        val requestToken = ++annotationTransToken
         val needsTrans = isAnnotationTranslationPending(annotation)
 
         _uiState.update {
@@ -449,19 +453,14 @@ class NowPlayingViewModel @Inject constructor(
                         if (cur.selectedAnnotation?.lyricFragment == annotation.lyricFragment &&
                             cur.selectedAnnotation.explanationText == annotation.explanationText
                         ) {
-                            cur.copy(
-                                selectedAnnotation = updated,
-                                isAnnotationTranslating = false
-                            )
+                            cur.copy(selectedAnnotation = updated)
                         } else {
                             cur
                         }
                     }
-                } catch (_: Exception) {
+                } finally {
                     _uiState.update { cur ->
-                        if (cur.selectedAnnotation?.lyricFragment == annotation.lyricFragment &&
-                            cur.selectedAnnotation.explanationText == annotation.explanationText
-                        ) {
+                        if (annotationTransToken == requestToken) {
                             cur.copy(isAnnotationTranslating = false)
                         } else {
                             cur
@@ -475,6 +474,7 @@ class NowPlayingViewModel @Inject constructor(
     fun retryAnnotationTranslation() {
         val current = _uiState.value.selectedAnnotation ?: return
         annotationTransJob?.cancel()
+        val requestToken = ++annotationTransToken
         _uiState.update { it.copy(isAnnotationTranslating = true) }
         annotationTransJob = viewModelScope.launch {
             try {
@@ -483,19 +483,14 @@ class NowPlayingViewModel @Inject constructor(
                     if (cur.selectedAnnotation?.lyricFragment == current.lyricFragment &&
                         cur.selectedAnnotation.explanationText == current.explanationText
                     ) {
-                        cur.copy(
-                            selectedAnnotation = updated,
-                            isAnnotationTranslating = false
-                        )
+                        cur.copy(selectedAnnotation = updated)
                     } else {
                         cur
                     }
                 }
-            } catch (_: Exception) {
+            } finally {
                 _uiState.update { cur ->
-                    if (cur.selectedAnnotation?.lyricFragment == current.lyricFragment &&
-                        cur.selectedAnnotation.explanationText == current.explanationText
-                    ) {
+                    if (annotationTransToken == requestToken) {
                         cur.copy(isAnnotationTranslating = false)
                     } else {
                         cur
@@ -506,6 +501,7 @@ class NowPlayingViewModel @Inject constructor(
     }
 
     fun closeGeniusSheet() {
+        annotationTransToken++
         annotationTransJob?.cancel()
         _uiState.update {
             it.copy(
@@ -518,9 +514,9 @@ class NowPlayingViewModel @Inject constructor(
 
     fun openSongStory() {
         songStoryTransJob?.cancel()
+        val requestToken = ++songStoryTransToken
         val content = _uiState.value.lyricsContent
         val story = content.songStory
-        val targetEpoch = content.trackEpoch
         val needsTrans = story != null && isTranslationNeeded(story.descriptionPlain, story.descriptionTranslation)
 
         _uiState.update {
@@ -536,7 +532,7 @@ class NowPlayingViewModel @Inject constructor(
                     nowPlayingRepository.translateCurrentStory(story)
                 } finally {
                     _uiState.update { cur ->
-                        if (cur.lyricsContent.trackEpoch == targetEpoch) {
+                        if (songStoryTransToken == requestToken) {
                             cur.copy(isSongStoryTranslating = false)
                         } else {
                             cur
@@ -549,16 +545,16 @@ class NowPlayingViewModel @Inject constructor(
 
     fun retrySongStoryTranslation() {
         songStoryTransJob?.cancel()
+        val requestToken = ++songStoryTransToken
         val content = _uiState.value.lyricsContent
         val story = content.songStory ?: return
-        val targetEpoch = content.trackEpoch
         _uiState.update { it.copy(isSongStoryTranslating = true) }
         songStoryTransJob = viewModelScope.launch {
             try {
                 nowPlayingRepository.translateCurrentStory(story)
             } finally {
                 _uiState.update { cur ->
-                    if (cur.lyricsContent.trackEpoch == targetEpoch) {
+                    if (songStoryTransToken == requestToken) {
                         cur.copy(isSongStoryTranslating = false)
                     } else {
                         cur
@@ -569,6 +565,7 @@ class NowPlayingViewModel @Inject constructor(
     }
 
     fun closeSongStory() {
+        songStoryTransToken++
         songStoryTransJob?.cancel()
         _uiState.update {
             it.copy(

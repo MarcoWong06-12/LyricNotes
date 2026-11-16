@@ -232,4 +232,59 @@ class TranslationServiceTest {
         assertNull(oversizedResult)
         assertEquals(0, oversizedCalls)
     }
+
+    @Test
+    fun testSplitTextForEngineLimit_preservesSentencesWithinLimit() {
+        val service = TranslationService()
+        val s1 = "1 step forward, 3 steps back describes an unpredictable toxic relationship where affection comes and goes without warning."
+        val s2 = "Olivia Rodrigo compares the dynamic to taking a tentative step forward only to be pushed three steps back whenever her partner snaps."
+        val s3 = "The piano interpolation of Taylor Swift's New Year's Day underscores the bittersweet contrast between hope and emotional exhaustion."
+        val longParagraph = "$s1 $s2 $s3"
+
+        val chunks = service.splitTextForEngineLimit(longParagraph, maxChars = 160)
+        assertTrue(chunks.size >= 3)
+        assertTrue(chunks.all { it.isNotBlank() && it.length <= 160 })
+        assertTrue(chunks.first().startsWith("1 step forward"))
+        assertTrue(chunks.last().endsWith("exhaustion."))
+
+        val singleHugeToken = "a".repeat(250)
+        val hardSplit = service.splitTextForEngineLimit(singleHugeToken, maxChars = 100)
+        assertEquals(listOf("a".repeat(100), "a".repeat(100), "a".repeat(50)), hardSplit)
+    }
+
+    @Test
+    fun testParseYoudaoMobileHtml_extractsTranslatedItemsAndRejectsInvalid() {
+        val service = TranslationService()
+        val html = """
+            <html><body>
+            <ul id="translateResult">
+                <li>尽管什么都没做，&ldquo;奥利维亚&rdquo;还是让他们生气了。</li>
+                <li>这揭示了有毒关系的本质。</li>
+            </ul>
+            </body></html>
+        """.trimIndent()
+
+        val parsed = service.parseYoudaoMobileHtml(html)
+        assertEquals(
+            "尽管什么都没做，“奥利维亚”还是让他们生气了。\n这揭示了有毒关系的本质。",
+            parsed
+        )
+
+        assertNull(service.parseYoudaoMobileHtml("<html><body><div>empty</div></body></html>"))
+        assertNull(
+            service.parseYoudaoMobileHtml(
+                """<ul id="translateResult"><li>429 Too Many Requests</li></ul>"""
+            )
+        )
+    }
+
+    @Test
+    fun testMapYoudaoMobileType_resolvesSupportedDirections() {
+        val service = TranslationService()
+        assertEquals("EN2ZH_CN", service.mapYoudaoMobileType("Speak normally in a song.", "zh-TW"))
+        assertEquals("JA2ZH_CN", service.mapYoudaoMobileType("君と歩いた季節", "zh-CN"))
+        assertEquals("KR2ZH_CN", service.mapYoudaoMobileType("너의 모든 순간", "zh-CN"))
+        assertEquals("ZH_CN2EN", service.mapYoudaoMobileType("一段歌词解析", "en-US"))
+        assertNull(service.mapYoudaoMobileType("这是一段纯中文注释", "zh-CN"))
+    }
 }

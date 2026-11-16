@@ -418,40 +418,40 @@ class NowPlayingRepository internal constructor(
 
         val annotationsJob = async {
             if (pendingIndices.isEmpty()) return@async
-            val batchChunks = pendingIndices.chunked(6)
-            val batchSemaphore = Semaphore(if (prioritizeInteractive) 3 else 2)
+            // 控制后台并发为串行小批（4 条/批 + 间隔节流），避免在无代理直连下突发并发触发 TransMart 限流或抢占用户点击快车道
+            val batchChunks = pendingIndices.chunked(4)
+            val batchSemaphore = Semaphore(1)
 
-            batchChunks.map { idxGroup ->
-                async {
-                    batchSemaphore.withPermit {
-                        try {
-                            val inputs = idxGroup.map { latestAnnotations[it].explanationText }
-                            val outputs = translationService.translateTextsBatch(
-                                texts = inputs,
-                                targetIso = spec.targetIso,
-                                highPriority = false
-                            )
-                            var changedCount = 0
-                            emitMutex.withLock {
-                                idxGroup.forEachIndexed { pos, origIdx ->
-                                    val origAnnot = latestAnnotations[origIdx]
-                                    val finalized = finalizeTranslatedProse(outputs.getOrNull(pos), origAnnot.explanationText, spec)
-                                    if (finalized != null) {
-                                        latestAnnotations[origIdx] = origAnnot.copy(explanationTranslation = finalized)
-                                        changedCount++
-                                    }
-                                }
-                                if (changedCount > 0) {
-                                    onProgress?.invoke(latestStory, latestAnnotations.toList())
+            batchChunks.forEachIndexed { batchIdx, idxGroup ->
+                batchSemaphore.withPermit {
+                    if (batchIdx > 0) delay(80L)
+                    try {
+                        val inputs = idxGroup.map { latestAnnotations[it].explanationText }
+                        val outputs = translationService.translateTextsBatch(
+                            texts = inputs,
+                            targetIso = spec.targetIso,
+                            highPriority = false
+                        )
+                        var changedCount = 0
+                        emitMutex.withLock {
+                            idxGroup.forEachIndexed { pos, origIdx ->
+                                val origAnnot = latestAnnotations[origIdx]
+                                val finalized = finalizeTranslatedProse(outputs.getOrNull(pos), origAnnot.explanationText, spec)
+                                if (finalized != null) {
+                                    latestAnnotations[origIdx] = origAnnot.copy(explanationTranslation = finalized)
+                                    changedCount++
                                 }
                             }
-                        } catch (e: CancellationException) {
-                            throw e
-                        } catch (_: Exception) {
+                            if (changedCount > 0) {
+                                onProgress?.invoke(latestStory, latestAnnotations.toList())
+                            }
                         }
+                    } catch (e: CancellationException) {
+                        throw e
+                    } catch (_: Exception) {
                     }
                 }
-            }.awaitAll()
+            }
         }
 
         storyJob.await()
@@ -1781,11 +1781,13 @@ class NowPlayingRepository internal constructor(
         val explIdx = if (needExpl) batchInputs.size.also { batchInputs.add(updated.explanationText) } else -1
 
         if (batchInputs.isNotEmpty()) {
-            val batchOutputs = translationService.translateTextsBatch(
-                texts = batchInputs,
-                targetIso = spec.targetIso,
-                highPriority = true
-            )
+            val batchOutputs = withTimeoutOrNull(18_000L) {
+                translationService.translateTextsBatch(
+                    texts = batchInputs,
+                    targetIso = spec.targetIso,
+                    highPriority = true
+                )
+            } ?: emptyList()
             if (lyricIdx >= 0) {
                 finalizeTranslatedProse(batchOutputs.getOrNull(lyricIdx), updated.lyricFragment, spec)?.let {
                     updated = updated.copy(lyricTranslation = it)
@@ -1845,11 +1847,13 @@ class NowPlayingRepository internal constructor(
             return@withContext story
         }
 
-        val tr = translationService.translateText(
-            text = story.descriptionPlain,
-            targetIso = spec.targetIso,
-            highPriority = true
-        )
+        val tr = withTimeoutOrNull(18_000L) {
+            translationService.translateText(
+                text = story.descriptionPlain,
+                targetIso = spec.targetIso,
+                highPriority = true
+            )
+        }
         val finalTr = finalizeTranslatedProse(tr, story.descriptionPlain, spec)
         if (finalTr != null) {
             val updated = story.copy(descriptionTranslation = finalTr)

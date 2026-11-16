@@ -85,28 +85,56 @@ class TranslationService(
     private val fastGoogleClient = OkHttpClient.Builder()
         .connectionPool(sharedConnectionPool)
         .dispatcher(Dispatcher().apply {
-            maxRequests = 24
-            maxRequestsPerHost = 8
+            maxRequests = 16
+            maxRequestsPerHost = 6
         })
-        .connectTimeout(1800, TimeUnit.MILLISECONDS)
-        .readTimeout(3000, TimeUnit.MILLISECONDS)
-        .writeTimeout(1800, TimeUnit.MILLISECONDS)
-        .callTimeout(4000, TimeUnit.MILLISECONDS)
+        .connectTimeout(1200, TimeUnit.MILLISECONDS)
+        .readTimeout(2200, TimeUnit.MILLISECONDS)
+        .writeTimeout(1200, TimeUnit.MILLISECONDS)
+        .callTimeout(2800, TimeUnit.MILLISECONDS)
         .build()
+
+    // 交互快车道专用海外兜底客户端：彻底隔离后台批量任务，避免 Google/MyMemory 超时排队阻塞用户点击
+    private val interactiveGoogleClient = OkHttpClient.Builder()
+        .connectionPool(sharedConnectionPool)
+        .dispatcher(Dispatcher().apply {
+            maxRequests = 12
+            maxRequestsPerHost = 6
+        })
+        .connectTimeout(1200, TimeUnit.MILLISECONDS)
+        .readTimeout(2200, TimeUnit.MILLISECONDS)
+        .writeTimeout(1200, TimeUnit.MILLISECONDS)
+        .callTimeout(2800, TimeUnit.MILLISECONDS)
+        .build()
+
+    @Volatile
+    private var googleBlockedUntilMs: Long = 0L
+
+    @Volatile
+    private var myMemoryBlockedUntilMs: Long = 0L
 
     private fun clientFor(highPriority: Boolean): OkHttpClient =
         if (highPriority) interactiveClient else client
 
+    private fun googleClientFor(highPriority: Boolean): OkHttpClient =
+        if (highPriority) interactiveGoogleClient else fastGoogleClient
+
     companion object {
         private const val CHUNK_LINE_COUNT = 15
-        private const val PROSE_BATCH_MAX_ITEMS = 12
-        private const val PROSE_BATCH_MAX_CHARS = 3200
-        private const val MAX_360_FANYI_CHARS = 900
+        private const val PROSE_BATCH_MAX_ITEMS = 6
+        private const val PROSE_BATCH_MAX_CHARS = 1800
+        private const val MAX_360_FANYI_CHARS = 780
+        private const val MAX_YOUDAO_CHARS = 480
         private const val MAX_MYMEMORY_CHARS = 450
         private const val MAX_MYMEMORY_REQUESTS = 2
+        private const val CIRCUIT_BREAKER_COOLDOWN_MS = 180_000L
         private const val TRANSMART_URL = "https://transmart.qq.com/api/imt"
         private const val FANYI_360_URL = "https://fanyi.so.com/index/search"
+        private const val YOUDAO_MOBILE_URL = "https://m.youdao.com/translate"
         private val PARA_SPLIT_REGEX = Regex("""(?:\r?\n\s*){2,}""")
+        private val SENTENCE_SPLIT_REGEX = Regex("""(?<=[.!?。！？])\s+|\n+""")
+        private val YOUDAO_RESULT_REGEX = Regex("""<ul id="translateResult">\s*(.*?)\s*</ul>""", RegexOption.DOT_MATCHES_ALL)
+        private val YOUDAO_LI_REGEX = Regex("""<li>(.*?)</li>""", RegexOption.DOT_MATCHES_ALL)
         private val KANA_REGEX = Regex("""[\u3040-\u30ff]""")
         private val HANGUL_REGEX = Regex("""[\uac00-\ud7af]""")
         private val CJK_REGEX = Regex("""[\u4e00-\u9fff]""")
@@ -236,9 +264,14 @@ class TranslationService(
                                 parsed = transMartResult
                             }
 
-                            // 2. 备选：Google Translate 公共服务 (单次紧凑超时快速切换)
+                            // 2. 备选：Google Translate 公共服务 (单次紧凑超时 + 熔断快速切换)
                             if (parsed.isEmpty() || parsed.count { it.isNotBlank() } < (chunk.size + 1) / 2) {
-                                val googleFallback = translateViaGoogle(indexedChunkText, targetIso, "https://translate.googleapis.com/translate_a/single")
+                                val googleFallback = translateViaGoogle(
+                                    text = indexedChunkText,
+                                    targetIso = targetIso,
+                                    endpoint = "https://translate.googleapis.com/translate_a/single",
+                                    httpClient = googleClientFor(highPriority = false)
+                                )
                                 if (!googleFallback.isNullOrBlank()) {
                                     val candidate = parseIndexedLines(googleFallback.lines().map { HtmlUtils.cleanTranslationOutput(it) }, chunk.size)
                                     if (candidate.isNotEmpty() && candidate.count { it.isNotBlank() } > parsed.count { it.isNotBlank() }) {
@@ -268,7 +301,27 @@ class TranslationService(
                                 }
                             }
 
-                            // 4. 严格防告警降级兜底：MyMemory
+                            // 4. 备选：有道移动端国内直连引擎（支持英/日/韩<->中）
+                            if (parsed.isEmpty() || parsed.count { it.isNotBlank() } < (chunk.size + 1) / 2) {
+                                val youdaoSemaphore = Semaphore(4)
+                                val youdaoLines = supervisorScope {
+                                    chunk.mapIndexed { idx, line ->
+                                        async {
+                                            val existing = parsed.getOrNull(idx).orEmpty()
+                                            if (existing.isNotBlank()) return@async existing
+                                            if (!supportsYoudaoMobile(line, targetIso)) return@async ""
+                                            youdaoSemaphore.withPermit {
+                                                translateViaYoudaoMobile(line, targetIso, client).orEmpty()
+                                            }
+                                        }
+                                    }.awaitAll()
+                                }
+                                if (youdaoLines.count { it.isNotBlank() } > parsed.count { it.isNotBlank() }) {
+                                    parsed = youdaoLines
+                                }
+                            }
+
+                            // 5. 严格防告警降级兜底：MyMemory
                             if (parsed.isEmpty() || parsed.count { it.isNotBlank() } < (chunk.size + 1) / 2) {
                                 val memoryFallback = translateViaMyMemory(indexedChunkText, targetIso)?.lines() ?: emptyList()
                                 val validMemory = memoryFallback.filterNot { isInvalidTranslation(it) }
@@ -370,7 +423,7 @@ class TranslationService(
         val isChineseTarget = targetIso.startsWith("zh", ignoreCase = true)
         val chunks = buildProseBatchChunks(flatParagraphs)
         val flatResults = MutableList(flatParagraphs.size) { idx -> flatParagraphs[idx] }
-        val chunkSemaphore = Semaphore(if (highPriority) 6 else 4)
+        val chunkSemaphore = Semaphore(if (highPriority) 4 else 2)
 
         try {
             supervisorScope {
@@ -378,12 +431,21 @@ class TranslationService(
                     async {
                         chunkSemaphore.withPermit {
                             val subInputs = indexBatch.map { flatParagraphs[it] }
-                            val transMartBatch = translateViaTransMart(
+                            var transMartBatch = translateViaTransMart(
                                 lines = subInputs,
                                 targetIso = targetIso,
                                 isLyrics = false,
                                 httpClient = httpClient
                             )
+                            if (transMartBatch.isNullOrEmpty() || transMartBatch.all { it.isBlank() }) {
+                                delay(if (highPriority) 80L else 180L)
+                                transMartBatch = translateViaTransMart(
+                                    lines = subInputs,
+                                    targetIso = targetIso,
+                                    isLyrics = false,
+                                    httpClient = httpClient
+                                )
+                            }
 
                             val missingLocalIndices = mutableListOf<Int>()
                             for (localIdx in subInputs.indices) {
@@ -398,14 +460,18 @@ class TranslationService(
                             }
 
                             if (missingLocalIndices.isNotEmpty()) {
+                                val fallbackSemaphore = Semaphore(if (highPriority) 4 else 2)
                                 missingLocalIndices.map { localIdx ->
                                     async {
-                                        val globalIdx = indexBatch[localIdx]
-                                        flatResults[globalIdx] = translateParagraphFallback(
-                                            cleanInput = flatParagraphs[globalIdx],
-                                            targetIso = targetIso,
-                                            httpClient = httpClient
-                                        )
+                                        fallbackSemaphore.withPermit {
+                                            val globalIdx = indexBatch[localIdx]
+                                            flatResults[globalIdx] = translateParagraphFallback(
+                                                cleanInput = flatParagraphs[globalIdx],
+                                                targetIso = targetIso,
+                                                httpClient = httpClient,
+                                                highPriority = highPriority
+                                            )
+                                        }
                                     }
                                 }.awaitAll()
                             }
@@ -476,12 +542,109 @@ class TranslationService(
     }
 
     /**
-     * 仅针对批内少数异常/失败段落执行轻量容灾降级（无 12s 双域名阻塞等待）
+     * 按句子边界将超长自然段切分为不超过单引擎字符上限的紧凑分片，防止长典故/长背景故事被截断或直接跳过
+     */
+    internal fun splitTextForEngineLimit(text: String, maxChars: Int): List<String> {
+        val clean = text.trim()
+        if (clean.isBlank() || maxChars <= 0) return emptyList()
+        if (clean.length <= maxChars) return listOf(clean)
+
+        val chunks = mutableListOf<String>()
+        val sentences = clean.split(SENTENCE_SPLIT_REGEX).map { it.trim() }.filter { it.isNotBlank() }
+        val current = StringBuilder()
+
+        fun flushCurrent() {
+            if (current.isNotEmpty()) {
+                chunks.add(current.toString().trim())
+                current.setLength(0)
+            }
+        }
+
+        fun appendOversizedSegment(segment: String) {
+            var remaining = segment.trim()
+            while (remaining.length > maxChars) {
+                var splitAt = remaining.lastIndexOf(' ', maxChars)
+                if (splitAt < maxChars / 3) {
+                    splitAt = maxChars
+                }
+                chunks.add(remaining.substring(0, splitAt).trim())
+                remaining = remaining.substring(splitAt).trimStart()
+            }
+            if (remaining.isNotBlank()) {
+                current.append(remaining)
+            }
+        }
+
+        for (sentence in sentences) {
+            if (sentence.length > maxChars) {
+                flushCurrent()
+                appendOversizedSegment(sentence)
+                continue
+            }
+            val needed = if (current.isEmpty()) sentence.length else current.length + 1 + sentence.length
+            if (current.isNotEmpty() && needed > maxChars) {
+                flushCurrent()
+            }
+            if (current.isNotEmpty()) current.append(' ')
+            current.append(sentence)
+        }
+        flushCurrent()
+        return chunks.filter { it.isNotBlank() }
+    }
+
+    private fun translateChunkedWithEngine(
+        cleanInput: String,
+        maxCharsPerRequest: Int,
+        isChineseTarget: Boolean,
+        translator: (String) -> String?
+    ): String? {
+        val pieces = splitTextForEngineLimit(cleanInput, maxCharsPerRequest)
+        if (pieces.isEmpty()) return null
+        val translatedPieces = ArrayList<String>(pieces.size)
+        for (piece in pieces) {
+            val raw = translator(piece) ?: return null
+            val cleanedPiece = HtmlUtils.cleanTranslationOutput(raw)
+                .replace(PARA_SPLIT_REGEX, "\n")
+                .trim()
+            if (cleanedPiece.isBlank() ||
+                isInvalidTranslation(cleanedPiece) ||
+                isTranslationTruncated(piece, cleanedPiece) ||
+                (isChineseTarget && !CJK_REGEX.containsMatchIn(cleanedPiece))
+            ) {
+                return null
+            }
+            translatedPieces.add(cleanedPiece)
+        }
+        val joined = if (isChineseTarget) {
+            buildString {
+                translatedPieces.forEachIndexed { index, part ->
+                    if (index > 0) {
+                        val prevLast = lastOrNull()
+                        val nextFirst = part.firstOrNull()
+                        if (prevLast != null && nextFirst != null &&
+                            prevLast.code < 128 && nextFirst.code < 128 &&
+                            prevLast !in "。！？；：、"
+                        ) {
+                            append(' ')
+                        }
+                    }
+                    append(part)
+                }
+            }
+        } else {
+            translatedPieces.joinToString(" ")
+        }
+        return validateTranslatedParagraph(cleanInput, joined, isChineseTarget)
+    }
+
+    /**
+     * 仅针对批内少数异常/失败段落执行轻量容灾降级（无 12s 双域名阻塞等待，且支持长段按句分片直连国内引擎）
      */
     private suspend fun translateParagraphFallback(
         cleanInput: String,
         targetIso: String,
-        httpClient: OkHttpClient
+        httpClient: OkHttpClient,
+        highPriority: Boolean = false
     ): String {
         val isChineseTarget = targetIso.startsWith("zh", ignoreCase = true)
 
@@ -491,39 +654,40 @@ class TranslationService(
             sourceLang = "auto",
             targetLang = mapTargetToTransMartLang(targetIso),
             httpClient = httpClient,
-            clientKeyOverride = "browser-chrome-120.0.0-Android-${UUID.randomUUID()}"
+            clientKeyOverride = generateTransMartClientKey()
         )?.firstOrNull()
         validateTranslatedParagraph(cleanInput, retryTransMart, isChineseTarget)?.let { return it }
 
-        // 2. 360 翻译国内直连引擎（实测超 ~1000 字符会报错延迟，超过上限直接跳过避免白等 2 秒）
-        if (cleanInput.length <= MAX_360_FANYI_CHARS && supports360Fanyi(cleanInput, targetIso)) {
-            val fanyi = translateVia360Fanyi(cleanInput, targetIso, httpClient)
-            validateTranslatedParagraph(cleanInput, fanyi, isChineseTarget)?.let { return it }
+        // 2. 360 翻译国内直连引擎（支持长自然段按句切分 <=780 字符分片翻译，突破单次字符上限）
+        if (supports360Fanyi(cleanInput, targetIso)) {
+            translateChunkedWithEngine(cleanInput, MAX_360_FANYI_CHARS, isChineseTarget) { chunk ->
+                translateVia360Fanyi(chunk, targetIso, httpClient)
+            }?.let { return it }
         }
 
-        // 3. Google Translate 单次快速尝试（compact 4s timeout）
-        val google = translateViaGoogle(cleanInput, targetIso, "https://translate.googleapis.com/translate_a/single")
-        if (!google.isNullOrBlank()) {
-            val cleaned = HtmlUtils.cleanTranslationOutput(google).replace(PARA_SPLIT_REGEX, "\n").trim()
-            if (cleaned.isNotBlank() && !isInvalidTranslation(cleaned) &&
-                (!isChineseTarget || CJK_REGEX.containsMatchIn(cleaned))
-            ) {
-                return refineMusicSlang(cleaned, cleanInput)
-            }
+        // 3. 有道移动端国内直连引擎（按 <=480 字符切分防静默截断，支持英/日/韩<->中）
+        if (supportsYoudaoMobile(cleanInput, targetIso)) {
+            translateChunkedWithEngine(cleanInput, MAX_YOUDAO_CHARS, isChineseTarget) { chunk ->
+                translateViaYoudaoMobile(chunk, targetIso, httpClient)
+            }?.let { return it }
         }
 
-        // 4. MyMemory 短文本单请求快速兜底（避免长文逐行超时）
+        // 4. Google Translate 单次快速尝试（专用隔离池 + 熔断保护，避免国内无代理死等）
+        val google = translateViaGoogle(
+            text = cleanInput,
+            targetIso = targetIso,
+            endpoint = "https://translate.googleapis.com/translate_a/single",
+            httpClient = googleClientFor(highPriority)
+        )
+        validateTranslatedParagraph(cleanInput, google, isChineseTarget)?.let { return it }
+
+        // 5. MyMemory 短文本单请求快速兜底（带限流熔断保护）
         if (cleanInput.length <= MAX_MYMEMORY_CHARS) {
             val singleLine = cleanInput.replace('\n', ' ')
-            val myMemory = translateViaMyMemory(singleLine, targetIso)
-            if (!myMemory.isNullOrBlank() && !isInvalidTranslation(myMemory)) {
-                val cleaned = HtmlUtils.cleanTranslationOutput(myMemory).replace(PARA_SPLIT_REGEX, "\n").trim()
-                if (cleaned.isNotBlank() && !isInvalidTranslation(cleaned) &&
-                    (!isChineseTarget || CJK_REGEX.containsMatchIn(cleaned))
-                ) {
-                    return refineMusicSlang(cleaned, cleanInput)
-                }
+            val myMemory = translateViaMyMemory(singleLine, targetIso) { url ->
+                executeMyMemoryGet(url, googleClientFor(highPriority))
             }
+            validateTranslatedParagraph(cleanInput, myMemory, isChineseTarget)?.let { return it }
         }
 
         return cleanInput
@@ -620,9 +784,8 @@ class TranslationService(
         return res
     }
 
-    private val transMartClientKey: String by lazy {
+    private fun generateTransMartClientKey(): String =
         "browser-chrome-120.0.0-Android-${UUID.randomUUID()}-${System.currentTimeMillis()}"
-    }
 
     fun isInvalidTranslation(text: String?): Boolean {
         if (text.isNullOrBlank()) return true
@@ -718,7 +881,7 @@ class TranslationService(
             val payload = JSONObject().apply {
                 put("header", JSONObject().apply {
                     put("fn", "auto_translation")
-                    put("client_key", clientKeyOverride ?: transMartClientKey)
+                    put("client_key", clientKeyOverride ?: generateTransMartClientKey())
                 })
                 put("type", "plain")
                 put("model_category", "normal")
@@ -808,7 +971,77 @@ class TranslationService(
         }
     }
 
-    private fun translateViaGoogle(text: String, targetIso: String, endpoint: String): String? {
+    private fun supportsYoudaoMobile(text: String, targetIso: String): Boolean =
+        mapYoudaoMobileType(text, targetIso) != null
+
+    internal fun mapYoudaoMobileType(text: String, targetIso: String): String? {
+        val isZhTarget = targetIso.startsWith("zh", ignoreCase = true)
+        val isEnTarget = targetIso.startsWith("en", ignoreCase = true)
+        val hasCjk = CJK_REGEX.containsMatchIn(text)
+        return when {
+            isZhTarget && KANA_REGEX.containsMatchIn(text) -> "JA2ZH_CN"
+            isZhTarget && HANGUL_REGEX.containsMatchIn(text) -> "KR2ZH_CN"
+            isZhTarget && !hasCjk && LATIN_REGEX.containsMatchIn(text) -> "EN2ZH_CN"
+            isEnTarget && hasCjk -> "ZH_CN2EN"
+            else -> null
+        }
+    }
+
+    internal fun parseYoudaoMobileHtml(html: String): String? {
+        val ulContent = YOUDAO_RESULT_REGEX.find(html)?.groupValues?.getOrNull(1) ?: return null
+        val lines = YOUDAO_LI_REGEX.findAll(ulContent)
+            .map { match -> HtmlUtils.unescapeHtml(HtmlUtils.stripTags(match.groupValues[1])).trim() }
+            .filter { it.isNotBlank() }
+            .toList()
+        if (lines.isEmpty()) return null
+        val joined = lines.joinToString("\n").trim()
+        if (joined.isBlank() || isInvalidTranslation(joined)) return null
+        return joined
+    }
+
+    /**
+     * 有道移动端国内直连兜底引擎（按 <=480 字符短片请求，避免长文截断）
+     */
+    private fun translateViaYoudaoMobile(
+        text: String,
+        targetIso: String,
+        httpClient: OkHttpClient = client
+    ): String? {
+        val clean = HtmlUtils.cleanPlainText(text)
+        val transType = mapYoudaoMobileType(clean, targetIso) ?: return null
+        if (clean.isBlank() || clean.length > MAX_YOUDAO_CHARS) return null
+        return try {
+            val formBody = FormBody.Builder()
+                .add("inputtext", clean)
+                .add("type", transType)
+                .build()
+
+            val request = Request.Builder()
+                .url(YOUDAO_MOBILE_URL)
+                .post(formBody)
+                .header("Referer", YOUDAO_MOBILE_URL)
+                .header("User-Agent", "Mozilla/5.0 (Linux; Android 14) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Mobile Safari/537.36")
+                .build()
+
+            val html = httpClient.newCall(request).execute().use { resp ->
+                if (!resp.isSuccessful) return null
+                resp.body?.string()
+            } ?: return null
+
+            parseYoudaoMobileHtml(html)
+        } catch (e: Exception) {
+            null
+        }
+    }
+
+    private fun translateViaGoogle(
+        text: String,
+        targetIso: String,
+        endpoint: String,
+        httpClient: OkHttpClient = fastGoogleClient
+    ): String? {
+        val now = System.currentTimeMillis()
+        if (now < googleBlockedUntilMs) return null
         return try {
             val formBody = FormBody.Builder()
                 .add("client", "gtx")
@@ -824,12 +1057,18 @@ class TranslationService(
                 .header("User-Agent", "Mozilla/5.0 (Linux; Android 14) AppleWebKit/537.36")
                 .build()
 
-            val body = fastGoogleClient.newCall(request).execute().use { response ->
-                if (!response.isSuccessful) return null
+            val body = httpClient.newCall(request).execute().use { response ->
+                if (!response.isSuccessful) {
+                    if (response.code == 429 || response.code == 403) {
+                        googleBlockedUntilMs = System.currentTimeMillis() + CIRCUIT_BREAKER_COOLDOWN_MS
+                    }
+                    return null
+                }
                 response.body?.string()
             } ?: return null
             parseGoogleTranslateResponse(body)
         } catch (e: Exception) {
+            googleBlockedUntilMs = System.currentTimeMillis() + CIRCUIT_BREAKER_COOLDOWN_MS
             null
         }
     }
@@ -852,11 +1091,31 @@ class TranslationService(
         }
     }
 
-    private fun executeMyMemoryGet(url: String): String? {
-        val req = Request.Builder().url(url).build()
-        return fastGoogleClient.newCall(req).execute().use { resp ->
-            if (!resp.isSuccessful) return null
-            resp.body?.string()
+    private fun executeMyMemoryGet(
+        url: String,
+        httpClient: OkHttpClient = fastGoogleClient
+    ): String? {
+        val now = System.currentTimeMillis()
+        if (now < myMemoryBlockedUntilMs) return null
+        return try {
+            val req = Request.Builder().url(url).build()
+            httpClient.newCall(req).execute().use { resp ->
+                if (!resp.isSuccessful) {
+                    if (resp.code == 429 || resp.code == 403) {
+                        myMemoryBlockedUntilMs = System.currentTimeMillis() + CIRCUIT_BREAKER_COOLDOWN_MS
+                    }
+                    return null
+                }
+                val body = resp.body?.string()
+                if (body != null && isInvalidTranslation(body)) {
+                    myMemoryBlockedUntilMs = System.currentTimeMillis() + CIRCUIT_BREAKER_COOLDOWN_MS
+                    return null
+                }
+                body
+            }
+        } catch (e: Exception) {
+            myMemoryBlockedUntilMs = System.currentTimeMillis() + CIRCUIT_BREAKER_COOLDOWN_MS
+            null
         }
     }
 
@@ -898,7 +1157,7 @@ class TranslationService(
     internal fun translateViaMyMemory(
         text: String,
         targetIso: String,
-        fetcher: (String) -> String? = ::executeMyMemoryGet
+        fetcher: (String) -> String? = { executeMyMemoryGet(it) }
     ): String? {
         return try {
             val rawLines = text.lines()
