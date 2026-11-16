@@ -266,7 +266,7 @@ class TranslationServiceTest {
 
         val parsed = service.parseYoudaoMobileHtml(html)
         assertEquals(
-            "尽管什么都没做，“奥利维亚”还是让他们生气了。\n这揭示了有毒关系的本质。",
+            "尽管什么都没做，\"奥利维亚\"还是让他们生气了。\n这揭示了有毒关系的本质。",
             parsed
         )
 
