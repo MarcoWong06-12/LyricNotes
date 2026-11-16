@@ -287,4 +287,13 @@ class TranslationServiceTest {
         assertEquals("ZH_CN2EN", service.mapYoudaoMobileType("一段歌词解析", "en-US"))
         assertNull(service.mapYoudaoMobileType("这是一段纯中文注释", "zh-CN"))
     }
+
+    @Test
+    fun testIsPureVocalizationLine_distinguishesAdLibsFromRealLyrics() {
+        assertTrue(TranslationService.isPureVocalizationLine("(Ah-ah-ah)"))
+        assertTrue(TranslationService.isPureVocalizationLine("Oh, oh-oh-oh"))
+        assertTrue(TranslationService.isPureVocalizationLine("  ...  "))
+        assertFalse(TranslationService.isPureVocalizationLine("Stop the wedding! (Ah-ah-ah)"))
+        assertFalse(TranslationService.isPureVocalizationLine("You were balls deep, now we beefin'"))
+    }
 }

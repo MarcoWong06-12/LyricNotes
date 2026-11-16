@@ -141,6 +141,25 @@ class TranslationService(
         private val CYRILLIC_REGEX = Regex("""[\u0400-\u04ff]""")
         private val LATIN_REGEX = Regex("""[a-zA-Z]""")
         private val EXTENDED_LATIN_REGEX = Regex("""[À-ÖØ-öø-ÿ]""")
+        private val VOCALIZATION_TOKEN_SPLIT_REGEX = Regex("""[\s,!.?'"()\[\]\-–—~♪]+""")
+        private val VOCALIZATION_WORDS = setOf(
+            "ah", "ahh", "ahhh", "oh", "ohh", "ohhh", "ooh", "oooh", "eh", "uh",
+            "um", "umm", "hm", "hmm", "hmmm", "mm", "mmm", "la", "na", "da",
+            "ya", "ay", "ayy", "hey", "yeah", "yea", "woah", "whoa", "ha", "haha", "o"
+        )
+
+        /**
+         * 判断整行是否为纯粹无语义衬词/拟声吟唱（如 "(Ah-ah-ah)"、"Oh, oh-oh-oh"），避免无意义的纯拟声补翻开销
+         */
+        fun isPureVocalizationLine(text: String): Boolean {
+            val tokens = LyricWordParser.cleanInlineTimestamps(text)
+                .trim()
+                .lowercase()
+                .split(VOCALIZATION_TOKEN_SPLIT_REGEX)
+                .filter { it.isNotBlank() }
+            if (tokens.isEmpty()) return true
+            return tokens.all { it in VOCALIZATION_WORDS }
+        }
     }
 
     /**
@@ -151,19 +170,20 @@ class TranslationService(
     suspend fun translateTrack(
         trackTitle: String,
         originalLyrics: String,
-        targetLanguageCode: String? = null
+        targetLanguageCode: String? = null,
+        highPriority: Boolean = false
     ): TranslationResult = withContext(Dispatchers.IO) {
         val targetCode = targetLanguageCode ?: targetLanguageProvider()
         val targetIso = TranslationTargetLanguage.fromCode(targetCode).fallbackIso
 
         // 1. 翻译歌词主体 (无损保护时间轴与严格 1:1 换行)
         val translatedLyrics = if (originalLyrics.isNotBlank()) {
-            translateLyricsWithTimestamps(originalLyrics, targetIso)
+            translateLyricsWithTimestamps(originalLyrics, targetIso, highPriority)
         } else ""
 
         // 2. 翻译歌曲标题
         val translatedTitle = if (trackTitle.isNotBlank()) {
-            val titleResult = translateText(trackTitle, targetIso)
+            val titleResult = translateText(trackTitle, targetIso, highPriority)
             if (!titleResult.isNullOrBlank() && !titleResult.equals(trackTitle, ignoreCase = true)) {
                 titleResult
             } else null
@@ -220,11 +240,46 @@ class TranslationService(
         }
     }
 
+    private fun shouldAttemptLineTranslation(line: String, isChineseTarget: Boolean): Boolean {
+        val clean = line.trim()
+        if (clean.isBlank() || clean.none { it.isLetter() }) return false
+        if (isChineseTarget && CJK_REGEX.containsMatchIn(clean) &&
+            !LATIN_REGEX.containsMatchIn(clean) &&
+            !KANA_REGEX.containsMatchIn(clean) &&
+            !HANGUL_REGEX.containsMatchIn(clean)
+        ) {
+            return false
+        }
+        return !isPureVocalizationLine(clean)
+    }
+
+    private fun validateLyricLineTranslation(
+        origLine: String,
+        rawTrans: String?,
+        isChineseTarget: Boolean
+    ): String {
+        if (rawTrans.isNullOrBlank()) return ""
+        val cleaned = HtmlUtils.cleanTranslationOutput(rawTrans).trim()
+        if (cleaned.isBlank() || isInvalidTranslation(cleaned)) return ""
+        if (isChineseTarget &&
+            shouldAttemptLineTranslation(origLine, isChineseTarget = true) &&
+            !CJK_REGEX.containsMatchIn(cleaned) &&
+            (cleaned.equals(origLine.trim(), ignoreCase = true) || origLine.count { it.isLetter() } >= 6)
+        ) {
+            return ""
+        }
+        return cleaned
+    }
+
     /**
      * 针对带有 LRC 时间轴的多行歌词进行剥离时间戳、纯文本分块翻译并原样复位时间戳，
-     * 杜绝有道等翻译引擎将中括号时间标签当作乱码吞行或串联，实现 100% 逐行毫秒级无损对齐。
+     * 支持分块失败重连、单行级精准补漏（逐行检测 360 / 有道直连能力），彻底消除个别行漏翻与制作人行误连坐整块失败。
      */
-    suspend fun translateLyricsWithTimestamps(lyrics: String, targetIso: String): String = withContext(Dispatchers.IO) {
+    suspend fun translateLyricsWithTimestamps(
+        lyrics: String,
+        targetIso: String,
+        highPriority: Boolean = false
+    ): String = withContext(Dispatchers.IO) {
         if (lyrics.isBlank()) return@withContext ""
 
         val rawLines = lyrics.lines()
@@ -245,91 +300,113 @@ class TranslationService(
             return@withContext lyrics
         }
 
+        val isChineseTarget = targetIso.startsWith("zh", ignoreCase = true)
+        val activeClient = clientFor(highPriority)
+        val activeGoogleClient = googleClientFor(highPriority)
         val textsToTranslate = nonBlankEntries.map { it.second }
-        // 18 行智能分块，配合 4 路并发与微延迟，兼顾长篇说唱曲目 (如 140+ 行) 的极速响应与防限流稳定性
+        // 18 行智能分块，配合并发池与微延迟，兼顾长篇说唱曲目极速响应与防限流稳定性
         val chunks = textsToTranslate.chunked(18)
-        val semaphore = Semaphore(4)
+        val semaphore = Semaphore(if (highPriority) 4 else 2)
         val translatedTexts = try {
             val translatedChunks = supervisorScope {
                 chunks.mapIndexed { chunkIdx, chunk ->
                     async {
                         semaphore.withPermit {
-                            if (chunkIdx > 0) delay(25L)
-                            val indexedChunkText = chunk.mapIndexed { idx, line -> "${idx + 1}. $line" }.joinToString("\n")
-                            var parsed = emptyList<String>()
+                            if (chunkIdx > 0) delay(40L)
+                            val parsed = MutableList(chunk.size) { "" }
 
-                            // 1. 优先尝试 Tencent TransMart 原生批量 JSON 翻译（国内直连 100~300ms，支持全球多语种，1:1 绝对对齐不串行）
-                            val transMartResult = translateViaTransMart(chunk, targetIso)
-                            if (!transMartResult.isNullOrEmpty() && transMartResult.size == chunk.size && transMartResult.any { it.isNotBlank() }) {
-                                parsed = transMartResult
+                            // 1. 优先尝试 Tencent TransMart 原生批量 JSON 翻译
+                            val transMartResult = translateViaTransMart(
+                                lines = chunk,
+                                targetIso = targetIso,
+                                isLyrics = true,
+                                httpClient = activeClient
+                            )
+                            if (transMartResult != null && transMartResult.size == chunk.size) {
+                                for (idx in chunk.indices) {
+                                    parsed[idx] = validateLyricLineTranslation(chunk[idx], transMartResult[idx], isChineseTarget)
+                                }
                             }
 
-                            // 2. 备选：Google Translate 公共服务 (单次紧凑超时 + 熔断快速切换)
-                            if (parsed.isEmpty() || parsed.count { it.isNotBlank() } < (chunk.size + 1) / 2) {
+                            fun missingIndices(): List<Int> = chunk.indices.filter { idx ->
+                                parsed[idx].isBlank() && shouldAttemptLineTranslation(chunk[idx], isChineseTarget)
+                            }
+
+                            // 1b. 若整批失败或仍有 >=2 行缺失（含敏感/口语词漏翻），切换全新 clientKey 对缺失行补重连一次
+                            val initialMissing = missingIndices()
+                            if (initialMissing.size >= 2) {
+                                delay(120L)
+                                val retryInputs = initialMissing.map { idx -> LyricAligner.cleanLine(chunk[idx]).ifBlank { chunk[idx] } }
+                                val retryRes = executeTransMartBatch(
+                                    textList = retryInputs,
+                                    sourceLang = "auto",
+                                    targetLang = mapTargetToTransMartLang(targetIso),
+                                    httpClient = activeClient,
+                                    clientKeyOverride = generateTransMartClientKey()
+                                )
+                                if (retryRes != null && retryRes.size == initialMissing.size) {
+                                    initialMissing.forEachIndexed { pos, chunkLineIdx ->
+                                        val valid = validateLyricLineTranslation(chunk[chunkLineIdx], retryRes[pos], isChineseTarget)
+                                        if (valid.isNotBlank()) parsed[chunkLineIdx] = valid
+                                    }
+                                }
+                            }
+
+                            // 2. 备选：Google Translate 公共服务 (单次紧凑超时 + 熔断保护，避免国内无代理死等)
+                            val missingAfterTransMart = missingIndices()
+                            if (missingAfterTransMart.size >= 2) {
+                                val indexedChunkText = chunk.mapIndexed { idx, line -> "${idx + 1}. $line" }.joinToString("\n")
                                 val googleFallback = translateViaGoogle(
                                     text = indexedChunkText,
                                     targetIso = targetIso,
                                     endpoint = "https://translate.googleapis.com/translate_a/single",
-                                    httpClient = googleClientFor(highPriority = false)
+                                    httpClient = activeGoogleClient
                                 )
                                 if (!googleFallback.isNullOrBlank()) {
                                     val candidate = parseIndexedLines(googleFallback.lines().map { HtmlUtils.cleanTranslationOutput(it) }, chunk.size)
-                                    if (candidate.isNotEmpty() && candidate.count { it.isNotBlank() } > parsed.count { it.isNotBlank() }) {
-                                        parsed = candidate
+                                    for (idx in missingAfterTransMart) {
+                                        val valid = validateLyricLineTranslation(chunk[idx], candidate.getOrNull(idx), isChineseTarget)
+                                        if (valid.isNotBlank()) parsed[idx] = valid
                                     }
                                 }
                             }
 
-                            // 3. 备选：360 翻译国内直连引擎（仅限英<->中互译，单句并发兜底）
-                            if ((parsed.isEmpty() || parsed.count { it.isNotBlank() } < (chunk.size + 1) / 2) &&
-                                supports360Fanyi(chunk.joinToString(" "), targetIso)
-                            ) {
-                                val fanyiSemaphore = Semaphore(4)
-                                val fanyiLines = supervisorScope {
-                                    chunk.mapIndexed { idx, line ->
+                            // 3. 按单行精准补全缺失行：360 翻译 -> 有道移动端 -> MyMemory（绝不因同块某行含制作人汉字而连坐跳过）
+                            val stillMissing = missingIndices()
+                            if (stillMissing.isNotEmpty()) {
+                                val lineFallbackSemaphore = Semaphore(if (highPriority) 4 else 2)
+                                supervisorScope {
+                                    stillMissing.map { idx ->
                                         async {
-                                            val existing = parsed.getOrNull(idx).orEmpty()
-                                            if (existing.isNotBlank()) return@async existing
-                                            fanyiSemaphore.withPermit {
-                                                translateVia360Fanyi(line, targetIso, client).orEmpty()
+                                            val origLine = chunk[idx]
+                                            lineFallbackSemaphore.withPermit {
+                                                var healed = ""
+                                                if (supports360Fanyi(origLine, targetIso)) {
+                                                    healed = validateLyricLineTranslation(
+                                                        origLine,
+                                                        translateVia360Fanyi(origLine, targetIso, activeClient),
+                                                        isChineseTarget
+                                                    )
+                                                }
+                                                if (healed.isBlank() && supportsYoudaoMobile(origLine, targetIso)) {
+                                                    healed = validateLyricLineTranslation(
+                                                        origLine,
+                                                        translateViaYoudaoMobile(origLine, targetIso, activeClient),
+                                                        isChineseTarget
+                                                    )
+                                                }
+                                                if (healed.isBlank() && origLine.length <= MAX_MYMEMORY_CHARS) {
+                                                    val mm = translateViaMyMemory(origLine, targetIso) { url ->
+                                                        executeMyMemoryGet(url, activeGoogleClient)
+                                                    }
+                                                    healed = validateLyricLineTranslation(origLine, mm, isChineseTarget)
+                                                }
+                                                if (healed.isNotBlank()) {
+                                                    parsed[idx] = healed
+                                                }
                                             }
                                         }
                                     }.awaitAll()
-                                }
-                                if (fanyiLines.count { it.isNotBlank() } > parsed.count { it.isNotBlank() }) {
-                                    parsed = fanyiLines
-                                }
-                            }
-
-                            // 4. 备选：有道移动端国内直连引擎（支持英/日/韩<->中）
-                            if (parsed.isEmpty() || parsed.count { it.isNotBlank() } < (chunk.size + 1) / 2) {
-                                val youdaoSemaphore = Semaphore(4)
-                                val youdaoLines = supervisorScope {
-                                    chunk.mapIndexed { idx, line ->
-                                        async {
-                                            val existing = parsed.getOrNull(idx).orEmpty()
-                                            if (existing.isNotBlank()) return@async existing
-                                            if (!supportsYoudaoMobile(line, targetIso)) return@async ""
-                                            youdaoSemaphore.withPermit {
-                                                translateViaYoudaoMobile(line, targetIso, client).orEmpty()
-                                            }
-                                        }
-                                    }.awaitAll()
-                                }
-                                if (youdaoLines.count { it.isNotBlank() } > parsed.count { it.isNotBlank() }) {
-                                    parsed = youdaoLines
-                                }
-                            }
-
-                            // 5. 严格防告警降级兜底：MyMemory
-                            if (parsed.isEmpty() || parsed.count { it.isNotBlank() } < (chunk.size + 1) / 2) {
-                                val memoryFallback = translateViaMyMemory(indexedChunkText, targetIso)?.lines() ?: emptyList()
-                                val validMemory = memoryFallback.filterNot { isInvalidTranslation(it) }
-                                if (validMemory.isNotEmpty() && validMemory.size == memoryFallback.size) {
-                                    val candidate = parseIndexedLines(validMemory.map { HtmlUtils.cleanTranslationOutput(it) }, chunk.size)
-                                    if (candidate.count { it.isNotBlank() } > parsed.count { it.isNotBlank() }) {
-                                        parsed = candidate
-                                    }
                                 }
                             }
 

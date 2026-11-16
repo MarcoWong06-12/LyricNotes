@@ -26,6 +26,8 @@ object KugouLyricsService {
         0xCE.toByte(), 0xD2.toByte(), 0x6E, 0x69
     )
     private val KRC_LINE_AND_WORD_REGEX = Regex("""\[\d+,\d+\].*<\d+,\d+""")
+    private val KRC_TIME_HEADER_REGEX = Regex("""^\[(\d+),(\d+)\]""")
+    private val KRC_LANGUAGE_TAG_REGEX = Regex("""\[language:([A-Za-z0-9+/=\r\n]+)\]""")
     private val LRC_OR_KRC_TIME_REGEX = Regex("""\[(?:\d{1,3}:\d{2}(?:\.\d{1,3})?|\d+,\d+)\]""")
 
     private val HEADERS = mapOf(
@@ -112,16 +114,17 @@ object KugouLyricsService {
             if (id.isBlank() || accesskey.isBlank()) return null
 
             val rawLrc = fetchKrcOrLrcContent(id, accesskey) ?: return null
+            val krcTrans = extractKrcLanguageTranslation(rawLrc)
 
-            val alignedPair = LyricAligner.alignLrcTimestamps(rawLrc, null)
+            val alignedPair = LyricAligner.alignLrcTimestamps(rawLrc, krcTrans)
 
             OnlineLyricsResult(
                 songId = 0L,
                 title = matchedTitle,
                 artist = matchedArtist,
                 originalLyrics = alignedPair.first,
-                translatedLyrics = null,
-                isBilingual = false,
+                translatedLyrics = alignedPair.second.ifBlank { null },
+                isBilingual = alignedPair.second.isNotBlank(),
                 coverUrl = null,
                 durationMs = duration
             )
@@ -156,6 +159,70 @@ object KugouLyricsService {
 
         val decodedLrc = decodePlainBase64(b64Lrc)
         return decodedLrc?.takeIf { isSafePlainLyrics(it) }
+    }
+
+    private fun isKugouTranslationDisclaimer(text: String): Boolean {
+        val compact = text.trim()
+        return compact.contains("大模型提供") ||
+            (compact.contains("翻译") && compact.contains("提供")) ||
+            compact.startsWith("以下歌词翻译由")
+    }
+
+    /**
+     * 解析酷狗 KRC 头部内嵌的 [language:base64] 多语翻译字段（type == 1 为译文），
+     * 并与 KRC 逐行时间轴按行号 1:1 对应为标准时间戳 LRC 译文。
+     */
+    internal fun extractKrcLanguageTranslation(decodedKrc: String): String? {
+        val b64 = KRC_LANGUAGE_TAG_REGEX.find(decodedKrc)?.groupValues?.getOrNull(1)
+            ?.replace("\r", "")
+            ?.replace("\n", "")
+            ?.trim()
+            ?.takeIf { it.isNotBlank() }
+            ?: return null
+
+        val krcTimedStarts = decodedKrc.lines().mapNotNull { line ->
+            val trimmed = line.trim()
+            KRC_TIME_HEADER_REGEX.find(trimmed)?.groupValues?.getOrNull(1)?.toLongOrNull()
+        }
+        if (krcTimedStarts.isEmpty()) return null
+
+        return try {
+            val langJson = String(Base64.getMimeDecoder().decode(b64), Charsets.UTF_8)
+            val contentArr = JSONObject(langJson).optJSONArray("content") ?: return null
+            var translationContent: org.json.JSONArray? = null
+            for (i in 0 until contentArr.length()) {
+                val entry = contentArr.optJSONObject(i) ?: continue
+                if (entry.optInt("type", -1) == 1) {
+                    translationContent = entry.optJSONArray("lyricContent")
+                    if (translationContent != null) break
+                }
+            }
+            if (translationContent == null || translationContent.length() != krcTimedStarts.size) {
+                return null
+            }
+
+            val out = StringBuilder()
+            for (i in 0 until translationContent.length()) {
+                val row = translationContent.optJSONArray(i) ?: continue
+                val lineText = buildString {
+                    for (j in 0 until row.length()) {
+                        val part = row.optString(j, "").trim()
+                        if (part.isNotEmpty()) {
+                            if (isNotEmpty()) append(' ')
+                            append(part)
+                        }
+                    }
+                }.trim()
+                if (lineText.isBlank() || isKugouTranslationDisclaimer(lineText)) continue
+                out.append(LyricAligner.formatTimestamp(krcTimedStarts[i]))
+                    .append(' ')
+                    .append(lineText)
+                    .append('\n')
+            }
+            out.toString().trimEnd().ifBlank { null }
+        } catch (_: Exception) {
+            null
+        }
     }
 
     internal fun decodeKrc(b64Content: String): String? {

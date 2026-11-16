@@ -78,7 +78,7 @@ object NetEaseLyricsService {
         return null
     }
 
-    private fun alignPreferredNetEaseLyrics(
+    internal fun alignPreferredNetEaseLyrics(
         origLrc: String,
         transLrc: String,
         yrcLrc: String,
@@ -93,7 +93,46 @@ object NetEaseLyricsService {
                 return lrcAligned
             }
         }
+        // 当使用 YRC + ytlrc 且同响应还存在 tlyric 时，用 tlyric 补全 ytlrc 常因敏感词/漏翻而缺席的个别行（如 SZA 等曲目）
+        if (selected.first == yrcLrc && ytLrc.isNotBlank() && transLrc.isNotBlank() && aligned.second.isNotBlank()) {
+            val mergedTrans = mergeMissingLinesWithFallbackTranslation(
+                alignedOrig = aligned.first,
+                primaryAlignedTrans = aligned.second,
+                fallbackTransLrc = transLrc
+            )
+            if (mergedTrans.isNotBlank()) {
+                return aligned.first to mergedTrans
+            }
+        }
         return aligned
+    }
+
+    internal fun mergeMissingLinesWithFallbackTranslation(
+        alignedOrig: String,
+        primaryAlignedTrans: String,
+        fallbackTransLrc: String
+    ): String {
+        val origLines = alignedOrig.lines()
+        val primaryLines = primaryAlignedTrans.lines()
+        val hasMissingLine = origLines.indices.any { i ->
+            LyricAligner.cleanLine(origLines[i]).isNotBlank() &&
+                LyricAligner.cleanLine(primaryLines.getOrNull(i).orEmpty()).isBlank()
+        }
+        if (!hasMissingLine) return primaryAlignedTrans
+
+        val fallbackAligned = LyricAligner.alignLrcTimestamps(alignedOrig, fallbackTransLrc)
+        val fallbackLines = fallbackAligned.second.lines()
+        if (fallbackLines.all { it.isBlank() }) return primaryAlignedTrans
+
+        return origLines.indices.joinToString("\n") { i ->
+            val p = primaryLines.getOrNull(i).orEmpty()
+            if (LyricAligner.cleanLine(p).isNotBlank()) {
+                p
+            } else {
+                val f = fallbackLines.getOrNull(i).orEmpty()
+                if (LyricAligner.cleanLine(f).isNotBlank()) f else p
+            }
+        }.trimEnd()
     }
 
     suspend fun fetchLyricById(

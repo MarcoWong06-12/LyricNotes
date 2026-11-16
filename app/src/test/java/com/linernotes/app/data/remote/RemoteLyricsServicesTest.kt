@@ -1,5 +1,6 @@
 package com.linernotes.app.data.remote
 
+import com.linernotes.app.core.lyric.LyricAligner
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotNull
@@ -168,5 +169,60 @@ class RemoteLyricsServicesTest {
             payload[4 + i] = (compressed[i].toInt() xor key[i % key.size].toInt()).toByte()
         }
         return Base64.getEncoder().encodeToString(payload)
+    }
+
+    @Test
+    fun testAlignPreferredNetEaseLyrics_mergesYtlrcAndTlyricFallbackForSkippedLines() {
+        val yrc = """
+            [19430,4410](19430,390,0)Took (19820,90,0)a (19910,420,0)long (20330,1200,0)vacation
+            [23840,4950](23840,240,0)You (24080,180,0)were (24260,510,0)balls (24770,330,0)deep
+            [28790,4770](28790,240,0)So (29030,900,0)wasted
+            [33590,4800](33590,750,0)Hurry (34340,360,0)now
+        """.trimIndent()
+        val ytlrcMissingExplicit = """
+            [00:19.430]漫长的假期
+            [00:33.590]抓紧时间
+        """.trimIndent()
+        val tlyricComplete = """
+            [00:19.196]漫长的假期
+            [00:24.049]你同我深入浅出
+            [00:28.792]淋漓尽致
+            [00:33.727]抓紧时间
+        """.trimIndent()
+
+        val alignedPair = NetEaseLyricsService.alignPreferredNetEaseLyrics(
+            origLrc = "",
+            transLrc = tlyricComplete,
+            yrcLrc = yrc,
+            ytLrc = ytlrcMissingExplicit
+        )
+        assertNotNull(alignedPair)
+        val bilingual = LyricAligner.align(alignedPair!!.first, alignedPair.second)
+        assertEquals(4, bilingual.size)
+        assertEquals("漫长的假期", bilingual[0].translation)
+        assertEquals("你同我深入浅出", bilingual[1].translation)
+        assertEquals("淋漓尽致", bilingual[2].translation)
+        assertEquals("抓紧时间", bilingual[3].translation)
+    }
+
+    @Test
+    fun testExtractKrcLanguageTranslation_extractsType1AndSkipsDisclaimer() {
+        val langJson = """
+            {"content":[{"type":1,"language":0,"lyricContent":[["以下歌词翻译由文曲大模型提供"],["我发现一张秘密纸条"],["这种直觉将我淹没"]]}],"version":1}
+        """.trimIndent()
+        val langB64 = Base64.getEncoder().encodeToString(langJson.toByteArray(Charsets.UTF_8))
+        val decodedKrc = """
+            [ti:Stop The Wedding!]
+            [language:$langB64]
+            [246,815]<0,120,0>Stop <120,157,0>The <277,143,0>Wedding!
+            [7880,3087]<0,197,0>I <197,165,0>found <362,190,0>a <552,378,0>secret <930,458,0>note
+            [11259,3614]<0,182,0>It's <182,1232,0>supernatural
+        """.trimIndent()
+
+        val extracted = KugouLyricsService.extractKrcLanguageTranslation(decodedKrc)
+        assertNotNull(extracted)
+        assertFalse(extracted!!.contains("大模型提供"))
+        assertTrue(extracted.contains("[00:07.88] 我发现一张秘密纸条"))
+        assertTrue(extracted.contains("[00:11.25] 这种直觉将我淹没"))
     }
 }
