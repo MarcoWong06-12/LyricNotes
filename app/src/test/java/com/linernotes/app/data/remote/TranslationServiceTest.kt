@@ -296,4 +296,33 @@ class TranslationServiceTest {
         assertFalse(TranslationService.isPureVocalizationLine("Stop the wedding! (Ah-ah-ah)"))
         assertFalse(TranslationService.isPureVocalizationLine("You were balls deep, now we beefin'"))
     }
+
+    @Test
+    fun testValidateLyricLineTranslation_rejectsSameTextEcho() {
+        val service = TranslationService()
+        assertEquals(
+            "",
+            service.validateLyricLineTranslation(
+                origLine = "Hear the creak in the floorboards going up the stairs",
+                rawTrans = "Hear the creak in the floorboards going up the stairs",
+                isChineseTarget = false
+            )
+        )
+        assertEquals(
+            "How are you",
+            service.validateLyricLineTranslation(
+                origLine = "Cómo estás",
+                rawTrans = "How are you",
+                isChineseTarget = false
+            )
+        )
+        assertEquals(
+            "听到楼梯上地板的吱吱声",
+            service.validateLyricLineTranslation(
+                origLine = "Hear the creak in the floorboards going up the stairs",
+                rawTrans = "听到楼梯上地板的吱吱声",
+                isChineseTarget = true
+            )
+        )
+    }
 }

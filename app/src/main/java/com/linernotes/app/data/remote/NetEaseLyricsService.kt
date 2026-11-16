@@ -18,6 +18,24 @@ object NetEaseLyricsService {
     private const val INTERFACE_SEARCH_API = "https://interface.music.163.com/api/cloudsearch/pc"
     private const val WEB_SEARCH_API = "https://music.163.com/api/search/get/web"
     private const val LYRIC_API = "https://music.163.com/api/song/lyric"
+    private const val INTERFACE_LYRIC_API = "https://interface.music.163.com/api/song/lyric"
+
+    private suspend fun fetchLyricRootJson(songId: Long, queryParams: String): JSONObject? {
+        val urls = listOf(
+            "$LYRIC_API?id=$songId&$queryParams",
+            "$INTERFACE_LYRIC_API?id=$songId&$queryParams"
+        )
+        for (url in urls) {
+            val raw = LinerNotesHttpClient.getAsync(url, HEADERS) ?: continue
+            val parsed = runCatching { JSONObject(raw) }.getOrNull() ?: continue
+            val hasPayload = parsed.optJSONObject("lrc") != null ||
+                parsed.optJSONObject("yrc") != null ||
+                parsed.optJSONObject("tlyric") != null ||
+                parsed.optJSONObject("ytlrc") != null
+            if (hasPayload) return parsed
+        }
+        return null
+    }
 
     private val HEADERS = mapOf(
         "Referer" to "https://music.163.com/",
@@ -141,10 +159,8 @@ object NetEaseLyricsService {
         fallbackArtist: String = ""
     ): OnlineLyricsResult? = withContext(Dispatchers.IO) {
         if (songId <= 0L) return@withContext null
-        val lyricUrl = "$LYRIC_API?id=$songId&lv=1&kv=1&tv=1&yv=1&ytv=1"
-        val lyricJson = LinerNotesHttpClient.getAsync(lyricUrl, HEADERS) ?: return@withContext null
+        val lyricRoot = fetchLyricRootJson(songId, "lv=1&kv=1&tv=1&yv=1&ytv=1") ?: return@withContext null
         try {
-            val lyricRoot = JSONObject(lyricJson)
             val origLrc = lyricRoot.optJSONObject("lrc")?.optString("lyric", "")?.trim() ?: ""
             val transLrc = lyricRoot.optJSONObject("tlyric")?.optString("lyric", "")?.trim() ?: ""
             val yrcLrc = lyricRoot.optJSONObject("yrc")?.optString("lyric", "")?.trim() ?: ""
@@ -206,11 +222,9 @@ object NetEaseLyricsService {
             ?.optString("picUrl")
             ?.takeIf { it.isNotBlank() }
 
-        val lyricUrl = "$LYRIC_API?id=$songId&lv=1&kv=1&tv=1&yv=1&ytv=1"
-        val lyricJson = LinerNotesHttpClient.getAsync(lyricUrl, HEADERS) ?: return null
+        val lyricRoot = fetchLyricRootJson(songId, "lv=1&kv=1&tv=1&yv=1&ytv=1") ?: return null
 
         return try {
-            val lyricRoot = JSONObject(lyricJson)
             val origLrc = lyricRoot.optJSONObject("lrc")?.optString("lyric", "")?.trim() ?: ""
             val transLrc = lyricRoot.optJSONObject("tlyric")?.optString("lyric", "")?.trim() ?: ""
             val yrcLrc = lyricRoot.optJSONObject("yrc")?.optString("lyric", "")?.trim() ?: ""
@@ -330,17 +344,14 @@ object NetEaseLyricsService {
         supervisorScope {
             list.take(6).map { item ->
                 async {
-                    val lyricUrl = "$LYRIC_API?id=${item.sourceId}&lv=1&kv=1&tv=1"
-                    val json = LinerNotesHttpClient.getAsync(lyricUrl, HEADERS)
-                    if (json != null) {
-                        try {
-                            val root = JSONObject(json)
-                            val tlyric = root.optJSONObject("tlyric")?.optString("lyric", "")?.trim() ?: ""
-                            if (tlyric.isNotBlank()) {
-                                item.copy(hasTranslation = true)
-                            } else item
-                        } catch (e: Exception) { item }
-                    } else item
+                    val songId = item.sourceId.toLongOrNull() ?: return@async item
+                    val root = fetchLyricRootJson(songId, "lv=1&kv=1&tv=1") ?: return@async item
+                    try {
+                        val tlyric = root.optJSONObject("tlyric")?.optString("lyric", "")?.trim() ?: ""
+                        if (tlyric.isNotBlank()) {
+                            item.copy(hasTranslation = true)
+                        } else item
+                    } catch (e: Exception) { item }
                 }
             }.awaitAll()
         } + list.drop(6)

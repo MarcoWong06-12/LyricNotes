@@ -255,7 +255,7 @@ class TranslationService(
         return !isPureVocalizationLine(clean)
     }
 
-    private fun validateLyricLineTranslation(
+    internal fun validateLyricLineTranslation(
         origLine: String,
         rawTrans: String?,
         isChineseTarget: Boolean
@@ -263,10 +263,16 @@ class TranslationService(
         if (rawTrans.isNullOrBlank()) return ""
         val cleaned = HtmlUtils.cleanTranslationOutput(rawTrans).trim()
         if (cleaned.isBlank() || isInvalidTranslation(cleaned)) return ""
+        if (shouldAttemptLineTranslation(origLine, isChineseTarget) &&
+            cleaned.equals(origLine.trim(), ignoreCase = true) &&
+            origLine.count { it.isLetter() } >= 4
+        ) {
+            return ""
+        }
         if (isChineseTarget &&
             shouldAttemptLineTranslation(origLine, isChineseTarget = true) &&
             !CJK_REGEX.containsMatchIn(cleaned) &&
-            (cleaned.equals(origLine.trim(), ignoreCase = true) || origLine.count { it.isLetter() } >= 6)
+            origLine.count { it.isLetter() } >= 6
         ) {
             return ""
         }

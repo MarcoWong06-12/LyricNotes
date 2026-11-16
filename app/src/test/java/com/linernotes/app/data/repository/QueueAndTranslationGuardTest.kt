@@ -157,4 +157,15 @@ class QueueAndTranslationGuardTest {
         assertTrue(AiAnnotationCurator.isAlreadyChinese("你是我心中的 Baby"))
         assertTrue(AiAnnotationCurator.isProductionCreditLine("[04:39.466] 音频工程师 : Josh Conway"))
     }
+
+    @Test
+    fun shouldAutoRetryMissingTranslations_skipsEnglishAsciiWhenTargetEnglish() {
+        val englishLines = listOf(
+            BilingualLyricLine(1, "Hear the creak in the floorboards going up the stairs", "", startTimeMs = 125991L),
+            BilingualLyricLine(2, "Ooh,Sienna would've been cute", "", startTimeMs = 131184L)
+        )
+        assertTrue(NowPlayingRepository.shouldAutoRetryMissingTranslations(englishLines, "zh-CN"))
+        assertTrue(NowPlayingRepository.shouldAutoRetryMissingTranslations(englishLines, "zh-TW"))
+        assertFalse(NowPlayingRepository.shouldAutoRetryMissingTranslations(englishLines, "en"))
+    }
 }

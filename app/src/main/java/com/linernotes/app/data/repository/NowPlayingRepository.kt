@@ -135,6 +135,8 @@ class NowPlayingRepository internal constructor(
     private var activeTrackEpoch: Long = 0L
     private var lastPreloadTriggerKey: String? = null
     private var lastAutoRetryTimeMs: Long = 0L
+    private var lastAutoTranslationRetryEpoch: Long = -1L
+    private var lastAutoTranslationRetryTimeMs: Long = 0L
     private var dataLoadJob: Job? = null
     private var trackLoadDebounceJob: Job? = null
     private var positionTrackerJob: Job? = null
@@ -625,10 +627,24 @@ class NowPlayingRepository internal constructor(
                 current.copy(playbackState = state, currentLineIndex = lineIndex)
             }
 
-            // 自愈重試機制：若切歌瞬間遭遇斷網導致首次抓取落空，在播放狀態下每間隔 4 秒自動重試
+            // 自愈重試機制：若切歌瞬間遭遇斷網導致首次抓取落空，或原文已就緒但雙語譯文殘缺/空白，在播放狀態下自動容災補抓
             val nowElapsed = SystemClock.elapsedRealtime()
+            val targetIso = TranslationTargetLanguage.fromCode(aiPreferences.targetLanguage).fallbackIso
             if (curContent.lyrics.isEmpty() && !curContent.isLoadingLyrics && state.isPlaying && (nowElapsed - lastAutoRetryTimeMs > 4000L)) {
                 lastAutoRetryTimeMs = nowElapsed
+                loadSongLyricsAndGenius(state.title, state.artist, songKey, activeTrackEpoch)
+            } else if (
+                curContent.lyrics.isNotEmpty() &&
+                !curContent.isLoadingLyrics &&
+                dataLoadJob?.isActive != true &&
+                state.isPlaying &&
+                lastAutoTranslationRetryEpoch != state.trackEpoch &&
+                (nowElapsed - lastAutoRetryTimeMs > 6000L) &&
+                (nowElapsed - lastAutoTranslationRetryTimeMs > 6000L) &&
+                shouldAutoRetryMissingTranslations(curContent.lyrics, targetIso)
+            ) {
+                lastAutoTranslationRetryEpoch = state.trackEpoch
+                lastAutoTranslationRetryTimeMs = nowElapsed
                 loadSongLyricsAndGenius(state.title, state.artist, songKey, activeTrackEpoch)
             }
         }
@@ -2154,6 +2170,19 @@ class NowPlayingRepository internal constructor(
                 it.translation.isNotBlank() && !LyricAligner.isInvalidTranslationLine(it.translation)
             }
             return validTranslatedCount == 0 || (contentLines.size > 3 && validTranslatedCount * 2 < contentLines.size)
+        }
+
+        internal fun shouldAutoRetryMissingTranslations(lyrics: List<BilingualLyricLine>, targetIso: String): Boolean {
+            if (!isTranslationIncomplete(lyrics, targetIso)) return false
+            val contentLines = lyrics.filter { !it.isStanzaBreak && it.original.isNotBlank() && it.original.any { ch -> ch.isLetter() } }
+            if (contentLines.isEmpty()) return false
+            if (targetIso.startsWith("en", ignoreCase = true)) {
+                val hasNonAsciiScript = contentLines.any { line ->
+                    line.original.any { ch -> ch.code > 0x7F && ch.isLetter() }
+                }
+                if (!hasNonAsciiScript) return false
+            }
+            return true
         }
     }
 }

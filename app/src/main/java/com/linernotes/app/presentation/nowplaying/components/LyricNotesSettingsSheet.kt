@@ -448,7 +448,7 @@ fun LyricNotesSettingsSheet(
                 )
             }
 
-            // 3. 语言与歌词内容 (Language & Lyrics)
+            // 3. 应用界面语言 (独立分组，防止切换界面语言时误触下方歌词翻译目标语种)
             SettingsGroupCard(
                 title = strings.appLanguageLabel,
                 isDark = isDark,
@@ -459,7 +459,6 @@ fun LyricNotesSettingsSheet(
                     "システム設定" -> "自動"
                     else -> strings.themeModeSystem
                 }
-                // 介面语言流式标签选择器
                 val appLanguages = listOf(
                     AppLanguage.SYSTEM.code to systemLanguageLabel,
                     AppLanguage.ZH_CN.code to "简体中文",
@@ -482,17 +481,14 @@ fun LyricNotesSettingsSheet(
                         )
                     }
                 }
+            }
 
-                SettingsCardDivider(dividerColor)
-
-                // 歌词翻译目标语言
-                Text(
-                    text = strings.targetLanguageLabel,
-                    color = textPrimary,
-                    fontSize = 14.5.sp,
-                    fontWeight = FontWeight.SemiBold,
-                    fontFamily = FontFamily.SansSerif
-                )
+            // 4. 歌词翻译与内容设置 (目标语言与音源独立成组)
+            SettingsGroupCard(
+                title = strings.targetLanguageLabel,
+                isDark = isDark,
+                isPureAmoled = isPureAmoled
+            ) {
                 FlowRow(
                     horizontalArrangement = Arrangement.spacedBy(8.dp),
                     verticalArrangement = Arrangement.spacedBy(8.dp)

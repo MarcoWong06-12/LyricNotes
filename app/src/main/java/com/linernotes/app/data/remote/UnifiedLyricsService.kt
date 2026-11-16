@@ -159,8 +159,9 @@ object UnifiedLyricsService {
                     val fLrclib = async { LrclibLyricsService.fetchLyrics(trackTitle, artistName, targetDurationMs) }
 
                     val fbCandidates = listOf(fNetease, fQq, fKugou, fLrclib)
-                    fbCandidates.mapNotNull { runCatching { it.await() }.getOrNull() }
-                        .firstOrNull { it.originalLyrics.isNotBlank() }
+                    val resolvedFb = fbCandidates.mapNotNull { runCatching { it.await() }.getOrNull() }
+                    resolvedFb.firstOrNull { it.isBilingual && !it.translatedLyrics.isNullOrBlank() && it.originalLyrics.isNotBlank() }
+                        ?: resolvedFb.firstOrNull { it.originalLyrics.isNotBlank() }
                 }
             }
 
