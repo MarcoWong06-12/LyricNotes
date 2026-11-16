@@ -220,9 +220,9 @@ class RemoteLyricsServicesTest {
         """.trimIndent()
 
         val extracted = KugouLyricsService.extractKrcLanguageTranslation(decodedKrc)
-        assertNotNull(extracted)
-        assertFalse(extracted!!.contains("大模型提供"))
-        assertTrue(extracted.contains("[00:07.88] 我发现一张秘密纸条"))
-        assertTrue(extracted.contains("[00:11.25] 这种直觉将我淹没"))
+        assertEquals(
+            "[00:07.88] 我发现一张秘密纸条\n[00:11.25] 这种直觉将我淹没",
+            extracted
+        )
     }
 }

@@ -5,6 +5,12 @@ import com.linernotes.app.core.lyric.LyricSearchCleaner
 import com.linernotes.app.core.network.LinerNotesHttpClient
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
+import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.contentOrNull
+import kotlinx.serialization.json.intOrNull
+import kotlinx.serialization.json.jsonArray
+import kotlinx.serialization.json.jsonObject
+import kotlinx.serialization.json.jsonPrimitive
 import org.json.JSONObject
 import java.io.ByteArrayOutputStream
 import java.net.URLEncoder
@@ -188,25 +194,22 @@ object KugouLyricsService {
 
         return try {
             val langJson = String(Base64.getMimeDecoder().decode(b64), Charsets.UTF_8)
-            val contentArr = JSONObject(langJson).optJSONArray("content") ?: return null
-            var translationContent: org.json.JSONArray? = null
-            for (i in 0 until contentArr.length()) {
-                val entry = contentArr.optJSONObject(i) ?: continue
-                if (entry.optInt("type", -1) == 1) {
-                    translationContent = entry.optJSONArray("lyricContent")
-                    if (translationContent != null) break
-                }
-            }
-            if (translationContent == null || translationContent.length() != krcTimedStarts.size) {
+            val rootObj = Json.parseToJsonElement(langJson).jsonObject
+            val contentArr = rootObj["content"]?.jsonArray ?: return null
+            val translationEntry = contentArr.firstOrNull { elem ->
+                elem.jsonObject["type"]?.jsonPrimitive?.intOrNull == 1
+            }?.jsonObject ?: return null
+            val translationContent = translationEntry["lyricContent"]?.jsonArray ?: return null
+            if (translationContent.size != krcTimedStarts.size) {
                 return null
             }
 
             val out = StringBuilder()
-            for (i in 0 until translationContent.length()) {
-                val row = translationContent.optJSONArray(i) ?: continue
+            for (i in translationContent.indices) {
+                val row = translationContent[i].jsonArray
                 val lineText = buildString {
-                    for (j in 0 until row.length()) {
-                        val part = row.optString(j, "").trim()
+                    for (token in row) {
+                        val part = token.jsonPrimitive.contentOrNull?.trim().orEmpty()
                         if (part.isNotEmpty()) {
                             if (isNotEmpty()) append(' ')
                             append(part)
