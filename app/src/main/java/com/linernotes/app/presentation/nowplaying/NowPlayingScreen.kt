@@ -57,6 +57,8 @@ import com.linernotes.app.core.playback.TrackPlaybackState
 import com.linernotes.app.core.preference.AiPreferences
 import com.linernotes.app.core.util.ChineseConverter
 import com.linernotes.app.data.local.entity.LyricAnnotationEntity
+import com.linernotes.app.data.repository.MissingTranslationNotice
+import com.linernotes.app.data.repository.NowPlayingRepository
 import com.linernotes.app.domain.model.BilingualLyricLine
 import com.linernotes.app.presentation.common.*
 import com.linernotes.app.presentation.nowplaying.components.*
@@ -673,6 +675,105 @@ fun NowPlayingScreen(
                                 .size(16.dp)
                                 .clip(CircleShape)
                                 .bouncyIconClickable { viewModel.dismissGeniusNotice() }
+                        )
+                    }
+                }
+            }
+
+            // 4b. 歌词译文缺失 / 目标语种为英文提醒微胶囊（支持一键切回中文或重试获取）
+            val translationNotice = remember(lyricsContent.lyrics, lyricsContent.isLoadingLyrics, state.targetLanguage) {
+                NowPlayingRepository.classifyMissingTranslationNotice(
+                    lyrics = lyricsContent.lyrics,
+                    isLoadingLyrics = lyricsContent.isLoadingLyrics,
+                    targetLanguageCode = state.targetLanguage
+                )
+            }
+            val translationNoticeDismissKey = remember(trackState.trackEpoch, state.targetLanguage, translationNotice) {
+                "${trackState.trackEpoch}|${state.targetLanguage}|$translationNotice"
+            }
+            var dismissedTranslationNoticeKey by remember { mutableStateOf<String?>(null) }
+            val showTranslationNotice = !isImmersiveMode &&
+                hasTrack &&
+                lyricsContent.geniusNoticeMessage == null &&
+                !lyricsContent.isLoadingGenius &&
+                translationNotice != MissingTranslationNotice.NONE &&
+                dismissedTranslationNoticeKey != translationNoticeDismissKey
+
+            AnimatedVisibility(
+                visible = showTranslationNotice,
+                enter = fadeIn(tween(180)) +
+                    slideInVertically(spring(dampingRatio = 0.76f, stiffness = 380f)) { -it / 2 } +
+                    scaleIn(spring(dampingRatio = 0.76f, stiffness = 380f), initialScale = 0.82f),
+                exit = fadeOut(tween(150)) + slideOutVertically(tween(200)) { -it / 2 } + scaleOut(tween(150), targetScale = 0.86f),
+                modifier = Modifier
+                    .align(if (isDualPane) Alignment.TopEnd else Alignment.TopCenter)
+                    .statusBarsPadding()
+                    .padding(top = if (isDualPane) 16.dp else 56.dp, start = 16.dp, end = 16.dp)
+            ) {
+                val isTargetEnglishMismatch = translationNotice == MissingTranslationNotice.TARGET_ENGLISH_ON_ENGLISH
+                Surface(
+                    color = if (isDarkUi) {
+                        if (state.isAmoledMode) Color(0xFF0C0C0E) else Color(0xFF1E202B).copy(alpha = 0.94f)
+                    } else {
+                        MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.95f)
+                    },
+                    shape = RoundedCornerShape(20.dp),
+                    border = BorderStroke(
+                        1.dp,
+                        if (isDarkUi) {
+                            if (state.isAmoledMode) Color(0xFF222226) else Color.White.copy(alpha = 0.12f)
+                        } else {
+                            Color.Black.copy(alpha = 0.08f)
+                        }
+                    ),
+                    shadowElevation = 8.dp
+                ) {
+                    Row(
+                        modifier = Modifier.padding(horizontal = 14.dp, vertical = 8.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.Translate,
+                            contentDescription = null,
+                            tint = if (isDarkUi) Color.White.copy(alpha = 0.8f) else MaterialTheme.colorScheme.onSurface.copy(alpha = 0.75f),
+                            modifier = Modifier.size(14.dp)
+                        )
+                        Text(
+                            text = if (isTargetEnglishMismatch) strings.targetEnglishNoTransHint else strings.missingTranslationHint,
+                            color = if (isDarkUi) Color.White.copy(alpha = 0.85f) else MaterialTheme.colorScheme.onSurface,
+                            fontSize = 12.sp,
+                            fontFamily = FontFamily.SansSerif,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                            modifier = Modifier.weight(1f, fill = false)
+                        )
+                        val actionAccent = if (isDarkUi) Color(0xFF1ED760) else Color(0xFF0A8F3F)
+                        Text(
+                            text = if (isTargetEnglishMismatch) strings.switchToChineseTargetAction else strings.retryBtn,
+                            color = actionAccent,
+                            fontSize = 12.sp,
+                            fontWeight = FontWeight.Bold,
+                            fontFamily = FontFamily.SansSerif,
+                            modifier = Modifier
+                                .clip(RoundedCornerShape(6.dp))
+                                .bouncyClickable(pressedScale = 0.92f) {
+                                    if (isTargetEnglishMismatch) {
+                                        viewModel.setTargetLanguage(if (state.isTraditionalChinese) "zh-TW" else "zh-CN")
+                                    } else {
+                                        onRetryLyrics()
+                                    }
+                                }
+                                .padding(horizontal = 6.dp, vertical = 2.dp)
+                        )
+                        Icon(
+                            imageVector = Icons.Default.Close,
+                            contentDescription = strings.closeBtn,
+                            tint = if (isDarkUi) Color.White.copy(alpha = 0.5f) else MaterialTheme.colorScheme.onSurface.copy(alpha = 0.5f),
+                            modifier = Modifier
+                                .size(16.dp)
+                                .clip(CircleShape)
+                                .bouncyIconClickable { dismissedTranslationNoticeKey = translationNoticeDismissKey }
                         )
                     }
                 }

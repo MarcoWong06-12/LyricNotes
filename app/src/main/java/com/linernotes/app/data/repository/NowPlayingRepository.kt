@@ -46,6 +46,12 @@ import androidx.compose.runtime.Immutable
 import javax.inject.Inject
 import javax.inject.Singleton
 
+enum class MissingTranslationNotice {
+    NONE,
+    TARGET_ENGLISH_ON_ENGLISH,
+    MISSING_TRANSLATION
+}
+
 @Immutable
 data class LyricsContentState(
     val trackEpoch: Long = 0L,
@@ -2173,16 +2179,46 @@ class NowPlayingRepository internal constructor(
         }
 
         internal fun shouldAutoRetryMissingTranslations(lyrics: List<BilingualLyricLine>, targetIso: String): Boolean {
-            if (!isTranslationIncomplete(lyrics, targetIso)) return false
-            val contentLines = lyrics.filter { !it.isStanzaBreak && it.original.isNotBlank() && it.original.any { ch -> ch.isLetter() } }
-            if (contentLines.isEmpty()) return false
+            return classifyMissingTranslationNotice(lyrics, isLoadingLyrics = false, targetLanguageCode = targetIso) ==
+                MissingTranslationNotice.MISSING_TRANSLATION
+        }
+
+        fun classifyMissingTranslationNotice(
+            lyrics: List<BilingualLyricLine>,
+            isLoadingLyrics: Boolean,
+            targetLanguageCode: String
+        ): MissingTranslationNotice {
+            if (isLoadingLyrics || lyrics.isEmpty()) return MissingTranslationNotice.NONE
+            val singLines = lyrics.filter {
+                !it.isStanzaBreak &&
+                    it.original.isNotBlank() &&
+                    it.original.any { ch -> ch.isLetter() } &&
+                    !AiAnnotationCurator.isProductionCreditLine(it.original) &&
+                    !TranslationService.isPureVocalizationLine(it.original)
+            }
+            if (singLines.size < 2) return MissingTranslationNotice.NONE
+            if (singLines.any { it.translation.isNotBlank() && !LyricAligner.isInvalidTranslationLine(it.translation) }) {
+                return MissingTranslationNotice.NONE
+            }
+
+            val targetIso = TranslationTargetLanguage.fromCode(targetLanguageCode).fallbackIso
+            if (targetIso.startsWith("zh", ignoreCase = true)) {
+                val combined = singLines.joinToString("\n") { it.original }
+                if (AiAnnotationCurator.isAlreadyChinese(combined)) {
+                    return MissingTranslationNotice.NONE
+                }
+                return MissingTranslationNotice.MISSING_TRANSLATION
+            }
+
             if (targetIso.startsWith("en", ignoreCase = true)) {
-                val hasNonAsciiScript = contentLines.any { line ->
+                val hasNonAsciiLetters = singLines.any { line ->
                     line.original.any { ch -> ch.code > 0x7F && ch.isLetter() }
                 }
-                if (!hasNonAsciiScript) return false
+                if (!hasNonAsciiLetters) {
+                    return MissingTranslationNotice.TARGET_ENGLISH_ON_ENGLISH
+                }
             }
-            return true
+            return MissingTranslationNotice.MISSING_TRANSLATION
         }
     }
 }

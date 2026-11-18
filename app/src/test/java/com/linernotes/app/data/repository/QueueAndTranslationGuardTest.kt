@@ -168,4 +168,34 @@ class QueueAndTranslationGuardTest {
         assertTrue(NowPlayingRepository.shouldAutoRetryMissingTranslations(englishLines, "zh-TW"))
         assertFalse(NowPlayingRepository.shouldAutoRetryMissingTranslations(englishLines, "en"))
     }
+
+    @Test
+    fun classifyMissingTranslationNotice_distinguishesTargetEnglishFromMissingChinese() {
+        val untranslatedEnglish = listOf(
+            BilingualLyricLine(1, "How can we go back to being friends", "", startTimeMs = 43895L),
+            BilingualLyricLine(2, "When we just shared a bed?", "", startTimeMs = 48733L),
+            BilingualLyricLine(3, "You were layin' on my chest", "", startTimeMs = 68719L)
+        )
+        assertEquals(
+            MissingTranslationNotice.TARGET_ENGLISH_ON_ENGLISH,
+            NowPlayingRepository.classifyMissingTranslationNotice(untranslatedEnglish, false, "en")
+        )
+        assertEquals(
+            MissingTranslationNotice.MISSING_TRANSLATION,
+            NowPlayingRepository.classifyMissingTranslationNotice(untranslatedEnglish, false, "zh-CN")
+        )
+        assertEquals(
+            MissingTranslationNotice.NONE,
+            NowPlayingRepository.classifyMissingTranslationNotice(untranslatedEnglish, true, "en")
+        )
+
+        val translatedEnglish = listOf(
+            BilingualLyricLine(1, "How can we go back to being friends", "我们如何能重回朋友的身份", startTimeMs = 43895L),
+            BilingualLyricLine(2, "When we just shared a bed?", "我们分明已共枕而眠", startTimeMs = 48733L)
+        )
+        assertEquals(
+            MissingTranslationNotice.NONE,
+            NowPlayingRepository.classifyMissingTranslationNotice(translatedEnglish, false, "zh-CN")
+        )
+    }
 }
